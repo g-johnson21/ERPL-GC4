@@ -1,0 +1,37 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node \"C:/Users/21bla/AppData/Local/Temp/claude/c--Users-21bla-repo-EPRL-GC4/7ea64d07-b6b3-4706-8579-9ef57ad20444/scratchpad/smoke.mjs\")",
+      "Bash(taskkill //F //IM node.exe)",
+      "Bash(node server/index.js --port=8099)",
+      "Bash(node \"C:/Users/21bla/AppData/Local/Temp/claude/c--Users-21bla-repo-EPRL-GC4/7ea64d07-b6b3-4706-8579-9ef57ad20444/scratchpad/geom.mjs\")",
+      "Read(//c/Program Files \\\\\\(x86\\\\\\)/Microsoft/Edge/Application/**)",
+      "Read(//c/Program Files/Google/Chrome/Application/**)",
+      "Bash('/c/Program Files/Google/Chrome/Application/chrome.exe' --headless=new --disable-gpu --hide-scrollbars --user-data-dir=C:/Users/21bla/AppData/Local/Temp/claude/c--Users-21bla-repo-EPRL-GC4/7ea64d07-b6b3-4706-8579-9ef57ad20444/scratchpad/chromeprof --window-size=1600,1000 --virtual-time-budget=6000 --screenshot=C:/Users/21bla/AppData/Local/Temp/claude/c--Users-21bla-repo-EPRL-GC4/7ea64d07-b6b3-4706-8579-9ef57ad20444/scratchpad/grid.png http://localhost:8099/index.html)",
+      "Bash(taskkill //F //IM chrome.exe)",
+      "Bash('/c/Program Files/Google/Chrome/Application/chrome.exe' --headless=new --disable-gpu --hide-scrollbars --user-data-dir=C:/Users/21bla/AppData/Local/Temp/claude/c--Users-21bla-repo-EPRL-GC4/7ea64d07-b6b3-4706-8579-9ef57ad20444/scratchpad/prof2 --remote-debugging-port=9222 --no-first-run --no-default-browser-check)",
+      "Bash(curl -s http://localhost:9222/json/version)",
+      "Bash(node C:/Users/21bla/AppData/Local/Temp/claude/c--Users-21bla-repo-EPRL-GC4/7ea64d07-b6b3-4706-8579-9ef57ad20444/scratchpad/shot.mjs C:/Users/21bla/AppData/Local/Temp/claude/c--Users-21bla-repo-EPRL-GC4/7ea64d07-b6b3-4706-8579-9ef57ad20444/scratchpad)",
+      "Bash(node C:/Users/21bla/AppData/Local/Temp/claude/c--Users-21bla-repo-EPRL-GC4/7ea64d07-b6b3-4706-8579-9ef57ad20444/scratchpad/zoom.mjs C:/Users/21bla/AppData/Local/Temp/claude/c--Users-21bla-repo-EPRL-GC4/7ea64d07-b6b3-4706-8579-9ef57ad20444/scratchpad)",
+      "Bash(curl -s http://localhost:8099/api/events)",
+      "Bash(node -e ' *)",
+      "Bash(cd \"c:/Users/21bla/repo/EPRL_GC4\" && taskkill //F //IM node.exe 2>/dev/null | head -1; sleep 1 *)",
+      "Bash(node --input-type=module -e ' *)",
+      "Bash('/c/Program Files/Google/Chrome/Application/chrome.exe' --headless=new --disable-gpu --hide-scrollbars --user-data-dir=C:/Users/21bla/AppData/Local/Temp/claude/c--Users-21bla-repo-EPRL-GC4/7ea64d07-b6b3-4706-8579-9ef57ad20444/scratchpad/prof3 --remote-debugging-port=9223 --no-first-run --no-default-browser-check)",
+      "Bash(curl -s http://localhost:9223/json/version)",
+      "Bash(node \"C:/Users/21bla/AppData/Local/Temp/claude/c--Users-21bla-repo-EPRL-GC4/7ea64d07-b6b3-4706-8579-9ef57ad20444/scratchpad/diag.mjs\")",
+      "Bash(rm -f data/*.csv data/*.meta.json)",
+      "Bash(node -e \"const c=require\\('./config/stand.json'\\);console.log\\(c.ui.brand,'|',c.meta.organization\\);console.log\\(c.pid.components.find\\(x=>x.id==='TXT-1'\\).label\\)\")",
+      "Bash(node \"C:/Users/21bla/AppData/Local/Temp/claude/c--Users-21bla-repo-EPRL-GC4/7ea64d07-b6b3-4706-8579-9ef57ad20444/scratchpad/verify6.mjs\")",
+      "Bash(node \"C:/Users/21bla/AppData/Local/Temp/claude/c--Users-21bla-repo-EPRL-GC4/7ea64d07-b6b3-4706-8579-9ef57ad20444/scratchpad/verify5b.mjs\")",
+      "Bash(curl -s -D - -o /dev/null http://localhost:8099/img/draco-icon.png)",
+      "Bash(curl -s http://localhost:8099/img/draco-icon.png)",
+      "Read(//c/Users/21bla/repo/EPRL_GC4/**)",
+      "Bash(rm -f data/*.csv data/*.meta.json config/stand.json.bak5b)",
+      "Bash(node -e \"JSON.parse\\(require\\('fs'\\).readFileSync\\('config/stand.json','utf8'\\)\\);console.log\\('stand.json valid'\\)\")"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\21bla\\repo\\EPRL_GC4\\data"
+    ]
+  }
+}

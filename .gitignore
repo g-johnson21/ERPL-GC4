@@ -1,0 +1,11 @@
+# Recorded test data — keep the folder, not the runs.
+data/*.csv
+data/*.meta.json
+
+# Timestamped config backups written on every save from the Config page.
+config/backups/
+
+node_modules/
+*.log
+.DS_Store
+Thumbs.db

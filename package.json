@@ -1,0 +1,16 @@
+{
+  "name": "erpl-gc4",
+  "version": "4.0.0",
+  "description": "ERPL Ground Control 4 - local webserver ground control software for liquid rocket test stands",
+  "type": "module",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "sim": "node server/index.js --driver=simulator",
+    "dev": "node --watch server/index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "private": true
+}

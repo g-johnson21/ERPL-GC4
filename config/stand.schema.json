@@ -1,0 +1,361 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ERPL GC-4 Stand Configuration",
+  "description": "Defines every actuator, sensor, controller, autosequence and P&ID symbol for a test stand. The UI is generated entirely from this file.",
+  "type": "object",
+  "required": ["valves", "sensors"],
+  "properties": {
+    "$schema": { "type": "string" },
+
+    "meta": {
+      "type": "object",
+      "description": "Identifying information shown in the header and recorded in CSV sidecars.",
+      "properties": {
+        "standName": { "type": "string" },
+        "organization": { "type": "string" },
+        "subtitle": { "type": "string" },
+        "configVersion": { "type": "string" },
+        "standLogo": {
+          "type": "object",
+          "description": "Stand badge shown in the header. Both variants should be silhouettes on transparency.",
+          "properties": {
+            "light": { "type": "string", "description": "Image used in the light theme." },
+            "dark": { "type": "string", "description": "Image used in the dark theme." },
+            "height": { "type": "number" },
+            "alt": { "type": "string" }
+          }
+        },
+        "notes": { "type": "string" }
+      }
+    },
+
+    "ui": {
+      "type": "object",
+      "properties": {
+        "brand": { "type": "string", "description": "Short name in the header." },
+        "logo": {
+          "type": "object",
+          "description": "Organization wordmark in the header, swapped per theme.",
+          "properties": {
+            "light": { "type": "string" },
+            "dark": { "type": "string" },
+            "height": { "type": "number" },
+            "alt": { "type": "string" }
+          }
+        },
+        "accent": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Accent colour; text colour on it is chosen automatically." },
+        "defaultTheme": { "enum": ["dark", "light"], "description": "Used only until an operator picks a theme on this machine." },
+        "gridColumns": { "type": "integer", "minimum": 1, "maximum": 8 },
+        "sensorGridColumns": { "type": "integer", "minimum": 1, "maximum": 8 },
+        "sparklineSeconds": { "type": "number", "minimum": 5 },
+        "confirmDangerousActions": { "type": "boolean" },
+        "pages": {
+          "type": "array",
+          "description": "Header navigation. Remove an entry to hide that page.",
+          "items": {
+            "type": "object",
+            "required": ["id", "label", "href"],
+            "properties": {
+              "id": { "type": "string" },
+              "label": { "type": "string" },
+              "href": { "type": "string" },
+              "icon": { "enum": ["grid", "schematic", "gauge", "sliders"] }
+            }
+          }
+        }
+      }
+    },
+
+    "telemetry": {
+      "type": "object",
+      "properties": {
+        "sampleRateHz": { "type": "number", "minimum": 1, "maximum": 1000, "description": "Control loop rate. Interlocks and bang-bang run at this rate." },
+        "streamRateHz": { "type": "number", "minimum": 1, "maximum": 60, "description": "Snapshot rate pushed to browsers." },
+        "historySeconds": { "type": "number", "minimum": 10, "description": "Server-side history so a browser joining mid-test still sees trends." }
+      }
+    },
+
+    "safety": {
+      "type": "object",
+      "properties": {
+        "requireArmToActuate": { "type": "boolean", "description": "Master switch for the ARM interlock." },
+        "autoDisarmAfterSeconds": { "type": "number", "minimum": 0, "description": "0 disables. Never fires while a sequence is running." },
+        "abortSequenceId": { "type": "string", "description": "Sequence run on ABORT. If absent, abortState is applied directly." },
+        "armTimeoutWarningSeconds": { "type": "number", "minimum": 0 }
+      }
+    },
+
+    "valveGroups": {
+      "type": "array",
+      "description": "Sections on the Control Grid page, in display order.",
+      "items": {
+        "type": "object",
+        "required": ["id", "label"],
+        "properties": {
+          "id": { "type": "string" },
+          "label": { "type": "string" },
+          "color": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" }
+        }
+      }
+    },
+
+    "valves": {
+      "type": "array",
+      "description": "Every commandable output: solenoids, pneumatic valves, igniters.",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "channel"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$", "description": "Tag used everywhere. Must be unique." },
+          "name": { "type": "string" },
+          "abbrev": { "type": "string" },
+          "group": { "type": "string", "description": "A valveGroups id." },
+          "type": { "enum": ["solenoid", "ball", "butterfly", "needle", "igniter", "motor"], "description": "Chooses the P&ID symbol." },
+          "channel": { "type": "integer", "minimum": 0, "description": "Hardware output channel. Must be unique across valves." },
+          "normallyOpen": { "type": "boolean", "description": "True if the valve flows with the coil de-energized. The driver inverts energization for these." },
+          "requiresArm": { "type": "boolean", "description": "If true, cannot be opened while DISARMED." },
+          "confirm": { "type": "boolean", "description": "Show a confirmation dialog before opening." },
+          "momentary": { "type": "boolean", "description": "Auto-reverts to safeState after momentaryMs." },
+          "momentaryMs": { "type": "number", "minimum": 1 },
+          "openLabel": { "type": "string" },
+          "closedLabel": { "type": "string" },
+          "safeState": { "enum": ["open", "closed"], "description": "Commands toward this state are ALWAYS permitted, even disarmed or in abort." },
+          "abortState": { "enum": ["open", "closed"], "description": "Driven to this on ABORT." },
+          "pid": {
+            "type": "object",
+            "description": "Placement on the schematic. Omit to leave the valve off the P&ID.",
+            "required": ["x", "y"],
+            "properties": {
+              "x": { "type": "number" },
+              "y": { "type": "number" },
+              "rot": { "type": "number", "description": "0 for a horizontal run, 90 for a vertical run." }
+            }
+          }
+        }
+      }
+    },
+
+    "sensors": {
+      "type": "array",
+      "description": "Every input channel: pressure transducers, thermocouples, load cells.",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "channel"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" },
+          "name": { "type": "string" },
+          "abbrev": { "type": "string" },
+          "kind": { "enum": ["pressure", "temperature", "force", "flow", "level", "voltage", "other"], "description": "Groups the sensor on the Data page." },
+          "units": { "type": "string" },
+          "channel": { "type": "integer", "minimum": 0, "description": "Hardware input channel. Must be unique across sensors." },
+          "decimals": { "type": "integer", "minimum": 0, "maximum": 6 },
+          "min": { "type": "number", "description": "Display range floor (bar graphs, P&ID band)." },
+          "max": { "type": "number" },
+          "warnLow": { "type": "number" },
+          "warnHigh": { "type": "number" },
+          "dangerLow": { "type": "number" },
+          "dangerHigh": { "type": "number" },
+          "calibration": {
+            "type": "object",
+            "description": "engineering = raw * slope + offset. Applied by the udp/serial drivers.",
+            "properties": {
+              "slope": { "type": "number" },
+              "offset": { "type": "number" }
+            }
+          },
+          "pid": {
+            "type": "object",
+            "required": ["x", "y"],
+            "properties": {
+              "x": { "type": "number", "description": "Centre of the ISA bubble." },
+              "y": { "type": "number" },
+              "lead": {
+                "type": "array",
+                "description": "[x, y] of the process tap. A dashed lead is drawn from the bubble to here.",
+                "items": { "type": "number" },
+                "minItems": 2,
+                "maxItems": 2
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "bangbang": {
+      "type": "array",
+      "description": "Hysteresis controllers. Each reads one sensor and drives one valve.",
+      "items": {
+        "type": "object",
+        "required": ["id", "sensor", "valve", "setpoint"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "abbrev": { "type": "string" },
+          "sensor": { "type": "string", "description": "Must be a defined sensor id." },
+          "valve": { "type": "string", "description": "Must be a defined valve id." },
+          "setpoint": { "type": "number" },
+          "deadband": { "type": "number", "exclusiveMinimum": 0, "description": "Opens below setpoint-deadband, closes above setpoint+deadband." },
+          "setpointMin": { "type": "number" },
+          "setpointMax": { "type": "number" },
+          "setpointStep": { "type": "number" },
+          "deadbandMin": { "type": "number" },
+          "deadbandMax": { "type": "number" },
+          "enabled": { "type": "boolean", "description": "Initial state at server start." },
+          "requiresArm": { "type": "boolean", "description": "Controller is force-disabled when the stand disarms." },
+          "maxOpenSeconds": { "type": "number", "minimum": 0, "description": "Valve open longer than this trips the controller off — catches leaks and dead transducers. 0 disables." },
+          "abortAbove": { "type": "number", "description": "Sensor above this triggers a stand-wide ABORT." }
+        }
+      }
+    },
+
+    "autosequences": {
+      "type": "array",
+      "description": "Time-based scripts. Steps fire when elapsed >= t, in order.",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "steps"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "abbrev": { "type": "string" },
+          "description": { "type": "string", "description": "Shown on hover and in the confirmation dialog." },
+          "style": { "enum": ["normal", "safe", "caution", "danger", "abort"], "description": "Button colour." },
+          "requiresArm": { "type": "boolean" },
+          "confirm": { "type": "boolean" },
+          "hidden": { "type": "boolean", "description": "Hide from the sidebar (used for the abort sequence)." },
+          "timeMode": {
+            "enum": ["absolute", "relative"],
+            "description": "How the editor presents step times. Steps are always STORED as absolute t; 'relative' only changes how you type them in (as the gap from the previous step)."
+          },
+          "abortConditions": {
+            "type": "array",
+            "description": "Evaluated every tick while the sequence runs. Any trip aborts the stand.",
+            "items": {
+              "type": "object",
+              "required": ["sensor", "op", "value"],
+              "properties": {
+                "sensor": { "type": "string" },
+                "op": { "enum": [">", "<", ">=", "<="] },
+                "value": { "type": "number" },
+                "message": { "type": "string" }
+              }
+            }
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["t", "action"],
+              "properties": {
+                "t": { "type": "number", "minimum": 0, "description": "Seconds from sequence start." },
+                "action": {
+                  "enum": ["valve", "bangbang", "log", "safeAll", "abortStates", "abort", "end"],
+                  "description": "valve: set a valve. bangbang: change a controller ('*' for all). safeAll/abortStates: drive every actuator. log: note in the event log and CSV."
+                },
+                "target": { "type": "string" },
+                "state": { "enum": ["open", "closed"] },
+                "enabled": { "type": "boolean" },
+                "setpoint": { "type": "number" },
+                "deadband": { "type": "number" },
+                "message": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "recording": {
+      "type": "object",
+      "properties": {
+        "directory": { "type": "string", "description": "Relative to the project root." },
+        "filenamePattern": { "type": "string", "description": "Supports {stand} {date} {time} {name} {driver}." },
+        "defaultTestName": { "type": "string" },
+        "rateHz": { "type": "number", "minimum": 1, "description": "CSV row rate; decimated from the control loop." },
+        "includeValveStates": { "type": "boolean" },
+        "includeSetpoints": { "type": "boolean" },
+        "autoStartOnSequence": { "type": "array", "items": { "type": "string" }, "description": "Sequence ids that start recording automatically." },
+        "autoStopSecondsAfterSequence": { "type": "number", "minimum": 0 },
+        "flushIntervalMs": { "type": "number", "minimum": 50 }
+      }
+    },
+
+    "pid": {
+      "type": "object",
+      "description": "The schematic. Coordinates are SVG user units in a width x height canvas.",
+      "properties": {
+        "width": { "type": "number" },
+        "height": { "type": "number" },
+        "fluids": {
+          "type": "object",
+          "description": "Named services. Each pipe references one by key.",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "label": { "type": "string" },
+              "color": { "type": "string" },
+              "width": { "type": "number" },
+              "dash": { "type": "string" }
+            }
+          }
+        },
+        "components": {
+          "type": "array",
+          "description": "Static symbols: vessels, fittings, structure, free text.",
+          "items": {
+            "type": "object",
+            "required": ["type", "id", "x", "y"],
+            "properties": {
+              "type": {
+                "enum": ["tank", "bottle", "engine", "regulator", "filter", "check-valve", "burst-disk",
+                         "vent-stack", "drain", "qd", "terminator", "thrust-mount", "valve-manual", "text", "logo"]
+              },
+              "id": { "type": "string" },
+              "label": { "type": "string", "description": "Use \\n for a second line." },
+              "sub": { "type": "string" },
+              "x": { "type": "number" },
+              "y": { "type": "number" },
+              "w": { "type": "number" },
+              "h": { "type": "number" },
+              "rot": { "type": "number" },
+              "fluid": { "type": "string", "description": "tank: colour of the liquid fill." },
+              "levelSensor": { "type": "string", "description": "tank: sensor id driving the liquid level." },
+              "levelMax": { "type": "number", "description": "tank: sensor value corresponding to a full tank." },
+              "plumeSensor": { "type": "string", "description": "engine: sensor id driving exhaust plume intensity." },
+              "plumeThreshold": { "type": "number" },
+              "anchor": { "enum": ["start", "middle", "end"], "description": "text only." },
+              "size": { "type": "number" },
+              "weight": { "type": "number" },
+              "muted": { "type": "boolean" },
+              "src": { "type": "string", "description": "logo only: image URL." },
+              "srcDark": { "type": "string", "description": "logo only: image URL used in the dark theme." }
+            }
+          }
+        },
+        "pipes": {
+          "type": "array",
+          "description": "Process lines as polylines. Shared endpoints are auto-marked as tees.",
+          "items": {
+            "type": "object",
+            "required": ["id", "points"],
+            "properties": {
+              "id": { "type": "string" },
+              "fluid": { "type": "string", "description": "A key from pid.fluids." },
+              "points": {
+                "type": "array",
+                "minItems": 2,
+                "items": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }
+              },
+              "flowWhen": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Valve ids that must ALL be open for the flow animation to run."
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

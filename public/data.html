@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>Ground Control · Data</title>
+  <link rel="icon" href="/img/draco-icon.png" type="image/png">
+  <link rel="apple-touch-icon" href="/img/draco-icon.png">
+  <link rel="stylesheet" href="/css/base.css">
+  <link rel="stylesheet" href="/css/components.css">
+  <script>
+    try {
+      const t = localStorage.getItem('gc4-theme');
+      if (t) document.documentElement.setAttribute('data-theme', t);
+    } catch (e) {}
+  </script>
+</head>
+<body>
+  <script type="module" src="/js/page-data.js"></script>
+</body>
+</html>
