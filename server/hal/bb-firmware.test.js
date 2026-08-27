@@ -47,17 +47,30 @@ test('a config command is echoed back as CFG_PUSH', () => {
   );
 });
 
-test('the echo carries everything the board holds, not just what changed', () => {
-  // Otherwise the echo cannot be used as the authority on the board's state:
-  // a client would have to accumulate partial echoes and hope it saw them all.
+test('the echo is per command, and uses the board\'s own key spellings', () => {
+  // Observed on hardware 2026-08-27. A B followed by a V produces TWO
+  // CFG_PUSH lines carrying only their own fields, and the vent keys are
+  // avTrig/avAuto rather than the ventTrig/ventAuto §5.5 documents. Both
+  // details matter: the host has to accumulate echoes to know the full
+  // config, and it has to recognise the keys to accumulate anything at all.
   const b = board();
   b.fw.command('BL450.0,30.0,250,500');
   b.fw.command('VL650.0,1');
 
-  const echo = b.lines.map(parseLine).filter((m) => m.category === 'CFG_PUSH').pop();
-  assert.equal(echo.config.fields.setpoint, 450, 'still reports the B values');
-  assert.equal(echo.config.fields.ventTrigger, 650);
-  assert.equal(echo.config.fields.ventAuto, true);
+  const echoes = b.lines.filter((l) => l.includes('CFG_PUSH'));
+  assert.equal(echoes.length, 2, 'one echo per command, not one for everything');
+  assert.match(echoes[0], /:sp=450\.0,db=30\.0,wait=250,maxOpen=500$/);
+  assert.match(echoes[1], /:avTrig=650\.0,avAuto=1$/);
+
+  // Neither line alone is the whole config; assembling it is the host's job.
+  const parsed = echoes.map((l) => parseLine(l).config);
+  assert.equal(parsed[0].fields.ventTrigger, undefined);
+  assert.deepEqual(Object.assign({}, ...parsed.map((p) => p.fields)), {
+    setpoint: 450, deadbandFull: 30, waitMs: 250, maxOpenMs: 500,
+    ventTrigger: 650, ventAuto: true,
+  });
+  assert.deepEqual(parsed.flatMap((p) => Object.keys(p.unknown)), [],
+    'the emulation must not emit keys the parser does not know');
 });
 
 test('a deadband of zero is refused, not silently accepted', () => {

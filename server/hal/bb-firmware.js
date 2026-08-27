@@ -82,13 +82,13 @@ export class BangBangFirmware {
         st.cfg.deadbandFull = cmd.deadbandFull;
         st.cfg.waitMs = cmd.waitMs;
         st.cfg.maxOpenMs = cmd.maxOpenMs;
-        this.echoConfig(side, now);
+        this.echoConfig(side, now, 'config');
         return true;
 
       case 'vent':
         st.cfg.ventTrigger = cmd.trigger;
         st.cfg.ventAuto = cmd.auto;
-        this.echoConfig(side, now);
+        this.echoConfig(side, now, 'vent');
         return true;
 
       case 'mdot':
@@ -98,7 +98,7 @@ export class BangBangFirmware {
         st.cfg.mdotGain = cmd.gain;
         st.cfg.rho = cmd.rho;          // stored, never echoed — see CFG_PUSH_KEYS
         st.cfg.mdotOn = cmd.enabled;
-        this.echoConfig(side, now);
+        this.echoConfig(side, now, 'mdot');
         return true;
 
       case 'enable':
@@ -279,21 +279,45 @@ export class BangBangFirmware {
    * echoed, not just the fields the last command carried — that is what makes
    * the echo usable as the authority on the board's configuration.
    */
-  echoConfig(side, now) {
+  /**
+   * Echo back what one command stored — that command's fields only.
+   *
+   * PER COMMAND, not the whole configuration. Observed on hardware
+   * 2026-08-27: a `B` followed by a `V` produced two separate CFG_PUSH lines,
+   * `sp=…,db=…,wait=…,maxOpen=…` and then `avTrig=…,avAuto=…`. An earlier
+   * version of this emulation echoed everything the board held in one line,
+   * which meant the simulator rehearsed a handshake the hardware does not
+   * have: the host has to ACCUMULATE echoes to know the board's full config,
+   * and a stand-in that hands it over in one message never exercises that.
+   *
+   * Key spellings follow the board, not §5.5 of the handover doc — see
+   * CFG_PUSH_KEYS.
+   */
+  echoConfig(side, now, kind) {
     const c = this.sides[side].cfg;
-    this.emit(encodeCfgPush(this.uptime(now), side, {
-      sp: c.setpoint.toFixed(1),
-      db: c.deadbandFull.toFixed(1),
-      wait: Math.round(c.waitMs),
-      maxOpen: Math.round(c.maxOpenMs),
-      ventTrig: c.ventTrigger.toFixed(1),
-      ventAuto: c.ventAuto,
-      mdot: c.mdotTarget.toFixed(3),
-      spMin: c.spMin.toFixed(3),
-      spMax: c.spMax.toFixed(3),
-      gain: c.mdotGain.toFixed(5),
-      mdotOn: c.mdotOn,
-    }));
+    const fields = {
+      config: () => ({
+        sp: c.setpoint.toFixed(1),
+        db: c.deadbandFull.toFixed(1),
+        wait: Math.round(c.waitMs),
+        maxOpen: Math.round(c.maxOpenMs),
+      }),
+      vent: () => ({
+        avTrig: c.ventTrigger.toFixed(1),
+        avAuto: c.ventAuto,
+      }),
+      // Unverified: no `M` has ever been sent to real hardware, so these
+      // spellings are the doc's and may be wrong the same way the vent ones
+      // were. `rho` is deliberately absent — the board has no echo key for it.
+      mdot: () => ({
+        mdot: c.mdotTarget.toFixed(3),
+        spMin: c.spMin.toFixed(3),
+        spMax: c.spMax.toFixed(3),
+        gain: c.mdotGain.toFixed(5),
+        mdotOn: c.mdotOn,
+      }),
+    }[kind];
+    if (fields) this.emit(encodeCfgPush(this.uptime(now), side, fields()));
   }
 
   uptime(now) { return Math.max(0, Math.round(now - this.bootedAt)); }

@@ -116,11 +116,40 @@ test('an event detail keeps its own colons', () => {
 });
 
 test('unknown CFG_PUSH keys are surfaced, not dropped', () => {
-  // `rho` is sent in M but has no echo key, so a firmware that starts echoing
-  // it should show up as something to go look at rather than vanishing.
+  // This is not a nicety. The board's real vent keys turned out to be spelled
+  // differently from the handover doc, and the "unrecognised key(s)" warning
+  // is the only reason anyone found out rather than watching auto-vent
+  // silently never confirm.
   const { fields, unknown } = parseCfgPush('sp=200.0,rho=1141.0');
   assert.deepEqual(fields, { setpoint: 200 });
   assert.deepEqual(unknown, { rho: '1141.0' });
+});
+
+test('the vent echo is read under the spelling the hardware actually sends', () => {
+  // Observed 2026-08-27: PandaV2 sends avTrig/avAuto ("auto-vent", matching
+  // the AV state), not the ventTrig/ventAuto of §5.5.
+  const hw = parseCfgPush('avTrig=650.0,avAuto=0');
+  assert.deepEqual(hw.fields, { ventTrigger: 650, ventAuto: false });
+  assert.deepEqual(hw.unknown, {}, 'must not warn about keys the board really sends');
+
+  // The documented spelling still parses, for any firmware that uses it.
+  const doc = parseCfgPush('ventTrig=250.0,ventAuto=1');
+  assert.deepEqual(doc.fields, { ventTrigger: 250, ventAuto: true });
+});
+
+test('a config split across two echoes assembles into one', () => {
+  // The board echoes per command, so neither line is the whole config and the
+  // host has to accumulate. Exactly the traffic the logs showed.
+  const lines = [
+    'EVT:184320:CFG_PUSH:f:sp=50.0,db=2.0,wait=250,maxOpen=500',
+    'EVT:184321:CFG_PUSH:f:avTrig=650.0,avAuto=0',
+  ];
+  const confirmed = {};
+  for (const line of lines) Object.assign(confirmed, parseLine(line).config.fields);
+  assert.deepEqual(confirmed, {
+    setpoint: 50, deadbandFull: 2, waitMs: 250, maxOpenMs: 500,
+    ventTrigger: 650, ventAuto: false,
+  });
 });
 
 test('errors and acks are classified before anything else looks at them', () => {

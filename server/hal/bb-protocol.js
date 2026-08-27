@@ -50,17 +50,33 @@ const ERROR_PREFIXES = ['BB_ERROR:', 'CMD_ERROR:'];
 /**
  * `CFG_PUSH` echo keys -> our field names.
  *
- * NOTE: `rho` is sent in the `M` command but has no echo key, so the density
- * the board is actually using cannot be verified from the ground. Treat it as
- * write-only until firmware echoes it.
+ * THE VENT KEYS ARE NOT WHAT THE HANDOVER DOC SAYS. §5.5 lists them as
+ * `ventTrig`/`ventAuto`; the PandaV2 board on this stand sends
+ * `avTrig`/`avAuto` — "auto-vent", matching the `AV` state name. Observed on
+ * hardware 2026-08-27, confirmed by the values echoing back exactly what a
+ * `VF650.0,0` had just pushed. The documented spellings are kept as aliases
+ * rather than replaced, because the doc was written from a second
+ * implementation that may be running somewhere and the two cost nothing to
+ * accept together.
+ *
+ * STILL UNVERIFIED: every `mdot*` key below. GC-4 never sends the `M` command
+ * (nothing in stand.json configures mass-flow scheduling), so no echo for it
+ * has ever been seen. Expect these spellings to be wrong in the same way the
+ * vent ones were, and check the "unrecognised key(s)" warning the first time
+ * an `M` is pushed — that warning is how the vent mismatch surfaced.
+ *
+ * `rho` is sent in `M` but has no echo key at all, so the density the board is
+ * using cannot be verified from the ground. Treat it as write-only.
  */
 export const CFG_PUSH_KEYS = {
   sp: ['setpoint', 'float'],
   db: ['deadbandFull', 'float'],
   wait: ['waitMs', 'int'],
   maxOpen: ['maxOpenMs', 'int'],
-  ventTrig: ['ventTrigger', 'float'],
-  ventAuto: ['ventAuto', 'bool'],
+  avTrig: ['ventTrigger', 'float'],      // observed on hardware
+  avAuto: ['ventAuto', 'bool'],          // observed on hardware
+  ventTrig: ['ventTrigger', 'float'],    // documented in §5.5; kept as an alias
+  ventAuto: ['ventAuto', 'bool'],        // documented in §5.5; kept as an alias
   mdot: ['mdotTarget', 'float'],
   spMin: ['spMin', 'float'],
   spMax: ['spMax', 'float'],
