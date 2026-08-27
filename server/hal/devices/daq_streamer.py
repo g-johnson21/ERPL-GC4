@@ -346,8 +346,11 @@ class Streamer:
         self.loop_index = 0
         self.running = True
         self.latency_ms = []
-        # Most recent raw sample per (card, channel). Tare zeroes against this,
-        # so it must exist before the stdin thread can ever read it.
+        # Most recent sample per (card, channel), in the units that card's
+        # convert() ACCEPTS -- amps for PT, V/V for LC, degF for TC. Tare
+        # zeroes against this by re-converting, so storing convert()'s output
+        # instead would feed milliamps back in as amps. It must also exist
+        # before the stdin thread can ever read it.
         self._last_raw = {}
 
         for kind, klass in (('pt', PtCard), ('lc', LcCard), ('tc', TcCard)):
@@ -449,6 +452,15 @@ class Streamer:
                 value = samples[-1] if card.kind == 'pt' \
                     else sum(samples) / len(samples)
                 rawv, eng, status = card.convert(ch, value)
+                # Remember what convert() was GIVEN, not what it returned.
+                #
+                # These are not the same units for every card: PtCard takes
+                # amps and returns milliamps, so feeding its own output back in
+                # reads 12 mA as 12 A, trips the >25 mA disconnected guard, and
+                # refuses to tare a perfectly healthy channel. Tare is the only
+                # consumer of this dict and it re-converts, so the value it
+                # needs is the argument, always.
+                self._last_raw[(card.kind, ch)] = value
                 entry = {'card': card.kind, 'channel': ch,
                          'status': status, 'raw': _finite(rawv),
                          # The offset currently subtracted from this channel.
@@ -472,6 +484,7 @@ class Streamer:
             if values:
                 for ch, degf in enumerate(values):
                     rawv, eng, status = self.tc.convert(ch, degf)
+                    self._last_raw[('tc', ch)] = degf
                     channels.append({'card': 'tc', 'channel': ch, 'status': status,
                                      'raw': _finite(rawv), 'temp_f': _finite(eng),
                                      'tare': _finite(self.tc.tare[ch]),
@@ -568,8 +581,6 @@ class Streamer:
         while self.running:
             began = time.perf_counter()
             frame = self.build_frame(time.time())
-            for entry in frame['channels']:
-                self._last_raw[(entry['card'], entry['channel'])] = entry['raw']
             emit(frame)
 
             self.latency_ms.append((time.perf_counter() - began) * 1000.0)

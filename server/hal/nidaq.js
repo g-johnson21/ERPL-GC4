@@ -177,11 +177,20 @@ export class NiDaqDriver {
       } else if (msg.type === 'ack') {
         // A tare that silently did nothing is the worst outcome: the operator
         // walks away believing a channel is zeroed. Say which ones refused.
+        //
+        // At ERROR level, and phrased to contradict rather than qualify. The
+        // stand has already logged "*** TARE *** PT1" by the time this
+        // arrives, because tareSensors() returns as soon as the command is
+        // written and the sidecar answers milliseconds later. A `warn` reading
+        // "could not be tared (pt2)" under a success line naming PT1 is two
+        // messages an operator has to reconcile at exactly the wrong moment.
         if (msg.action === 'tare' && msg.skipped?.length) {
+          const names = msg.skipped.map((label) => this.sensorForLabel(label));
           this.onEvent(
-            `NI-DAQ: ${msg.skipped.length} channel(s) could not be tared ` +
-            `(${msg.skipped.join(', ')}) — no valid reading`,
-            'warn'
+            `NI-DAQ: ${names.join(', ')} NOT tared — no valid reading. ` +
+            `Disregard the TARE line above for ${names.length > 1 ? 'these channels' : 'this channel'}; ` +
+            `${names.length > 1 ? 'they are' : 'it is'} still reading uncorrected.`,
+            'error'
           );
         } else if (msg.ok === false) {
           this.onEvent(`NI-DAQ: "${msg.action}" failed${msg.error ? ` — ${msg.error}` : ''}`);
@@ -248,6 +257,23 @@ export class NiDaqDriver {
       }
     }
     return this.sensorChannels.get(id) || null;
+  }
+
+  /**
+   * The inverse: a sidecar channel label like `pt2` back to `PT1`.
+   *
+   * The sidecar speaks in card and channel because that is how the hardware is
+   * addressed, but an operator tared a sensor with a name on it. Reporting a
+   * failure as "pt2" asks them to do this lookup themselves, from memory,
+   * while something is wrong. An unmapped channel falls back to its raw label
+   * rather than being dropped — an unexpected channel in a refusal is still
+   * worth seeing.
+   */
+  sensorForLabel(label) {
+    const m = /^([a-z]+)(\d+)$/.exec(String(label));
+    if (!m) return String(label);
+    const id = this.channelMap[`${m[1]}${Number(m[2])}`];
+    return id ? `${id} (${label})` : String(label);
   }
 
   /**

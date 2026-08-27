@@ -134,6 +134,42 @@ test('a tare that skipped channels is surfaced, not swallowed', () => {
   }) + '\n');
 
   assert.equal(events.length, 1);
-  assert.equal(events[0][0], 'warn');
-  assert.match(events[0][1], /pt4/);
+  // ERROR, not warn. The stand has already logged "*** TARE *** PT4" by the
+  // time this arrives -- tareSensors() returns when the command is written and
+  // the sidecar answers milliseconds later -- so this line has to overrule a
+  // success the operator has already read, not sit quietly beneath it.
+  assert.equal(events[0][0], 'error');
+  assert.match(events[0][1], /Disregard the TARE line above/);
+});
+
+test('a refused tare names the sensor, not just the card channel', () => {
+  // The operator tared PT4. The sidecar speaks in card and channel because
+  // that is how the hardware is addressed, and reporting "pt4" asks them to
+  // do the lookup from memory while something is wrong.
+  const events = [];
+  const d = makeDriver();
+  d.onEvent = (message, level) => events.push([level, message]);
+
+  d.onStdout(JSON.stringify({
+    type: 'ack', action: 'tare', ok: false, tared: [], skipped: ['pt4', 'pt2', 'pt9'],
+  }) + '\n');
+
+  const [, message] = events[0];
+  assert.match(message, /PT4 \(pt4\)/);
+  assert.match(message, /PT1 \(pt2\)/);
+  // An unmapped channel still appears: an unexpected channel in a refusal is
+  // worth seeing, not worth dropping for having no name.
+  assert.match(message, /pt9/);
+  assert.match(message, /these channels/, 'plural when more than one refused');
+});
+
+test('sensorForLabel is the exact inverse of channelForSensor', () => {
+  const d = makeDriver();
+  for (const [label, id] of Object.entries(CHANNEL_MAP)) {
+    const target = d.channelForSensor(id);
+    assert.equal(`${target.card}${target.channel}`, label);
+    assert.equal(d.sensorForLabel(label), `${id} (${label})`);
+  }
+  assert.equal(d.sensorForLabel('pt15'), 'pt15', 'unmapped falls back to the label');
+  assert.equal(d.sensorForLabel('garbage'), 'garbage');
 });
