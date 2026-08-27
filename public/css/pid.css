@@ -181,6 +181,33 @@
 
 .pid-valve[data-locked="true"] { opacity: .45; cursor: not-allowed; }
 
+/* Coil state as MEASURED by the current sense — the one mark on the drawing
+   that can disagree with what the operator commanded.
+
+   Grey and green both mean "the coil is doing what it was told", so they are
+   quiet. Red means it is not, and pulses: on a drawing this dense a static
+   dot is easy to scan past, and this is the case worth stopping for. */
+.pid-coil {
+  stroke: var(--surface);
+  stroke-width: 1.5;
+  pointer-events: none;
+}
+.pid-coil[data-coil="off"] { fill: var(--idle); }
+.pid-coil[data-coil="on"] { fill: var(--ok); }
+.pid-coil[data-coil="fault"] {
+  fill: var(--danger);
+  stroke: var(--danger);
+  animation: pulse 0.9s ease-in-out infinite;
+}
+/* No current sense on this channel: claim nothing rather than showing grey,
+   which is a measurement meaning "de-energized". */
+.pid-coil[data-coil="unknown"] { display: none; }
+
+/* NOTE: a locked valve dims the whole group to 45%, and this dot dims with it
+   — `opacity` on the parent makes a compositing group that a child cannot
+   climb back out of. The fault pulse still reads at that opacity, which is
+   why red animates rather than merely being red. */
+
 .pid-valve-state {
   fill: var(--text-faint);
   font-family: var(--mono);

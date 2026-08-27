@@ -72,6 +72,22 @@ test('numeric parsing tolerates the id prefix on the first token', () => {
   assert.equal(d.raw.get('pt1_ma'), 7);
 });
 
+test('EVERY token may carry the id letter, not just the first', () => {
+  // Observed on hardware. The handover doc says only the first token carries
+  // it; this board puts `s` on all twelve. The strip-non-numeric rule handles
+  // it, which is why it must not be "optimised" into slicing off character
+  // one — that would turn s0.00039 into .00039 on eleven of twelve channels.
+  const d = makeDriver({ dcThresholdA: 0.1 });
+  d.onLine('s0.00049,s0.00039,s0.00038,s0.00038,s0.00038,s0.00037,' +
+           's0.00051,s0.00037,s0.00041,s0.00041,s0.00040,s0.00040');
+
+  assert.equal(d.dc.currents.length, 12);
+  assert.equal(d.dc.currents[0], 0.00049);
+  assert.equal(d.dc.currents[6], 0.00051);
+  assert.equal(d.dc.currents[11], 0.00040);
+  assert.ok(d.dc.states.every((s) => s === false), 'sub-milliamp is not energized');
+});
+
 test('a single-channel line has no comma and must still parse', () => {
   // Dispatching on "does the line contain a comma" drops these silently.
   const d = makeDriver({ ptInputMode: 'ma' });
@@ -142,6 +158,91 @@ test('dcStatus keys current sense by the valve each channel watches', () => {
   assert.deepEqual(Object.keys(s).sort(), ['SV-FP', 'SV-OP']);
   assert.deepEqual(s['SV-FP'], { id: 'DC1', amps: 0.512, energized: true });
   assert.deepEqual(s['SV-OP'], { id: 'DC2', amps: 0, energized: false });
+});
+
+test('a channel declared unsensed shows nothing rather than a false reading', () => {
+  // Observed on hardware: two positions sat at a fixed 0.38 A and 0.21 A with
+  // every solenoid de-energized. Both are above the 0.1 A threshold, so the
+  // stand called two closed purge valves ENERGIZED. A number that is not a
+  // measurement is worse than a blank here, because nothing distinguishes it
+  // from the reading that would matter.
+  const d = makeDriver({
+    dcThresholdA: 0.1,
+    dcChannels: {
+      0: { id: 'DC1', valve: 'SV-LOXBB' },
+      4: { id: 'DC7', valve: 'SV-FPURGE', sensed: false },
+      5: { id: 'DC8', valve: 'SV-LOXPURGE', sensed: false },
+    },
+  });
+  d.onLine('s0.000,0,0,0,0.380,0.210');
+
+  const s = d.dcStatus();
+  assert.deepEqual(Object.keys(s), ['SV-LOXBB'], 'only the trustworthy channel reports');
+  assert.equal(s['SV-FPURGE'], undefined);
+  assert.equal(s['SV-LOXPURGE'], undefined);
+
+  // The samples are still parsed and still logged — declaring a channel
+  // unsensed hides it from the operator's valve card, not from the trace that
+  // would show the fault coming back.
+  assert.equal(d.dc.currents[4], 0.38);
+});
+
+test('sensed:false is not mistaken for a stale valve id', () => {
+  const events = [];
+  const d = makeDriver({
+    dcChannels: { 4: { id: 'DC7', valve: 'SV-FPURGE', sensed: false } },
+    onEvent: (message, level) => events.push([level, message]),
+  });
+  d.checkDcWiring({ valves: [{ id: 'SV-FPURGE' }] });
+  assert.deepEqual(events, [], 'a deliberate declaration is not a wiring error');
+});
+
+test('a dc channel naming a valve the stand does not have is reported', () => {
+  // This is how five of eleven current readings went missing: the stand's
+  // valves were renamed, the wiring file was not, and dcByValve simply never
+  // matched. Nothing said so -- the affected cards just showed no current, as
+  // if the board were not sensing them.
+  const events = [];
+  const d = makeDriver({
+    dcChannels: {
+      0: { id: 'DC1', valve: 'SV-LOXBB' },     // current
+      1: { id: 'DC2', valve: 'SV-FP' },        // stale, renamed to SV-FBB
+      2: { id: 'DC3' },                        // no valve: diagnostics only
+    },
+    onEvent: (message, level) => events.push([level, message]),
+  });
+
+  d.checkDcWiring({ valves: [{ id: 'SV-LOXBB' }, { id: 'SV-FBB' }] });
+
+  assert.equal(events.length, 1, 'one message, listing every orphan');
+  const [level, message] = events[0];
+  assert.equal(level, 'error');
+  assert.match(message, /DC2→"SV-FP"/);
+  assert.doesNotMatch(message, /DC1/, 'a channel that resolves is not complained about');
+  assert.doesNotMatch(message, /DC3/, 'nor is one that deliberately names no valve');
+});
+
+test('wiring that fully resolves says nothing at all', () => {
+  const events = [];
+  const d = makeDriver({
+    dcChannels: { 0: { id: 'DC1', valve: 'SV-LOXBB' } },
+    onEvent: (message, level) => events.push([level, message]),
+  });
+  d.checkDcWiring({ valves: [{ id: 'SV-LOXBB' }] });
+  assert.deepEqual(events, []);
+});
+
+test('a config with no valves is not treated as every channel being wrong', () => {
+  // init() runs before anything guarantees a populated config. Warning here
+  // would fire on every startup and train people to ignore the message.
+  const events = [];
+  const d = makeDriver({
+    dcChannels: { 0: { id: 'DC1', valve: 'SV-LOXBB' } },
+    onEvent: (message, level) => events.push([level, message]),
+  });
+  d.checkDcWiring({ valves: [] });
+  d.checkDcWiring(undefined);
+  assert.deepEqual(events, []);
 });
 
 test('dcStatus omits channels the board has not reported yet', () => {

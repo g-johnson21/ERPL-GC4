@@ -73,6 +73,56 @@ export function fmtValue(v, decimals = 1) {
  * units are already printed on the same line and repeating them would push
  * the number out of the box.
  */
+/**
+ * Solenoid coil current, in whatever unit makes the number legible.
+ *
+ * These span four orders of magnitude on a real board: an idle channel sits
+ * around 0.4 mA of sense-resistor leakage, an energized coil pulls several
+ * hundred. Formatted as amps to two decimals -- which is what this used to do
+ * -- every idle channel renders as a frozen "0.00 A", so a live board looks
+ * identical to a dead one and nothing ever appears to update.
+ *
+ *   0.00049 A -> "0.49 mA"     idle, and visibly jittering
+ *   0.62 A    -> "620 mA"      coil pulled in
+ *   1.2 A     -> "1.20 A"      inrush
+ */
+/**
+ * Compare a valve's MEASURED coil current against what was commanded.
+ *
+ *   'off'      de-energized, as commanded
+ *   'on'       energized, as commanded
+ *   'fault'    the coil is not doing what it was told
+ *   'unknown'  no current sense on this channel, so nothing is claimed
+ *
+ * The comparison is against COIL state, not flow state, and that distinction
+ * is the whole correctness of this function. A normally-open valve is
+ * energized to CLOSE, so a NO vent sitting open is correctly de-energized.
+ * Comparing against flow state would mark every normally-open valve on the
+ * stand as faulted, permanently — which is the fastest possible way to teach
+ * an operator to ignore the indicator.
+ *
+ * 'unknown' is distinct from 'off' on purpose: "measured, de-energized" and
+ * "not measured" are different claims, and only one of them is evidence.
+ */
+export function coilState(valve, commandedState, dc) {
+  if (!dc || typeof dc.energized !== 'boolean') return 'unknown';
+  const shouldEnergize = valve.normallyOpen
+    ? commandedState === 'closed'
+    : commandedState === 'open';
+  if (dc.energized !== shouldEnergize) return 'fault';
+  return dc.energized ? 'on' : 'off';
+}
+
+export function fmtCurrent(amps) {
+  if (!Number.isFinite(amps)) return '--';
+  const a = Math.abs(amps);
+  if (a >= 1) return `${amps.toFixed(2)} A`;
+  // Below 10 mA the reading is leakage, and its last digits are the only sign
+  // the channel is alive at all -- so that is exactly where precision goes.
+  if (a >= 0.01) return `${(amps * 1000).toFixed(0)} mA`;
+  return `${(amps * 1000).toFixed(2)} mA`;
+}
+
 export function fmtRate(rate, sensor, { compact = false } = {}) {
   const per = compact ? '/s' : ` ${sensor.units}/s`;
   if (rate === null || rate === undefined || !Number.isFinite(rate)) {

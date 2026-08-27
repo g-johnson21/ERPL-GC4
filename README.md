@@ -352,6 +352,28 @@ in the code where they bite. **Check them against firmware before a hot fire.**
 - **`rho`** is sent in the `M` command but has no `CFG_PUSH` echo key, so the
   density the board is using cannot be verified from the ground.
 - **Abort recovery.** Assumed to need a power cycle or a disarm/rearm.
+- **Every `mdot*` echo key.** GC-4 never sends the `M` command — nothing in
+  `stand.json` configures mass-flow scheduling — so no echo for it has been
+  seen. Given the vent keys turned out wrong (below), expect these to be too,
+  and watch the log for an "unrecognised key" warning the first time one is
+  pushed.
+
+#### Verified against hardware, 2026-08-27
+
+Two corrections the board itself supplied, both now in the code and noted in
+`HANDOVER_COMMS.md` §5.5:
+
+- **The vent echo keys are `avTrig`/`avAuto`**, not the `ventTrig`/`ventAuto`
+  the handover doc documents. The documented spellings are kept as aliases.
+- **The echo is per command, not a full config dump.** A `B` followed by a `V`
+  produces two `CFG_PUSH` lines, each carrying only its own fields, so no
+  single line is the board's complete configuration and the host accumulates
+  them. The emulated firmware does the same, so the simulator exercises the
+  accumulation rather than skipping it.
+
+Both surfaced because unrecognised `CFG_PUSH` keys are logged rather than
+dropped. Without that warning, auto-vent would simply never have shown as
+confirmed and nothing would have said why.
 
 ---
 
@@ -576,6 +598,40 @@ node server/index.js --driver=serial --port-name=COM4 --baud=921600
 
 `udp` is dependency-free. `serial` and `stand` need `npm install serialport` —
 the only package this project will ever ask you for, and only for those drivers.
+
+### Watching the PANDA link
+
+```bash
+node server/index.js --driver=stand --panda-tap
+```
+
+Opens a second terminal printing every line the board sends and every command
+sent to it, byte for byte:
+
+```
+14:22:07.184 <   16B  s0.00,0.00,0.38\r
+14:22:07.190 >   20B  BF450.0,30.0,250,500
+14:22:07.203 <   25B  EVT:184320:CFG_PUSH:f:sp=450.0
+```
+
+`<` is board→host, `>` is host→board. Control and high bytes are escaped, and
+a line containing anything more surprising than CR or TAB also gets a hex dump
+— a stray NUL or a set high bit is usually the answer when a line is being
+parsed as something nobody expected.
+
+A serial port has exactly one owner, so this cannot open the port itself: the
+server relays. The window attaches over loopback (never the pad network — it
+carries every command the board is given) and is **read-only**, deliberately.
+A debug window that can actuate is one somebody actuates by accident.
+
+If the terminal does not open — spawning one depends on the desktop, not just
+the OS — the server prints the command to run in a window of your own. The
+flag is refused outright on drivers with no serial link, rather than opening a
+window that stays empty and reads as a silent board.
+
+For the current-sense channels specifically, `GC_DEBUG_DC=1` is narrower and
+usually more useful: it prints the `s` line broken out by wire position with
+each position's running range, so actuating one valve shows which index moves.
 
 ### The Draco stand (`--driver=stand`)
 

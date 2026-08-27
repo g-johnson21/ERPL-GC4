@@ -46,6 +46,18 @@ const LOX_F = -297;
  */
 const BOARD_PT_BIAS = { l: 1.8, f: -2.4 };
 
+/** Holding current of an energized solenoid coil, in amps. */
+const COIL_HOLD_AMPS = 0.62;
+
+/**
+ * Sense-resistor leakage on a de-energized channel, in amps.
+ *
+ * Measured on the real board: every idle channel sits around 0.4 mA and
+ * wanders in the last digit. Three orders of magnitude below a pulled-in coil,
+ * which is exactly why the current display has to adapt its units.
+ */
+const COIL_LEAK_AMPS = 0.0004;
+
 /** Map model roles -> IDs from config/stand.json. Edit to match your stand. */
 const roles = {
   valves: {
@@ -123,6 +135,9 @@ export class SimulatorDriver {
     // Set by the bang-bang bank, to attribute a board rejection to whatever
     // command was in flight. Mirrors the PANDA driver's hook.
     this.onBbError = options.onBbError || null;
+    // Matches the PANDA driver's default, so the energized threshold behaves
+    // the same in the simulator as it does on the stand.
+    this.dcThresholdA = Number(options.dcThresholdA ?? 0.1);
 
     // Per-instance, because init() rewires roles from the loaded config and a
     // shared module-level object would leak that between stands.
@@ -549,6 +564,45 @@ export class SimulatorDriver {
       tared.push(id);
     }
     return { ok: true, tared, unsupported: ids.filter((id) => !tared.includes(id)) };
+  }
+
+  /**
+   * Per-valve solenoid current, the way the PANDA's `s` lines report it.
+   *
+   * Without this the current-sense row on the Control Grid simply never
+   * appears in the simulator, which is how five channels came to be pointing
+   * at valve ids the stand no longer had: the readings were missing on
+   * hardware and there was no way to notice, because they were missing
+   * everywhere else too.
+   *
+   * `energized` is derived from the MEASURED current, not from what was
+   * commanded — a coil that was told to pull in and did not is the entire
+   * reason this row exists, so deriving it from the command would make the
+   * indicator agree with itself and never with the hardware.
+   */
+  dcStatus() {
+    const out = {};
+    for (const valve of this.config?.valves || []) {
+      if (!Number.isInteger(valve.channel)) continue;
+      const state = this.valveState.get(valve.id);
+      // A normally-open valve is energized to CLOSE, so coil state is not flow
+      // state — the same resolution setValve does on the way out.
+      const energized = valve.normallyOpen ? state === 'closed' : state === 'open';
+      // Idle is NOT zero. A real board's sense resistors leak a few tenths of
+      // a milliamp and that reading wanders constantly, which is the only
+      // sign from the card that a channel is alive at all. Modelling idle as a
+      // clean zero hid a display bug that rendered every real channel as a
+      // frozen "0.00 A".
+      const amps = Math.max(0, energized
+        ? COIL_HOLD_AMPS + gauss() * 0.015
+        : COIL_LEAK_AMPS + gauss() * 0.00005)
+      out[valve.id] = {
+        id: `DC${valve.channel}`,
+        amps,
+        energized: amps >= this.dcThresholdA,
+      };
+    }
+    return out;
   }
 
   /** Every modelled sensor can be tared, so every one reports an offset. */

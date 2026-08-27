@@ -360,6 +360,16 @@ def to_float(tok: str) -> float:
 
 Note this strips embedded letters anywhere, not just a prefix, and does not validate that `.` or `-` appear at most once — malformed tokens raise and are caught as `0.0`.
 
+> **CORRECTION — observed on hardware, 2026-08-27.** "Only the first token actually carries the ID letter" is **not true of this board's `s` lines**. Every token carries it:
+>
+> ```
+> s0.00049,s0.00039,s0.00038,s0.00038,s0.00038,s0.00037,s0.00051,s0.00037,s0.00041,s0.00041,s0.00040,s0.00040
+> ```
+>
+> The strip-everything-non-numeric rule absorbs it either way, which is exactly why that rule is worth keeping rather than replacing with a "slice off the first character" shortcut — the latter would turn `s0.00039` into `.00039` on eleven of twelve channels. Do not assume a leading-character strip is sufficient.
+>
+> Also worth recording from the same capture: **idle DC channels read ~0.4 mA, not 0.** That is sense-resistor leakage, it wanders continuously, and it is three orders of magnitude below a pulled-in coil (~600 mA). Any display of these values has to adapt its units or every idle channel renders as a frozen zero.
+
 #### 4.1.3 Telemetry line detail
 
 **`p` — pressure transducers.** 16 values. On current firmware these are **volts across the shunt**, not milliamps (§3.4). The host stores them as `_last_pt_raw`, derives `_last_pt_mA`, and rebuilds the line in engineering units before forwarding.
@@ -720,8 +730,8 @@ Recognised keys and their mapping:
 | `db` | `deadband` | float |
 | `wait` | `wait_ms` | int |
 | `maxOpen` | `max_open_ms` | int |
-| `ventTrig` | `vent_trigger` | float |
-| `ventAuto` | `vent_auto` | `=='1'` |
+| `ventTrig` | `vent_trigger` | float | **see correction below** |
+| `ventAuto` | `vent_auto` | `=='1'` | **see correction below** |
 | `mdot` | `mdot_target` | float |
 | `spMin` | `sp_min` | float |
 | `spMax` | `sp_max` | float |
@@ -729,6 +739,20 @@ Recognised keys and their mapping:
 | `mdotOn` | `mdot_on` | `=='1'` |
 
 Unknown keys are ignored. **`rho` is sent in the `M` command but has no `CFG_PUSH` key in the parser** — either firmware does not echo it or the host parser is incomplete. It cannot currently be verified from the ground station.
+
+> **CORRECTION — observed on hardware, 2026-08-27.** The table above was written from the reference implementations and is wrong about the vent keys, and about the shape of the echo. On the PandaV2 board on this stand:
+>
+> - **The vent keys are `avTrig` and `avAuto`**, not `ventTrig`/`ventAuto`. "av" for auto-vent, matching the `AV` state name.
+> - **The echo is emitted PER COMMAND, not as a full config dump.** A `B` followed by a `V` produces two separate `CFG_PUSH` lines, each carrying only its own command's fields:
+>
+>   ```
+>   EVT:...:CFG_PUSH:f:sp=50.0,db=2.0,wait=250,maxOpen=500
+>   EVT:...:CFG_PUSH:f:avTrig=650.0,avAuto=0
+>   ```
+>
+>   So no single line is the board's full configuration. **A client must accumulate echoes** rather than treating the latest one as complete, and must not conclude a field is unset because the most recent echo omitted it.
+>
+> The four core keys (`sp`, `db`, `wait`, `maxOpen`) are confirmed correct as documented. **Every `mdot*` key remains unverified** — GC-4 does not send the `M` command, so no echo for it has ever been observed. Expect those spellings to be wrong in the same way, and watch for an "unrecognised key" warning the first time one is pushed.
 
 Only MOE consumes `CFG_PUSH`. The panda/main.py path cannot — the comma bug in §3.3 prevents these lines from ever being classified as events. **Treat the firmware echo as authoritative and the host cache as a display convenience.**
 

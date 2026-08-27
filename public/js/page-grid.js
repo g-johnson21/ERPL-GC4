@@ -1,7 +1,7 @@
 /* page-grid.js — Control Grid: every actuator as a button, grouped by system. */
 import { bus } from './bus.js';
 import { bootPage } from './chrome.js';
-import { $, el, clear, icon, fmtValue, fmtRate, valueWidthCh } from './util.js';
+import { $, el, clear, icon, fmtValue, fmtRate, fmtCurrent, valueWidthCh } from './util.js';
 
 const content = await bootPage('grid');
 
@@ -143,14 +143,22 @@ function valveButton(valve, group) {
     id: `vb-${valve.id}`,
     dataset: { state: 'closed', valveId: valve.id, hazard: String(hazard) },
     style: { '--group-color': group.color },
-    title: `${valve.name}\nchannel ${valve.channel} · ${valve.normallyOpen ? 'normally open' : 'normally closed'}\nsafe state: ${valve.safeState}`,
+    title: `${valve.id} — ${valve.name}\nchannel ${valve.channel} · ${valve.normallyOpen ? 'normally open' : 'normally closed'}\nsafe state: ${valve.safeState}`,
     onclick: () => onValveClick(valve),
   },
+    // The NAME leads, on a line of its own, and the tag sits under it beside
+    // the type chip. An operator scanning a wall of eleven cards is looking
+    // for "LOx Tank BB", not for SV-LOXBB; the tag is what they confirm once
+    // they have found it, and what they say on comms.
+    //
+    // The name gets its own full-width line rather than sharing one with the
+    // chip: "SOLENOID" is 60px of a 120px row on a narrow card, which folds
+    // every name of more than about twelve characters.
+    el('div.v-name', { text: valve.name }),
     el('div.v-top', {},
       el('span.v-id', { text: valve.id }),
       el('span.v-type', { text: valve.type })
     ),
-    el('div.v-name', { text: valve.name }),
     el('div.v-state', {},
       el('span.led'),
       el('span', { id: `vs-${valve.id}`, text: '––' })
@@ -197,7 +205,7 @@ function updateValves() {
     if (dcEl) {
       dcEl.classList.toggle('hidden', !dc);
       if (dc) {
-        dcEl.textContent = `${dc.id} · ${dc.amps.toFixed(2)} A`;
+        dcEl.textContent = `${dc.id} · ${fmtCurrent(dc.amps)}`;
         // A normally-open valve is energized to CLOSE, so current while
         // closed is correct. Compare against the expected COIL state, not
         // the flow state, or every NO vent reads as a permanent fault.

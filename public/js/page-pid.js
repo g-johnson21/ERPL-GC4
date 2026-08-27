@@ -6,7 +6,7 @@
  */
 import { bus } from './bus.js';
 import { bootPage } from './chrome.js';
-import { $, el, icon, fmtValue } from './util.js';
+import { $, el, icon, fmtValue, fmtCurrent, coilState } from './util.js';
 import { svgEl, renderComponent, renderValve, renderInstrument, renderPipe, renderJunction } from './pid-symbols.js';
 
 const content = await bootPage('pid');
@@ -293,8 +293,51 @@ function update() {
 
     const gate = bus.canCommand(valve.id, state === 'open' ? 'closed' : 'open');
     node.dataset.locked = String(!gate.ok);
+
+    updateCoil(valve, state);
   }
 
+  updateInstruments();
+}
+
+/**
+ * Paint one valve's coil indicator from the current sense.
+ *
+ * The comparison is against COIL state, not flow state. A normally-open valve
+ * is energized to CLOSE, so a NO vent sitting open should read de-energized
+ * and one commanded shut should read energized. Comparing against flow state
+ * instead would mark every normally-open valve on the stand as faulted,
+ * permanently — the fastest way to teach an operator to ignore the indicator.
+ *
+ *   off      de-energized, as commanded
+ *   on       energized, as commanded
+ *   fault    the coil is not doing what it was told
+ *   unknown  no current sense on this channel, so nothing is claimed
+ */
+function updateCoil(valve, state) {
+  const dot = document.getElementById(`pvc-${valve.id}`);
+  if (!dot) return;
+
+  const dc = bus.state.valves?.[valve.id]?.dc;
+  const coil = coilState(valve, state, dc);
+  dot.dataset.coil = coil;
+
+  if (coil === 'unknown') {
+    // Hidden, not grey. Grey is a measurement meaning "de-energized"; a valve
+    // nobody is measuring must not borrow that claim.
+    dot.firstChild.textContent = '';
+    return;
+  }
+
+  const shouldEnergize = valve.normallyOpen ? state === 'closed' : state === 'open';
+  const agrees = coil !== 'fault';
+  dot.firstChild.textContent =
+    `${dc.id}: coil ${dc.energized ? 'ENERGIZED' : 'de-energized'} · ${fmtCurrent(dc.amps)}\n` +
+    `commanded ${state.toUpperCase()}, expects ${shouldEnergize ? 'energized' : 'de-energized'}` +
+    (agrees ? '' : '\n*** MISMATCH — the coil is not doing what it was told ***');
+}
+
+function updateInstruments() {
   // --- instruments ---
   for (const sensor of bus.config.sensors) {
     const node = document.getElementById(`pi-${sensor.id}`);

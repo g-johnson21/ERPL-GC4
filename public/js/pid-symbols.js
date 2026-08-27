@@ -364,6 +364,22 @@ export function renderValve(valve, groupColor) {
   g.append(svgText(valve.id, { x: 0, y: 42, class: 'pid-label strong', 'text-anchor': 'middle' }));
   g.append(svgText('', { x: 0, y: 53, class: 'pid-valve-state', id: `pvs-${valve.id}`, 'text-anchor': 'middle' }));
 
+  // Coil state as MEASURED, not as commanded.
+  //
+  // Every other mark on this symbol shows what the stand was told to do. This
+  // one shows what the current sense says actually happened, which is the only
+  // thing on the drawing that can disagree with the operator. Deliberately
+  // outside `body`, so it does not rotate with the symbol — an annotation
+  // about the valve rather than part of it.
+  const coil = svgEl('circle', {
+    class: 'pid-coil',
+    id: `pvc-${valve.id}`,
+    cx: 22, cy: -26, r: 4.5,
+    dataset: { coil: 'unknown' },
+  });
+  coil.append(svgEl('title', {}, document.createTextNode('')));
+  g.append(coil);
+
   return g;
 }
 

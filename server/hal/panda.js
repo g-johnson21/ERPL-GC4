@@ -60,6 +60,9 @@ const MAX_LINE_BYTES = 16384;
 /** A side is stale if no heartbeat has arrived in this long. */
 const HEARTBEAT_TIMEOUT_MS = 2000;
 
+/** Change on an `s` position that counts as movement, for the DC trace. */
+const DC_TRACE_DELTA_A = 0.05;
+
 export class PandaDriver {
   constructor(options = {}) {
     this.name = 'panda';
@@ -69,6 +72,9 @@ export class PandaDriver {
     this.shuntOhms = options.shuntOhms || {};
     this.defaultShuntOhms = Number(options.defaultShuntOhms || 47);
     this.dcThresholdA = Number(options.dcThresholdA ?? 0.1);
+    // Wire-position trace for the `s` line. Off unless asked for: it prints
+    // twelve lines a second and is a bring-up tool, not telemetry.
+    this.debugDc = options.debugDc ?? process.env.GC_DEBUG_DC === '1';
     // How many leading fields of a `t` line are load cells; the remainder are
     // thermocouples. Observed firmware: 12 fields = 8 LC + 4 TC.
     this.tLcCount = Number(options.tLcCount ?? 8);
@@ -83,7 +89,16 @@ export class PandaDriver {
     this.dcChannels = options.dcChannels || {};
     this.dcByValve = new Map();
     for (const [index, meta] of Object.entries(this.dcChannels)) {
-      if (meta.valve) this.dcByValve.set(meta.valve, Number(index));
+      // `sensed: false` marks a position with no working current sense — an
+      // unpopulated input, or one that sits at a fixed offset. Those report a
+      // plausible-looking number that is not a measurement, and above the
+      // threshold they read as a valve that is energized when it is not.
+      //
+      // Excluded here rather than filtered later, so the valve shows NO
+      // current row at all. "We cannot measure this coil" is the honest
+      // display; a number nobody should trust is worse than a blank, because
+      // it is indistinguishable from one that matters.
+      if (meta.valve && meta.sensed !== false) this.dcByValve.set(meta.valve, Number(index));
     }
 
     this.buffer = Buffer.alloc(0);
@@ -94,6 +109,9 @@ export class PandaDriver {
     this.rxCount = 0;
     this.port = null;
     this.onEvent = options.onEvent || (() => {});
+    // Raw serial tap: (direction, bytes) for every framed line in and every
+    // command out. Null unless --panda-tap asked for it.
+    this.onRaw = options.onRaw || null;
 
     // Bang-bang mirror, per side. Everything here is what the BOARD said, not
     // what we asked for; `confirmed` is the CFG_PUSH echo, which §5.5 calls
@@ -108,6 +126,7 @@ export class PandaDriver {
 
   async init(config) {
     this.config = config;
+    this.checkDcWiring(config);
 
     let SerialPort;
     try {
@@ -151,7 +170,13 @@ export class PandaDriver {
 
     let nl;
     while ((nl = this.buffer.indexOf(0x0a)) !== -1) {
-      const line = this.buffer.subarray(0, nl).toString('ascii').trim();
+      const frame = this.buffer.subarray(0, nl);
+      // Tapped BEFORE the trim, and as bytes. A raw view whose whole purpose
+      // is showing what the board actually sent must not first tidy away the
+      // trailing \r, the stray high bit, or the empty line — those are exactly
+      // what someone turns this on to look at.
+      this.onRaw?.('rx', Buffer.from(frame));
+      const line = frame.toString('ascii').trim();
       this.buffer = this.buffer.subarray(nl + 1);
       if (line) this.onLine(line);
     }
@@ -213,6 +238,7 @@ export class PandaDriver {
           states: currents.map((a) => a >= this.dcThresholdA),
         };
         currents.forEach((v, i) => this.raw.set(`dc${i}`, v));
+        if (this.debugDc) this.traceDc(line, values);
         break;
       }
       default:
@@ -342,8 +368,101 @@ export class PandaDriver {
   }
 
   /**
+   * Dump the `s` line by wire position, for pinning down which position
+   * carries which solenoid.
+   *
+   * Enable with GC_DEBUG_DC=1. Prints once a second, plus immediately whenever
+   * any position moves by more than `DC_TRACE_DELTA_A` — so the procedure is:
+   * actuate ONE valve and watch which index jumps. That is the only reliable
+   * way to establish the mapping, because the `s` line carries no channel
+   * identifiers of its own and its order is a harness artifact that
+   * HANDOVER_COMMS.md §3.5 explicitly says to verify per board.
+   *
+   * `min`/`max` accumulate across the whole session: a position that never
+   * moves is the interesting case, and a single frame cannot show that.
+   */
+  traceDc(rawLine, wire) {
+    const now = Date.now();
+    this.dcTrace ??= new Map();
+
+    let moved = null;
+    wire.forEach((v, i) => {
+      const seen = this.dcTrace.get(i) || { min: v, max: v };
+      if (v < seen.min) seen.min = v;
+      if (v > seen.max) seen.max = v;
+      this.dcTrace.set(i, seen);
+      if (Math.abs(v - (seen.last ?? v)) > DC_TRACE_DELTA_A) moved = i;
+      seen.last = v;
+    });
+
+    if (moved === null && now - (this.lastDcTraceAt || 0) < 1000) return;
+    this.lastDcTraceAt = now;
+
+    const cols = wire.map((v, i) => {
+      const meta = this.dcChannels[i];
+      const span = this.dcTrace.get(i);
+      const label = meta ? `${meta.id}${meta.valve ? `/${meta.valve}` : ''}` : '(unmapped)';
+      const flat = span.max - span.min <= DC_TRACE_DELTA_A ? ' FLAT' : '';
+      return `  [${String(i).padStart(2)}] ${v.toFixed(3)}A  ` +
+             `range ${span.min.toFixed(3)}..${span.max.toFixed(3)}${flat}  ${label}`;
+    });
+    console.error(
+      `[panda] s-line: ${wire.length} values${moved !== null ? `  *** position ${moved} MOVED ***` : ''}\n` +
+      `  raw: ${rawLine}\n${cols.join('\n')}`
+    );
+  }
+
+  /**
+   * Check the current-sense wiring against the stand's actual valves.
+   *
+   * `dcByValve` is keyed by valve id, so a `dcChannels` entry naming a valve
+   * that does not exist simply never matches and that actuator shows no
+   * current reading — with nothing anywhere saying why. That is exactly what
+   * happened when the stand's valves were renamed and this file was not: five
+   * of eleven channels went dark and looked like a hardware fault.
+   *
+   * Both directions are reported, because they mean different things. A
+   * channel naming an unknown valve is a stale or mistyped wiring file. A
+   * valve with no channel may be correct — not every actuator is sensed — so
+   * it is listed once at startup for confirmation, not warned about.
+   */
+  checkDcWiring(config) {
+    const valves = new Set((config?.valves || []).map((v) => v.id));
+    if (!valves.size) return;
+
+    const orphans = [];
+    const unsensed = [];
+    for (const [index, meta] of Object.entries(this.dcChannels)) {
+      if (!meta.valve) continue;
+      if (meta.sensed === false) { unsensed.push(`${meta.id}/${meta.valve}`); continue; }
+      if (!valves.has(meta.valve)) {
+        orphans.push(`${meta.id || `DC${Number(index) + 1}`}→"${meta.valve}"`);
+      }
+    }
+    // Said once at startup, not warned about: it is a deliberate declaration,
+    // and an operator who sees no current row on a valve should be able to
+    // find out from the log why rather than assuming the board went quiet.
+    if (unsensed.length) {
+      console.error(`[panda] current sense declared unavailable on: ${unsensed.join(', ')}`);
+    }
+    if (orphans.length) {
+      this.onEvent(
+        `PANDA current sense: ${orphans.length} channel(s) name a valve this stand does not have ` +
+        `(${orphans.join(', ')}) — those actuators will show no current reading. ` +
+        `Check dcChannels[].valve in your hardware config against stand.json.`,
+        'error'
+      );
+    }
+
+    const unmapped = [...valves].filter((id) => !this.dcByValve.has(id));
+    if (unmapped.length) {
+      console.error(`[panda] no current sense configured for: ${unmapped.join(', ')}`);
+    }
+  }
+
+  /**
    * Per-channel current sense, keyed by the valve each channel watches.
-   * Diagnostics for the UI: `{ 'SV-FP': {id, amps, energized} }`.
+   * Diagnostics for the UI: `{ 'SV-LOXBB': {id, amps, energized} }`.
    */
   dcStatus() {
     const out = {};
@@ -370,6 +489,9 @@ export class PandaDriver {
   send(line) {
     if (!this.port?.writable) return false;
     this.port.write(line + '\n');
+    // Both directions, so the tap shows a command and the board's answer to it
+    // in one stream. Half a conversation is much harder to read than all of it.
+    this.onRaw?.('tx', Buffer.from(line, 'ascii'));
     return true;
   }
 
