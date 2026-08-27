@@ -188,6 +188,17 @@
   font-weight: 700;
   letter-spacing: .04em;
 }
+
+/* The tag stencilled on the hardware, above the symbol. Deliberately quieter
+   than the GC-4 id below it: it is a cross-reference, not the primary label. */
+.pid-valve-tag {
+  fill: var(--text-faint);
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  opacity: .8;
+}
 .pid-valve[data-state="open"] .pid-valve-state { fill: var(--ok); }
 .pid-valve[data-hazard="true"][data-state="open"] .pid-valve-state { fill: var(--danger); }
 
@@ -198,14 +209,20 @@
   stroke-width: 1.2;
   stroke-dasharray: 4 3;
 }
+/* The bubble is drawn in its sensor group's colour: LOX blue, fuel red,
+   thermocouples yellow, load cells purple. Falls back to the ink colour for a
+   sensor whose group defines none, so an unstyled config still reads. */
 .pid-bubble {
-  fill: var(--surface);
-  stroke: var(--text);
-  stroke-width: 1.8;
+  fill: color-mix(in srgb, var(--group-color, var(--text)) 8%, var(--surface));
+  stroke: var(--group-color, var(--text));
+  stroke-width: 2;
 }
-.pid-bubble-div { stroke: var(--text); stroke-width: 1.2; }
+.pid-bubble-div { stroke: var(--group-color, var(--text)); stroke-width: 1.2; }
+/* The tag keeps its group's hue but is pulled toward the page's ink, so it
+   stays legible in both themes. Raw #eab308 on a white bubble is about 1.9:1
+   — the right colour and unreadable. */
 .pid-tag {
-  fill: var(--text-muted);
+  fill: color-mix(in srgb, var(--group-color, var(--text-muted)) 52%, var(--text));
   font-family: var(--mono);
   font-size: 9.5px;
   font-weight: 700;

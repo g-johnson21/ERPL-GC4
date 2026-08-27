@@ -1,19 +1,26 @@
-/* page-data.js — all instrumentation in a grid, plus a dense table view. */
+/* page-data.js — every instrument on one screen, plus a dense table view.
+ *
+ * LAYOUT
+ *   Cards mode gives each sensor group its own full-height column, and sizes
+ *   every card so the longest column exactly fills the viewport. Nothing
+ *   scrolls: during a test an operator reads this page at a glance, and a
+ *   channel that is one flick of a scroll wheel away is a channel nobody is
+ *   watching. Cards are compact for the same reason — window min/max moved to
+ *   each card's tooltip and stays exact in the Table view.
+ *
+ *   Groups come from `sensorGroups` in the config, so LOX and Fuel are
+ *   columns with their own outline colour rather than one undifferentiated
+ *   wall of pressure transducers.
+ */
 import { bus } from './bus.js';
 import { bootPage } from './chrome.js';
-import { $, el, clear, icon, fmtValue, normalize, valueWidthCh } from './util.js';
+import { $, el, clear, icon, fmtValue, fmtRate, normalize, valueWidthCh, toast } from './util.js';
 
 const content = await bootPage('data', { sidebar: false });
 
-const KIND_LABELS = {
-  pressure: 'Pressure Transducers',
-  temperature: 'Thermocouples',
-  force: 'Load Cells',
-  flow: 'Flow Meters',
-  level: 'Level Sensors',
-  voltage: 'Voltage Channels',
-  other: 'Other Channels',
-};
+/** Window for the rate-of-change fit. Not the sparkline window — a rate
+ *  averaged over two minutes would say nothing about a pressurization ramp. */
+const RATE_SECONDS = 3;
 
 let mode = loadPref('gc4-data-mode', 'cards');
 let windowSeconds = Number(loadPref('gc4-data-window', '60'));
@@ -43,9 +50,14 @@ content.append(
   el('div#data-body')
 );
 
+// Cards mode owns the viewport: the column grid sizes itself against a
+// definite height, which it only has if nothing above it can scroll.
+content.classList.add('data-page');
+
 function setMode(next) {
   mode = next;
   savePref('gc4-data-mode', next);
+  content.classList.toggle('table-mode', next === 'table');
   $('#mode-cards').classList.toggle('active', next === 'cards');
   $('#mode-table').classList.toggle('active', next === 'table');
   build();
@@ -59,35 +71,89 @@ function build() {
   const host = $('#data-body');
   clear(host);
   sparks.clear();
+  content.classList.toggle('table-mode', mode === 'table');
   if (mode === 'cards') buildCards(host);
   else buildTable(host);
   update();
 }
 
-function groupedSensors() {
-  const kinds = [...new Set(bus.config.sensors.map((s) => s.kind))];
-  const order = ['pressure', 'temperature', 'force', 'flow', 'level', 'voltage', 'other'];
-  kinds.sort((a, b) => order.indexOf(a) - order.indexOf(b));
-  return kinds.map((kind) => ({
-    kind,
-    label: KIND_LABELS[kind] || kind,
-    sensors: bus.config.sensors.filter((s) => s.kind === kind),
-  }));
-}
+const groupedSensors = () => bus.sensorGroups();
 
+/**
+ * One column per group, every card the same height.
+ *
+ * `--rows` is the largest group, and the card height is derived from it in
+ * CSS, so the longest column fills the available height exactly and the rest
+ * line up with it. Sizing in CSS rather than JS means it survives a window
+ * resize with no listener and no reflow loop.
+ */
 function buildCards(host) {
-  for (const group of groupedSensors()) {
-    host.append(
-      el('div.group-head', {}, group.label,
-        el('span.faint', { style: { textTransform: 'none', letterSpacing: 0 }, text: `${group.sensors.length}` })
-      ),
-      el('div.sensor-grid', { style: { '--scols': String(bus.config.ui.sensorGridColumns) } },
+  const groups = groupedSensors();
+  const rows = Math.max(1, ...groups.map((g) => g.sensors.length));
+
+  host.append(el('div.sensor-columns', { style: { '--rows': String(rows) } },
+    groups.map((group) =>
+      el('div.sensor-column', { style: { '--group-color': group.color || '#64748b' } },
+        el('div.col-head', {},
+          el('span.group-swatch'),
+          el('span.col-label', { text: group.label, title: group.label }),
+          el('span.col-count', { text: String(group.sensors.length) }),
+          ...groupTareButtons(group)
+        ),
         group.sensors.map(sensorCard)
       )
-    );
-  }
+    )
+  ));
 }
 
+/**
+ * Zero the whole group, rendered only where the hardware can actually do it.
+ *
+ * Addressed by explicit sensor list rather than by group name: the server
+ * knows nothing about how this page chooses to arrange things, and shipping
+ * the ids keeps the two from having to agree on a taxonomy.
+ */
+function groupTareButtons(group) {
+  const ids = group.sensors.filter((s) => bus.canTare(s.id)).map((s) => s.id);
+  if (!ids.length) return [];
+  return [
+    el('button.tare-chip', {
+      id: `tare-group-${group.id}`,
+      title: `Zero all ${ids.length} ${group.label} channels against their current readings`,
+      text: 'TARE',
+      onclick: () => runTare({ sensors: ids }, group.label),
+    }),
+    el('button.tare-chip.clear.hidden', {
+      id: `untare-group-${group.id}`,
+      title: `Remove every zero offset in ${group.label}`,
+      text: '✕',
+      onclick: () => runTare({ sensors: ids, clear: true }, group.label),
+    }),
+  ];
+}
+
+/**
+ * Issue a tare and report what came back.
+ *
+ * Deliberately no confirmation dialog. A tare is visible for as long as it is
+ * applied (the button shows the offset), reversible in one click, and written
+ * to the event log and the CSV. That is a better safety property than a modal,
+ * and it does not cost a click every time a channel is zeroed before a test.
+ */
+async function runTare(spec, what) {
+  const res = await bus.post('/api/tare', spec);
+  if (!res.ok) return;                       // bus already toasted the reason
+  const n = res.tared?.length ?? 0;
+  toast(spec.clear ? `Tare cleared on ${n} channel(s)` : `Tared ${n} channel(s) — ${what}`, 'ok');
+}
+
+/**
+ * The name leads and the tag follows it, not the other way round.
+ *
+ * On a wall of twenty-two cards "LOX Tank Downstream" is what an operator is
+ * looking for; PT4 is how they confirm it once found. The tag stays in
+ * monospace so it still scans as an identifier.
+ */
 function sensorCard(sensor) {
   const canvas = el('canvas.s-spark', { id: `spark-${sensor.id}` });
   sparks.set(sensor.id, canvas);
@@ -95,24 +161,53 @@ function sensorCard(sensor) {
 
   return el('div.sensor-card', { id: `sc-${sensor.id}`, dataset: { status: 'stale' } },
     el('div.s-top', {},
-      el('span.s-id', { text: sensor.id }),
+      el('span.s-name', { text: sensor.name, title: sensor.name }),
       el('span.s-status')
     ),
-    el('div.s-name', { text: sensor.name, title: sensor.name }),
+    el('div.s-sub', {},
+      el('span.s-id', { text: sensor.id }),
+      el('span.s-ch', { text: `ch ${sensor.channel}` }),
+      ...tareControls(sensor)
+    ),
     el('div.s-value', {},
       // Width reserved for the widest reading in range, so the units label
-      // and the card never shift as digits come and go.
+      // and the rate beside it never shift as digits come and go.
       el('span.s-num', { id: `sv-${sensor.id}`, style: { minWidth: `${w}ch` }, text: '––––' }),
-      el('span.s-units', { text: sensor.units })
+      el('span.s-units', { text: sensor.units }),
+      el('span.s-rate', { id: `sr-${sensor.id}`, dataset: { dir: 'flat' }, text: '' })
     ),
     canvas,
-    el('div.s-bar', {}, el('i', { id: `sb-${sensor.id}`, style: { width: '0%' } })),
-    el('div.rec-stats', { style: { marginTop: '4px' } },
-      el('span.stat-slot', { id: `smin-${sensor.id}`, style: { minWidth: `${w + 5}ch` }, text: 'min ––' }),
-      el('span.stat-slot', { id: `smax-${sensor.id}`, style: { minWidth: `${w + 5}ch` }, text: 'max ––' }),
-      el('span', { style: { marginLeft: 'auto' }, text: `ch ${sensor.channel}` })
-    )
+    el('div.s-bar', {}, el('i', { id: `sb-${sensor.id}`, style: { width: '0%' } }))
   );
+}
+
+/**
+ * The zero controls for one channel: a TARE button that shows the live offset
+ * once one is applied, and a CLEAR button that only exists while there is
+ * something to clear.
+ *
+ * One button doing both jobs would mean either a modifier key nobody
+ * discovers, or losing the ability to re-zero a channel that has drifted
+ * without first clearing it. Two buttons cost one small glyph.
+ *
+ * Both views render these, and only one view is mounted at a time, so the ids
+ * stay unique.
+ */
+function tareControls(sensor) {
+  return [
+    el('button.tare-chip.hidden', {
+      id: `tb-${sensor.id}`,
+      title: `Zero ${sensor.id} against its current reading`,
+      text: 'TARE',
+      onclick: () => runTare({ sensors: [sensor.id] }, sensor.id),
+    }),
+    el('button.tare-chip.clear.hidden', {
+      id: `tx-${sensor.id}`,
+      title: `Remove the zero offset on ${sensor.id}`,
+      text: '✕',
+      onclick: () => runTare({ sensors: [sensor.id], clear: true }, sensor.id),
+    }),
+  ];
 }
 
 function buildTable(host) {
@@ -121,38 +216,42 @@ function buildTable(host) {
   // the whole table twitches at 20 Hz.
   const table = el('table.data-table.fixed');
 
-  const widths = ['96px', '20%', '96px', '120px', '64px', '104px', '104px', '132px', '52px', '92px'];
+  const widths = ['20%', '92px', '112px', '58px', '128px', '96px', '96px', '120px', '48px', '84px', '108px'];
   const cols = el('colgroup');
   for (const w of widths) cols.append(el('col', { style: { width: w } }));
   table.append(cols);
 
+  // Description first, tag second — the same order as the cards, so switching
+  // views does not mean re-learning where to look.
+  const headers = ['Description', 'Tag', 'Group', 'Value', 'Rate', 'Min', 'Max', 'Range', 'Ch', 'Status', 'Tare'];
   table.append(el('thead', {}, el('tr', {},
-    ['Tag', 'Description', 'Type', 'Value', 'Units', 'Min', 'Max', 'Range', 'Ch', 'Status'].map((h) =>
-      el('th', { text: h, class: ['Value', 'Min', 'Max', 'Ch'].includes(h) ? 'num' : '' })
+    headers.map((h) =>
+      el('th', { text: h, class: ['Value', 'Rate', 'Min', 'Max', 'Ch'].includes(h) ? 'num' : '' })
     )
   )));
 
   const tbody = el('tbody');
   for (const group of groupedSensors()) {
-    tbody.append(el('tr', {},
-      el('td', {
-        colspan: 10,
-        style: { background: 'var(--surface-2)', fontWeight: '700', fontSize: '10.5px', letterSpacing: '.07em', textTransform: 'uppercase' },
-        text: group.label,
-      })
+    tbody.append(el('tr.group-row', { style: { '--group-color': group.color || '#64748b' } },
+      el('td', { colspan: 11 },
+        el('span.group-swatch'),
+        group.label,
+        el('span.col-count', { text: String(group.sensors.length) })
+      )
     ));
     for (const s of group.sensors) {
       tbody.append(el('tr', { id: `tr-${s.id}` },
-        el('td.mono', { style: { fontWeight: '700' }, text: s.id }),
-        el('td', { text: s.name }),
-        el('td.muted', { text: s.kind }),
+        el('td', { style: { fontWeight: '650' }, text: s.name }),
+        el('td.mono.muted', { text: s.id }),
+        el('td.muted', { text: group.label }),
         el('td.num', { id: `tv-${s.id}`, text: '––––' }),
-        el('td.muted', { text: s.units }),
+        el('td.num.s-rate', { id: `trate-${s.id}`, dataset: { dir: 'flat' }, text: '' }),
         el('td.num.muted', { id: `tmin-${s.id}`, text: '––' }),
         el('td.num.muted', { id: `tmax-${s.id}`, text: '––' }),
-        el('td.mono.muted', { text: `${s.min} … ${s.max}` }),
+        el('td.mono.muted', { text: `${s.min} … ${s.max} ${s.units}` }),
         el('td.num.muted', { text: s.channel }),
-        el('td', { id: `ts-${s.id}`, text: '–' })
+        el('td', { id: `ts-${s.id}`, text: '–' }),
+        el('td.tare-cell', {}, tareControls(s))
       ));
     }
   }
@@ -173,10 +272,14 @@ bus.on('state', () => {
 function update() {
   if (!bus.state) return;
 
+  updateTareControls();
+
   for (const sensor of bus.config.sensors) {
     const value = bus.reading(sensor.id);
     const status = bus.sensorStatus(sensor.id);
     const stats = windowStats(sensor.id, windowSeconds);
+
+    const rate = fmtRate(bus.rate(sensor.id, RATE_SECONDS), sensor);
 
     if (mode === 'cards') {
       const card = $(`#sc-${sensor.id}`);
@@ -184,20 +287,72 @@ function update() {
       card.dataset.status = status;
       $(`#sv-${sensor.id}`).textContent = fmtValue(value, sensor.decimals);
       $(`#sb-${sensor.id}`).style.width = `${normalize(value, sensor.min, sensor.max) * 100}%`;
-      $(`#smin-${sensor.id}`).textContent = `min ${fmtValue(stats.min, sensor.decimals)}`;
-      $(`#smax-${sensor.id}`).textContent = `max ${fmtValue(stats.max, sensor.decimals)}`;
+
+      const rateEl = $(`#sr-${sensor.id}`);
+      rateEl.textContent = rate.text;
+      rateEl.dataset.dir = rate.dir;
+
+      // Window min/max lost its own row when the cards had to fit one screen.
+      // It is still exact in the Table view; here it rides on the tooltip.
+      card.title = `${sensor.id} — ${sensor.name}\n`
+        + `min ${fmtValue(stats.min, sensor.decimals)} · max ${fmtValue(stats.max, sensor.decimals)} `
+        + `${sensor.units} over ${windowSeconds}s`;
+
       drawSpark(sensor, status);
     } else {
       const cell = $(`#tv-${sensor.id}`);
       if (!cell) continue;
       cell.textContent = fmtValue(value, sensor.decimals);
       cell.className = `num st-${status}`;
+
+      const rateCell = $(`#trate-${sensor.id}`);
+      rateCell.textContent = rate.text;
+      rateCell.dataset.dir = rate.dir;
+
       $(`#tmin-${sensor.id}`).textContent = fmtValue(stats.min, sensor.decimals);
       $(`#tmax-${sensor.id}`).textContent = fmtValue(stats.max, sensor.decimals);
       const st = $(`#ts-${sensor.id}`);
       st.textContent = status.toUpperCase();
       st.className = `st-${status}`;
     }
+  }
+}
+
+/**
+ * Reflect tare state: which channels offer the buttons, which are currently
+ * zeroed, and by how much.
+ *
+ * A tared channel reading 0 psi is indistinguishable from an untared one, so
+ * the offset is shown on the button itself rather than tucked in a tooltip.
+ */
+function updateTareControls() {
+  for (const sensor of bus.config.sensors) {
+    const offset = bus.tare(sensor.id);
+    const tareable = offset !== null;
+    const tared = tareable && offset !== 0;
+
+    const btn = $(`#tb-${sensor.id}`);
+    if (btn) {
+      btn.classList.toggle('hidden', !tareable);
+      btn.classList.toggle('on', tared);
+      const shown = tared
+        ? `${offset > 0 ? '−' : '+'}${fmtValue(Math.abs(offset), sensor.decimals)}`
+        : 'TARE';
+      if (btn.textContent !== shown) btn.textContent = shown;
+      // The sign on the button is the shift applied to what you see, so the
+      // wording has to match it: a negative offset ADDS to the reading.
+      btn.title = tared
+        ? `${fmtValue(Math.abs(offset), sensor.decimals)} ${sensor.units} is being `
+          + `${offset > 0 ? 'subtracted from' : 'added to'} ${sensor.id}.\n`
+          + 'Click to re-zero at the current reading.'
+        : `Zero ${sensor.id} against its current reading`;
+    }
+    $(`#tx-${sensor.id}`)?.classList.toggle('hidden', !tared);
+  }
+
+  for (const group of groupedSensors()) {
+    const anyTared = group.sensors.some((s) => (bus.tare(s.id) ?? 0) !== 0);
+    $(`#untare-group-${group.id}`)?.classList.toggle('hidden', !anyTared);
   }
 }
 

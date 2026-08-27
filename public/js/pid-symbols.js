@@ -117,6 +117,20 @@ const SYMBOLS = {
     svgEl('line', { x1: -16, y1: 3, x2: 8, y2: -13, class: 'sym-line-thin' })
   ),
 
+  /** Cavitating venturi: converging-diverging throat in the run line. */
+  venturi: () => svgEl('g', {},
+    svgEl('path', {
+      d: 'M-22,-14 L-6,-4 L-6,4 L-22,14 Z',
+      class: 'sym-fill',
+    }),
+    svgEl('path', {
+      d: 'M22,-14 L6,-4 L6,4 L22,14 Z',
+      class: 'sym-fill',
+    }),
+    svgEl('line', { x1: -6, y1: -4, x2: 6, y2: -4, class: 'sym-line' }),
+    svgEl('line', { x1: -6, y1: 4, x2: 6, y2: 4, class: 'sym-line' })
+  ),
+
   /** Rupture / burst disk: bowed disk between two plates. */
   'burst-disk': () => svgEl('g', {},
     svgEl('line', { x1: -11, y1: -13, x2: -11, y2: 13, class: 'sym-line' }),
@@ -340,6 +354,13 @@ export function renderValve(valve, groupColor) {
   g.append(body);
 
   g.append(svgEl('title', {}, document.createTextNode(`${valve.id} — ${valve.name}`)));
+
+  // The tag stencilled on the hardware (S1, PB2...), above the symbol. It is
+  // what an operator at the stand reads, so showing it here is what lets a
+  // symbol on screen be matched to a valve in front of them.
+  if (p.tag) {
+    g.append(svgText(p.tag, { x: 0, y: -40, class: 'pid-valve-tag', 'text-anchor': 'middle' }));
+  }
   g.append(svgText(valve.id, { x: 0, y: 42, class: 'pid-label strong', 'text-anchor': 'middle' }));
   g.append(svgText('', { x: 0, y: 53, class: 'pid-valve-state', id: `pvs-${valve.id}`, 'text-anchor': 'middle' }));
 
@@ -347,11 +368,24 @@ export function renderValve(valve, groupColor) {
 }
 
 /** ISA instrument bubble with live value, plus its lead line to the tap. */
-export function renderInstrument(sensor) {
+/**
+ * ISA instrument bubble.
+ *
+ * `group` carries the colour, so a glance at the drawing separates the LOX
+ * side from the fuel side and both from the thermocouples and load cells,
+ * without reading a single tag. Alarm state still repaints the bubble on top
+ * of it — knowing a channel is a TC matters less than knowing it is in danger.
+ */
+export function renderInstrument(sensor, group) {
   const p = sensor.pid;
   if (!p) return null;
 
-  const g = svgEl('g', { class: 'pid-instrument', id: `pi-${sensor.id}`, dataset: { status: 'stale' } });
+  const g = svgEl('g', {
+    class: 'pid-instrument',
+    id: `pi-${sensor.id}`,
+    dataset: { status: 'stale' },
+    style: group?.color ? `--group-color: ${group.color}` : '',
+  });
 
   if (p.lead) {
     g.append(svgEl('line', {
@@ -366,7 +400,8 @@ export function renderInstrument(sensor) {
     svgEl('text', { x: p.x, y: p.y - 7, class: 'pid-tag', 'text-anchor': 'middle' }, document.createTextNode(sensor.id)),
     svgEl('text', { x: p.x, y: p.y + 13, class: 'pid-reading', id: `pir-${sensor.id}`, 'text-anchor': 'middle' },
       document.createTextNode('––––')),
-    svgEl('title', {}, document.createTextNode(`${sensor.id} — ${sensor.name} (${sensor.units})`))
+    svgEl('title', {}, document.createTextNode(
+      `${sensor.id} — ${sensor.name} (${sensor.units})${group ? ` · ${group.label}` : ''}`))
   );
 
   return g;

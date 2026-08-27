@@ -61,6 +61,31 @@ export function fmtValue(v, decimals = 1) {
   return v.toFixed(decimals);
 }
 
+/**
+ * Rate of change, as it appears beside a reading: `▲ 12.4 psi/s`.
+ *
+ * Returns { text, dir } where dir is 'up' | 'down' | 'flat'. "Flat" is not
+ * zero — it is anything inside a small band of the sensor's own span, because
+ * a least-squares slope on a noisy transducer never sits exactly at zero and
+ * an arrow that flickers between ▲ and ▼ on a still tank is worse than none.
+ *
+ * `compact` drops the unit name and leaves `▲ 12.4/s`, for places where the
+ * units are already printed on the same line and repeating them would push
+ * the number out of the box.
+ */
+export function fmtRate(rate, sensor, { compact = false } = {}) {
+  const per = compact ? '/s' : ` ${sensor.units}/s`;
+  if (rate === null || rate === undefined || !Number.isFinite(rate)) {
+    return { text: `––${per}`, dir: 'flat' };
+  }
+  const span = Math.abs((sensor.max ?? 1) - (sensor.min ?? 0)) || 1;
+  const deadband = span * 0.0005;                 // 0.05 % of full scale per second
+  const dir = rate > deadband ? 'up' : rate < -deadband ? 'down' : 'flat';
+  const arrow = dir === 'up' ? '▲' : dir === 'down' ? '▼' : '–';
+  const magnitude = Math.abs(rate).toFixed(sensor.decimals ?? 1);
+  return { text: `${arrow} ${magnitude}${per}`, dir };
+}
+
 export function fmtDuration(seconds) {
   if (!Number.isFinite(seconds)) return '0:00';
   const s = Math.max(0, Math.floor(seconds));

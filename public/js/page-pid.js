@@ -6,7 +6,7 @@
  */
 import { bus } from './bus.js';
 import { bootPage } from './chrome.js';
-import { $, el, icon, fmtValue, confirmAction } from './util.js';
+import { $, el, icon, fmtValue } from './util.js';
 import { svgEl, renderComponent, renderValve, renderInstrument, renderPipe, renderJunction } from './pid-symbols.js';
 
 const content = await bootPage('pid');
@@ -99,7 +99,7 @@ for (const valve of bus.config.valves) {
 }
 
 for (const sensor of bus.config.sensors) {
-  const node = renderInstrument(sensor);
+  const node = renderInstrument(sensor, bus.sensorGroup(sensor.id));
   if (node) layerInstruments.append(node);
 }
 
@@ -108,23 +108,13 @@ for (const sensor of bus.config.sensors) {
 
 // ------------------------------------------------------------ interaction --
 
-async function onValveActivate(valve) {
+/** Commands fire immediately — see the note in page-grid.js. */
+function onValveActivate(valve) {
   const current = bus.valveState(valve.id);
   const next = current === 'open' ? 'closed' : 'open';
   const gate = bus.canCommand(valve.id, next);
   if (!gate.ok) return;
 
-  if (valve.confirm && next === 'open') {
-    const ok = await confirmAction({
-      title: `${valve.id} → ${valve.openLabel}`,
-      message: valve.momentary
-        ? `${valve.name} will fire for ${(valve.momentaryMs / 1000).toFixed(1)} s and then return to ${valve.safeState}.`
-        : `Command ${valve.name} to ${next.toUpperCase()}?`,
-      confirmLabel: valve.openLabel,
-      danger: true,
-    });
-    if (!ok) return;
-  }
   bus.commandValve(valve.id, next);
 }
 

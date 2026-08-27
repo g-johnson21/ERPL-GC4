@@ -102,6 +102,7 @@ export class SerialDriver {
     return {
       name: this.name,
       connected: this.connected,
+      lastRxAt: this.lastRxAt,
       detail: this.connected ? `${this.detail} · ${this.rxCount} frames` : `${this.detail} · NO LINK`,
     };
   }

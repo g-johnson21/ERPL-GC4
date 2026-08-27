@@ -147,6 +147,8 @@ body.theme-ready * { transition: background-color .15s, border-color .15s, color
   display: flex;
   gap: 2px;
   margin-left: 6px;
+  min-width: 0;
+  overflow: hidden;
 }
 .nav a {
   display: flex;
@@ -167,11 +169,16 @@ body.theme-ready * { transition: background-color .15s, border-color .15s, color
 
 .header-spacer { flex: 1; }
 
+/* Link indicators plus stand state. ARMED, ABORT and a dead DAQ are the last
+   things that may ever be squeezed off a narrow screen, so this row never
+   shrinks — the nav above gives way first. */
 .header-status {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  flex: none;
 }
+.header-status .chip { flex: none; }
 
 .chip {
   display: inline-flex;
@@ -288,7 +295,8 @@ body.theme-ready * { transition: background-color .15s, border-color .15s, color
   display: flex;
   align-items: center;
   gap: 12px;
-  margin: 0 0 14px;
+  margin: 0 0 10px;
+  flex: none;
   flex-wrap: wrap;
 }
 .page-head h1 {
