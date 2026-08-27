@@ -60,6 +60,7 @@ export function createStandDriver(options = {}) {
     // A CLI --port-name overrides the file, for swapping a board at the pad.
     port: options.pandaPort || hw.panda?.port,
     onEvent: options.onEvent,
+    onRaw: options.onRaw,
   });
 
   return new CompositeDriver({

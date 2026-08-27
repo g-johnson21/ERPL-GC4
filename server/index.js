@@ -18,6 +18,7 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 
 import { ConfigStore, validateConfig } from './config-store.js';
+import { TapHub } from './tools/tap-hub.js';
 import { createDriver, driverNames } from './hal/index.js';
 import { StandController } from './state.js';
 
@@ -69,6 +70,34 @@ function emitDriverEvent(message, level = 'error') {
   else console.error(`[driver] ${message}`);
 }
 
+/**
+ * --panda-tap opens a second terminal printing the raw PANDA serial traffic.
+ *
+ * Started BEFORE the driver, so the window is already attached when the board
+ * sends its boot banner — the first few lines after a reset are usually the
+ * ones worth seeing, and a tap that attaches late misses exactly those.
+ */
+let tapHub = null;
+if (args['panda-tap']) {
+  // Only two drivers own a serial link to the board. On any other the flag
+  // would open a window that stays empty forever, which reads as "the board
+  // is silent" rather than "you asked the wrong driver for this".
+  if (DRIVER_NAME !== 'stand' && DRIVER_NAME !== 'panda') {
+    console.error(
+      `
+  --panda-tap needs a driver with a PANDA serial link.
+` +
+      `  Got --driver=${DRIVER_NAME}; use --driver=stand (or --driver=panda).
+`
+    );
+    process.exit(1);
+  }
+  tapHub = new TapHub();
+  const tapPort = await tapHub.start();
+  tapHub.openViewer();
+  console.error(`[tap] raw PANDA serial on 127.0.0.1:${tapPort}`);
+}
+
 let driver;
 try {
   driver = createDriver(DRIVER_NAME, {
@@ -87,6 +116,7 @@ try {
     // while StandController is still being constructed, so this resolves the
     // controller lazily instead of closing over a binding that may not exist.
     onEvent: (message, level) => emitDriverEvent(message, level),
+    onRaw: tapHub ? (direction, bytes) => tapHub.write(direction, bytes) : undefined,
   });
 } catch (err) {
   console.error(`\n  DRIVER ERROR\n  ${err.message}\n  Available drivers: ${driverNames().join(', ')}\n`);
