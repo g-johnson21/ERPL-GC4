@@ -51,6 +51,10 @@ export class StandController extends EventEmitter {
     configStore.on('reload', () => {
       this.initFromConfig(true);
       this.bangbang.sync();
+      // Re-assert the bang-bang config on the board. A reload can change a
+      // setpoint, and a board still holding the previous one is the exact
+      // divergence the CFG_PUSH echo exists to catch.
+      this.bangbang.pushAll('reload');
       this.log('info', 'Configuration reloaded', 'system');
       this.emit('config-reload', this.config);
     });
@@ -103,6 +107,13 @@ export class StandController extends EventEmitter {
     // Push every actuator to its configured safe state on startup.
     this.safeAll('system');
 
+    // And push the bang-bang configuration, so the board holds the setpoints
+    // this config file describes rather than whatever survived its last power
+    // cycle. Nothing is enabled by this — it only means that when someone does
+    // enable a side, the values it starts on are the ones on screen.
+    this.bangbang.attach();
+    this.bangbang.pushAll('system');
+
     const period = 1000 / this.config.telemetry.sampleRateHz;
     this.timer = setInterval(() => this.tick(), period);
     this.log('info', `Control loop running at ${this.config.telemetry.sampleRateHz} Hz`, 'system');
@@ -154,6 +165,20 @@ export class StandController extends EventEmitter {
 
     this.armed = armed;
     this.armedAt = Date.now();
+
+    // Mirror ARM to hardware that keeps its own arm latch (the PANDA board),
+    // so a disarmed stand cannot actuate even if a command somehow bypasses
+    // the interlocks above. Never let a driver fault block the DISARM path.
+    try {
+      this.driver.setArmed?.(armed);
+    } catch (err) {
+      this.log('error', `Driver failed to ${armed ? 'arm' : 'disarm'}: ${err.message}`, 'driver');
+      if (armed) {
+        this.armed = false;
+        return { ok: false, error: `Hardware arm failed: ${err.message}` };
+      }
+    }
+
     if (armed) {
       this.log('arm', '*** STAND ARMED *** — actuators are live', source);
     } else {
@@ -176,6 +201,27 @@ export class StandController extends EventEmitter {
     const source = opts.source || 'operator';
     const safeDirection = state === valve.safeState;
 
+    // A valve the PANDA's own regulator is driving has exactly one controller,
+    // and it is not this one. Sending `S<ch>` at it here would put a second
+    // command source on the same solenoid with no arbitration between them —
+    // the failure mode HANDOVER_COMMS.md §5.7 documents in the previous ground
+    // station, where a browser loop and the firmware fought over a press
+    // valve while reading two different transducers.
+    //
+    // `internal` paths (safeAll, abort states, startup) are exempt: they are
+    // driving everything to a known state, and a board-owned valve reasserting
+    // itself afterwards is visible in the heartbeat.
+    if (!opts.internal) {
+      const owner = this.bangbang.ownedValves().get(id);
+      if (owner) {
+        return {
+          ok: false,
+          error: `${valve.name} is driven by the board's bang-bang loop (${owner.name || owner.id}) — ` +
+                 `disable that controller before commanding this valve by hand`,
+        };
+      }
+    }
+
     if (!safeDirection) {
       // Steps *of the abort sequence itself* may drive valves away from their
       // safe state (a purge, say). An operator command that merely arrives
@@ -195,7 +241,10 @@ export class StandController extends EventEmitter {
     try {
       this.driver.setValve(valve, state);
     } catch (err) {
-      this.log('error', `Driver failed to command ${id}: ${err.message}`, source);
+      // `quiet` callers (safeAll) aggregate failures into a single line.
+      if (!opts.quiet) {
+        this.log('error', `Driver failed to command ${id}: ${err.message}`, source);
+      }
       return { ok: false, error: `Driver error: ${err.message}` };
     }
 
@@ -231,17 +280,106 @@ export class StandController extends EventEmitter {
   }
 
   safeAll(source = 'operator') {
+    // A driver fault here fails identically for every valve, so collapse the
+    // repeats into one line: thirteen copies of the same error buries the
+    // rest of the startup log without adding information.
+    const failures = [];
     for (const v of this.config.valves) {
-      this.commandValve(v.id, v.safeState, { source, internal: true, fromAbort: true });
+      const res = this.commandValve(v.id, v.safeState, {
+        source, internal: true, fromAbort: true, quiet: true,
+      });
+      if (!res.ok) failures.push(`${v.id}: ${res.error}`);
     }
     this.driver.safeAll?.();
-    this.log('command', 'ALL ACTUATORS -> SAFE STATE', source);
+
+    if (failures.length) {
+      const distinct = [...new Set(failures.map((f) => f.split(': ').slice(1).join(': ')))];
+      this.log('error',
+        `SAFE STATE incomplete — ${failures.length}/${this.config.valves.length} actuators failed (${distinct.join('; ')})`,
+        source);
+    } else {
+      this.log('command', 'ALL ACTUATORS -> SAFE STATE', source);
+    }
   }
 
   applyAbortStates(source = 'abort') {
     for (const v of this.config.valves) {
       this.commandValve(v.id, v.abortState, { source, internal: true, fromAbort: true });
     }
+  }
+
+  // ---------------------------------------------------------------- TARE ----
+
+  /**
+   * Zero sensors against their current reading, or clear an existing zero.
+   *
+   *   { sensors: ['PT1','PT4'] }   zero these
+   *   { kind: 'pressure' }         zero every tareable sensor of that kind
+   *   { ..., clear: true }         restore them to their raw calibration
+   *
+   * WHY THE INTERLOCKS BELOW
+   *   A tare changes what every subsequent reading MEANS. Zeroing a tank
+   *   transducer that is sitting at 450 psi tells the stand it is at ambient
+   *   — and anything acting on that number will then try to make it 450 psi
+   *   again, on top of the pressure already there. So a tare is refused while
+   *   a sequence is running, and refused for any sensor an ENABLED bang-bang
+   *   controller is steering on.
+   *
+   *   ARM alone is not a reason to refuse. Finding a drifted zero after arming
+   *   is exactly when an operator needs this, and with no controller enabled
+   *   and no sequence running, a tare moves a number on a screen and in the
+   *   CSV, not a valve.
+   */
+  tare(spec = {}, source = 'operator') {
+    const tareable = this.driver.tareStatus?.() || {};
+    const clear = Boolean(spec.clear);
+
+    let ids;
+    if (Array.isArray(spec.sensors) && spec.sensors.length) {
+      ids = spec.sensors;
+    } else if (spec.kind) {
+      ids = this.config.sensors.filter((s) => s.kind === spec.kind && s.id in tareable).map((s) => s.id);
+      if (!ids.length) return { ok: false, error: `No tareable ${spec.kind} sensors` };
+    } else {
+      return { ok: false, error: 'Specify sensors[] or kind to tare' };
+    }
+
+    const unknown = ids.filter((id) => !this.configStore.sensor(id));
+    if (unknown.length) return { ok: false, error: `Unknown sensor(s): ${unknown.join(', ')}` };
+
+    if (this.sequencer.running) {
+      return { ok: false, error: 'Cannot tare while a sequence is running' };
+    }
+    const steered = ids.filter((id) => this.config.bangbang.some(
+      (c) => c.sensor === id && this.bangbang.isLive(c.id)
+    ));
+    if (steered.length) {
+      return {
+        ok: false,
+        error: `${steered.join(', ')} is under active bang-bang control — disable the controller before taring it`,
+      };
+    }
+
+    const res = this.driver.tareSensors?.(ids, { clear })
+      ?? { ok: false, error: `The ${this.driver.status.name} driver cannot tare sensors` };
+    if (!res.ok) return res;
+
+    if (res.unsupported?.length) {
+      this.log('warn', `TARE: no hardware zero for ${res.unsupported.join(', ')}`, source);
+    }
+    if (res.tared?.length) {
+      // Loud on purpose. Every reading and every CSV row after this line means
+      // something different from the ones before it, and a trace read back
+      // months later has to show where that happened.
+      this.log('command',
+        `*** ${clear ? 'TARE CLEARED' : 'TARE'} *** ${res.tared.length} channel(s): ${res.tared.join(', ')}`,
+        source);
+    } else if (!res.unsupported?.length) {
+      return { ok: false, error: 'Nothing was tared' };
+    }
+
+    this.emit('telemetry', this.snapshot());
+    return { ok: true, tared: res.tared || [], unsupported: res.unsupported || [] };
   }
 
   // --------------------------------------------------------------- ABORT ----
@@ -296,6 +434,13 @@ export class StandController extends EventEmitter {
   // ------------------------------------------------------------ SNAPSHOT ----
 
   snapshot() {
+    // A `tare` field means the hardware can zero this channel; its value is
+    // how much is currently being subtracted. The UI needs both — a tared
+    // channel reading 0 psi looks exactly like an untared one until you say
+    // so, and offering a Tare button on a sensor no device can zero would be
+    // a button that does nothing.
+    const tares = this.driver.tareStatus?.() || {};
+
     const sensors = {};
     for (const s of this.config.sensors) {
       const v = this.readings[s.id];
@@ -303,11 +448,17 @@ export class StandController extends EventEmitter {
         v: Number.isFinite(v) ? Number(v.toFixed(4)) : null,
         status: sensorStatus(s, v),
       };
+      if (Number.isFinite(tares[s.id])) sensors[s.id].tare = Number(tares[s.id].toFixed(4));
     }
+
+    // Current sense, where the hardware measures it: confirms a coil actually
+    // drew current, which a commanded state alone cannot tell you.
+    const dc = this.driver.dcStatus?.() || {};
 
     const valves = {};
     for (const v of this.config.valves) {
       valves[v.id] = { state: this.valveStates[v.id], at: this.valveMeta[v.id]?.at, source: this.valveMeta[v.id]?.source };
+      if (dc[v.id]) valves[v.id].dc = dc[v.id];
     }
 
     return {
@@ -315,7 +466,7 @@ export class StandController extends EventEmitter {
       armed: this.armed,
       armedAt: this.armedAt,
       abort: this.abortState,
-      driver: this.driver.status,
+      driver: driverStatus(this.driver),
       valves,
       sensors,
       controllers: this.bangbang.snapshot(),
@@ -339,6 +490,31 @@ export class StandController extends EventEmitter {
     this.safeAll('shutdown');
     await this.driver.close?.();
   }
+}
+
+/**
+ * Driver status with a `devices` list the UI can always rely on.
+ *
+ * Composite drivers report one entry per box (nidaq, panda); everything else
+ * is a single device. Normalizing here means the header renders link
+ * indicators the same way whether the stand is running on real hardware or on
+ * the simulator, instead of branching on driver name.
+ */
+function driverStatus(driver) {
+  const status = driver.status;
+  if (Array.isArray(status.devices)) return status;
+  return {
+    ...status,
+    devices: [{
+      key: status.name,
+      name: status.name,
+      connected: Boolean(status.connected),
+      required: true,
+      failed: false,
+      lastRxAt: status.lastRxAt ?? 0,
+      detail: status.detail,
+    }],
+  };
 }
 
 /** 'ok' | 'warn' | 'danger' | 'stale' */

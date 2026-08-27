@@ -21,7 +21,7 @@ let selectedSeqId = draft.autosequences?.[0]?.id ?? null;
 
 const STEP_ACTIONS = [
   { value: 'valve', label: 'Set valve', hint: 'Command a valve open or closed' },
-  { value: 'bangbang', label: 'Bang-bang control', hint: 'Enable/disable a controller or change its setpoint' },
+  { value: 'bangbang', label: 'Bang-bang control', hint: "Start or stop the board's regulator, or change what it regulates to" },
   { value: 'log', label: 'Log message', hint: 'Write a line to the event log and the CSV' },
   { value: 'safeAll', label: 'Safe all actuators', hint: 'Drive every valve to its safe state' },
   { value: 'abortStates', label: 'Apply abort states', hint: 'Drive every valve to its abort state' },
@@ -313,6 +313,10 @@ function describeStep(s) {
       if (s.enabled !== undefined) bits.push(s.enabled ? 'enable' : 'disable');
       if (s.setpoint !== undefined) bits.push(`sp ${s.setpoint}`);
       if (s.deadband !== undefined) bits.push(`db ${s.deadband}`);
+      // Board overrides. Not offered in the editor above, but a hand-written
+      // step may carry them and the timeline must not render them as nothing.
+      if (s.vent !== undefined) bits.push(s.vent ? 'vent OPEN' : 'vent closed');
+      if (s.abort) bits.push('SIDE ABORT');
       return `${s.target}: ${bits.join(', ') || 'no change'}`;
     }
     case 'log': return `log "${s.message || ''}"`;
@@ -713,7 +717,6 @@ function generalTab() {
       selectField('Default theme', [{ value: 'dark', label: 'Dark' }, { value: 'light', label: 'Light' }],
         ui.defaultTheme || 'dark', (v) => { ui.defaultTheme = v; markDirty(); }),
       numberField('Valve grid columns', ui.gridColumns, (v) => { ui.gridColumns = v; markDirty(); }, false, 1, 8),
-      numberField('Sensor grid columns', ui.sensorGridColumns, (v) => { ui.sensorGridColumns = v; markDirty(); }, false, 1, 8),
       numberField('Control loop (Hz)', tel.sampleRateHz, (v) => { tel.sampleRateHz = v; markDirty(); }, false, 1, 500),
       numberField('Browser stream (Hz)', tel.streamRateHz, (v) => { tel.streamRateHz = v; markDirty(); }, false, 1, 60),
       numberField('CSV rate (Hz)', rec.rateHz, (v) => { rec.rateHz = v; markDirty(); }, false, 1, 500),
@@ -807,10 +810,6 @@ function showStatus(kind, message, details = []) {
 // ============================================================ ACTIONS =====
 
 async function save() {
-  if (bus.state?.armed) {
-    toast('DISARM the stand before saving configuration', 'error');
-    return;
-  }
   if (bus.state?.sequence?.running) {
     toast('A sequence is running — wait for it to finish', 'error');
     return;
@@ -819,10 +818,18 @@ async function save() {
   const valid = await validate(false);
   if (!valid) { toast('Fix the errors before saving', 'error'); return; }
 
+  // Armed saves are allowed for autosequences only, and the server is the one
+  // that decides whether this draft qualifies — it compares the draft against
+  // the running config section by section. Don't second-guess it here; a
+  // client-side copy of that rule is one more thing to keep in step.
+  const armed = Boolean(bus.state?.armed);
   const ok = await confirmAction({
     title: 'Save configuration?',
-    message: 'The current file is backed up, then every connected browser reloads with the new configuration. Valve positions are preserved.',
+    message: armed
+      ? 'The stand is ARMED. Autosequence edits are applied live — every station picks up the new sequences without reloading. Anything outside autosequences is refused until you disarm.'
+      : 'The current file is backed up, then every connected browser reloads with the new configuration. Valve positions are preserved.',
     confirmLabel: 'Save & Apply',
+    danger: armed,
   });
   if (!ok) return;
 

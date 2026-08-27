@@ -14,19 +14,18 @@
     "notes": "Edit this file to match YOUR stand. Every valve, sensor, P&ID symbol, autosequence and controller below is generated from this file. Nothing is hard-coded in the UI."
   },
   "ui": {
-    "brand": "GC-4",
+    "brand": "GC",
     "logo": {
       "light": "/img/erpl-black.png",
       "dark": "/img/erpl-white.png",
       "height": 19,
       "alt": "ERPL"
     },
-    "accent": "#ff7a1a",
+    "accent": "#1239d3",
     "defaultTheme": "dark",
     "gridColumns": 4,
-    "sensorGridColumns": 4,
     "sparklineSeconds": 60,
-    "confirmDangerousActions": true,
+    "confirmDangerousActions": false,
     "pages": [
       {
         "id": "grid",
@@ -56,7 +55,7 @@
   },
   "telemetry": {
     "sampleRateHz": 50,
-    "streamRateHz": 20,
+    "streamRateHz": 50,
     "historySeconds": 120
   },
   "safety": {
@@ -78,7 +77,7 @@
     },
     {
       "id": "main",
-      "label": "Main Propellant",
+      "label": "Runlines",
       "color": "#ef4444"
     },
     {
@@ -88,728 +87,837 @@
     },
     {
       "id": "aux",
-      "label": "Auxiliary",
+      "label": "Purge & Auxiliary",
       "color": "#a855f7"
     }
   ],
   "valves": [
     {
-      "id": "SV-N2-ISO",
-      "name": "N2 Bottle Isolation",
-      "abbrev": "N2 ISO",
+      "id": "SV-LOXBB",
+      "name": "LOx Tank BB",
+      "abbrev": "S1 LOX BB",
       "group": "press",
       "type": "solenoid",
-      "channel": 0,
+      "channel": 1,
       "normallyOpen": false,
-      "requiresArm": false,
-      "confirm": false,
+      "requiresArm": true,
       "momentary": false,
       "openLabel": "OPEN",
       "closedLabel": "CLOSED",
       "safeState": "closed",
       "abortState": "closed",
       "pid": {
-        "x": 110,
-        "y": 560,
-        "rot": 90
+        "x": 400,
+        "y": 168,
+        "rot": 90,
+        "tag": "S1"
       },
       "momentaryMs": 1000
     },
     {
-      "id": "SV-PNEU",
-      "name": "Pneumatic Actuation Supply",
-      "abbrev": "PNEU",
-      "group": "aux",
-      "type": "solenoid",
-      "channel": 1,
-      "normallyOpen": false,
-      "requiresArm": false,
-      "confirm": false,
-      "momentary": false,
-      "openLabel": "OPEN",
-      "closedLabel": "CLOSED",
-      "safeState": "closed",
-      "abortState": "open",
-      "pid": {
-        "x": 200,
-        "y": 440,
-        "rot": 0
-      },
-      "momentaryMs": 1000
-    },
-    {
-      "id": "SV-FP",
-      "name": "Fuel Tank Press",
-      "abbrev": "FUEL PRESS",
+      "id": "SV-FBB",
+      "name": "Fuel Tank BB",
+      "abbrev": "S2 FUEL BB",
       "group": "press",
       "type": "solenoid",
       "channel": 2,
       "normallyOpen": false,
       "requiresArm": true,
-      "confirm": false,
       "momentary": false,
       "openLabel": "OPEN",
       "closedLabel": "CLOSED",
       "safeState": "closed",
       "abortState": "closed",
       "pid": {
-        "x": 470,
-        "y": 170,
-        "rot": 90
+        "x": 1000,
+        "y": 168,
+        "rot": 90,
+        "tag": "S2"
       },
       "momentaryMs": 1000
     },
     {
-      "id": "SV-OP",
-      "name": "Ox Tank Press",
-      "abbrev": "OX PRESS",
-      "group": "press",
+      "id": "SV-LOXV",
+      "name": "LOx GN2 Vent",
+      "abbrev": "PB1 LOX VENT",
+      "group": "vent",
       "type": "solenoid",
       "channel": 3,
-      "normallyOpen": false,
+      "normallyOpen": true,
       "requiresArm": true,
-      "confirm": false,
       "momentary": false,
-      "openLabel": "OPEN",
-      "closedLabel": "CLOSED",
-      "safeState": "closed",
-      "abortState": "closed",
+      "openLabel": "VENT",
+      "closedLabel": "SEALED",
+      "safeState": "open",
+      "abortState": "open",
       "pid": {
-        "x": 830,
-        "y": 170,
-        "rot": 90
+        "x": 300,
+        "y": 336,
+        "rot": 0,
+        "tag": "PB1"
       },
       "momentaryMs": 1000
     },
     {
       "id": "SV-FV",
-      "name": "Fuel Tank Vent",
-      "abbrev": "FUEL VENT",
+      "name": "Fuel GN2 Vent",
+      "abbrev": "PB3 FUEL VENT",
       "group": "vent",
       "type": "solenoid",
       "channel": 4,
       "normallyOpen": true,
-      "requiresArm": false,
-      "confirm": false,
+      "requiresArm": true,
       "momentary": false,
       "openLabel": "VENT",
       "closedLabel": "SEALED",
       "safeState": "open",
       "abortState": "open",
       "pid": {
-        "x": 270,
-        "y": 210,
-        "rot": 90
+        "x": 1100,
+        "y": 336,
+        "rot": 0,
+        "tag": "PB3"
       },
       "momentaryMs": 1000
     },
     {
-      "id": "SV-OV",
-      "name": "Ox Tank Vent",
-      "abbrev": "OX VENT",
-      "group": "vent",
-      "type": "solenoid",
+      "id": "MV-LOX",
+      "name": "Ox Runline",
+      "abbrev": "PB2 LOX RUN",
+      "group": "main",
+      "type": "ball",
       "channel": 5,
-      "normallyOpen": true,
-      "requiresArm": false,
-      "confirm": false,
-      "momentary": false,
-      "openLabel": "VENT",
-      "closedLabel": "SEALED",
-      "safeState": "open",
-      "abortState": "open",
-      "pid": {
-        "x": 1000,
-        "y": 210,
-        "rot": 90
-      },
-      "momentaryMs": 1000
-    },
-    {
-      "id": "SV-FD",
-      "name": "Fuel Drain",
-      "abbrev": "FUEL DRAIN",
-      "group": "fill",
-      "type": "solenoid",
-      "channel": 6,
       "normallyOpen": false,
-      "requiresArm": false,
-      "confirm": true,
+      "requiresArm": true,
       "momentary": false,
       "openLabel": "OPEN",
       "closedLabel": "CLOSED",
       "safeState": "closed",
       "abortState": "closed",
       "pid": {
-        "x": 390,
-        "y": 620,
-        "rot": 0
+        "x": 620,
+        "y": 662,
+        "rot": 0,
+        "tag": "PB2"
       },
       "momentaryMs": 1000
     },
     {
-      "id": "SV-OD",
-      "name": "LOX Dump / Drain",
-      "abbrev": "LOX DUMP",
-      "group": "fill",
+      "id": "MV-F",
+      "name": "Fuel Runline",
+      "abbrev": "PB4 FUEL RUN",
+      "group": "main",
+      "type": "ball",
+      "channel": 6,
+      "normallyOpen": false,
+      "requiresArm": true,
+      "momentary": false,
+      "openLabel": "OPEN",
+      "closedLabel": "CLOSED",
+      "safeState": "closed",
+      "abortState": "closed",
+      "pid": {
+        "x": 780,
+        "y": 662,
+        "rot": 0,
+        "tag": "PB4"
+      },
+      "momentaryMs": 1000
+    },
+    {
+      "id": "SV-FPURGE",
+      "name": "Fuel Purge",
+      "abbrev": "S5 FUEL PURGE",
+      "group": "aux",
       "type": "solenoid",
       "channel": 7,
       "normallyOpen": false,
       "requiresArm": false,
-      "confirm": true,
       "momentary": false,
       "openLabel": "OPEN",
       "closedLabel": "CLOSED",
       "safeState": "closed",
-      "abortState": "closed",
+      "abortState": "open",
       "pid": {
-        "x": 700,
-        "y": 700,
-        "rot": 0
+        "x": 960,
+        "y": 750,
+        "rot": 90,
+        "tag": "S5"
+      },
+      "momentaryMs": 1000
+    },
+    {
+      "id": "SV-LOXPURGE",
+      "name": "LOX Purge",
+      "abbrev": "S4 LOX PURGE",
+      "group": "aux",
+      "type": "solenoid",
+      "channel": 8,
+      "normallyOpen": false,
+      "requiresArm": false,
+      "momentary": false,
+      "openLabel": "OPEN",
+      "closedLabel": "CLOSED",
+      "safeState": "closed",
+      "abortState": "open",
+      "pid": {
+        "x": 460,
+        "y": 750,
+        "rot": 90,
+        "tag": "S4"
       },
       "momentaryMs": 1000
     },
     {
       "id": "SV-LOX-FILL",
       "name": "LOX Fill",
-      "abbrev": "LOX FILL",
+      "abbrev": "PB5 LOX FILL",
       "group": "fill",
       "type": "solenoid",
-      "channel": 8,
-      "normallyOpen": false,
-      "requiresArm": false,
-      "confirm": true,
-      "momentary": false,
-      "openLabel": "OPEN",
-      "closedLabel": "CLOSED",
-      "safeState": "closed",
-      "abortState": "closed",
-      "pid": {
-        "x": 1000,
-        "y": 460,
-        "rot": 0
-      },
-      "momentaryMs": 1000
-    },
-    {
-      "id": "MV-F",
-      "name": "Fuel Main Valve",
-      "abbrev": "FUEL MAIN",
-      "group": "main",
-      "type": "ball",
       "channel": 9,
       "normallyOpen": false,
       "requiresArm": true,
-      "confirm": true,
       "momentary": false,
       "openLabel": "OPEN",
       "closedLabel": "CLOSED",
       "safeState": "closed",
       "abortState": "closed",
       "pid": {
-        "x": 900,
-        "y": 790,
-        "rot": 0
+        "x": 262,
+        "y": 606,
+        "rot": 0,
+        "tag": "PB5"
       },
       "momentaryMs": 1000
     },
     {
-      "id": "MV-O",
-      "name": "Ox Main Valve",
-      "abbrev": "OX MAIN",
-      "group": "main",
-      "type": "ball",
-      "channel": 10,
-      "normallyOpen": false,
-      "requiresArm": true,
-      "confirm": true,
-      "momentary": false,
-      "openLabel": "OPEN",
-      "closedLabel": "CLOSED",
-      "safeState": "closed",
-      "abortState": "closed",
-      "pid": {
-        "x": 1200,
-        "y": 520,
-        "rot": 0
-      },
-      "momentaryMs": 1000
-    },
-    {
-      "id": "SV-PURGE",
-      "name": "Chamber N2 Purge",
-      "abbrev": "PURGE",
+      "id": "SV-MBV",
+      "name": "Muscle Bus Vent",
+      "abbrev": "S3 MUSCLE VENT",
       "group": "aux",
       "type": "solenoid",
-      "channel": 11,
+      "channel": 10,
       "normallyOpen": false,
       "requiresArm": false,
-      "confirm": false,
       "momentary": false,
       "openLabel": "OPEN",
       "closedLabel": "CLOSED",
       "safeState": "closed",
       "abortState": "open",
       "pid": {
-        "x": 1520,
-        "y": 300,
-        "rot": 90
+        "x": 752,
+        "y": 380,
+        "rot": 0,
+        "tag": "S3"
       },
       "momentaryMs": 1000
     },
     {
-      "id": "IGN-1",
-      "name": "Igniter",
-      "abbrev": "IGNITER",
+      "id": "SV-GOX-PURGE",
+      "name": "GOX Purge",
+      "abbrev": "PB6 GOX PURGE",
       "group": "aux",
-      "type": "igniter",
-      "channel": 12,
+      "type": "solenoid",
+      "channel": 11,
       "normallyOpen": false,
-      "requiresArm": true,
-      "confirm": true,
-      "momentary": true,
-      "momentaryMs": 2000,
-      "openLabel": "FIRE",
-      "closedLabel": "SAFE",
+      "requiresArm": false,
+      "momentary": false,
+      "openLabel": "OPEN",
+      "closedLabel": "CLOSED",
       "safeState": "closed",
       "abortState": "closed",
       "pid": {
-        "x": 1215,
-        "y": 700,
-        "rot": 0
-      }
+        "x": 680,
+        "y": 550,
+        "rot": 90,
+        "tag": "PB6"
+      },
+      "momentaryMs": 1000
+    }
+  ],
+  "sensorGroups": [
+    {
+      "id": "lox",
+      "label": "LOX",
+      "color": "#3b82f6"
+    },
+    {
+      "id": "fuel",
+      "label": "Fuel",
+      "color": "#ef4444"
+    },
+    {
+      "id": "pneu",
+      "label": "Pneumatic & Purge",
+      "color": "#94a3b8"
+    },
+    {
+      "id": "thrust",
+      "label": "Load Cells",
+      "color": "#a855f7"
+    },
+    {
+      "id": "temp",
+      "label": "Thermocouples",
+      "color": "#eab308"
     }
   ],
   "sensors": [
     {
-      "id": "PT-101",
-      "name": "N2 Bottle Pressure",
-      "abbrev": "N2 BOTTLE",
+      "id": "PT1",
+      "name": "LOX GN2",
+      "abbrev": "PT1",
       "kind": "pressure",
+      "group": "lox",
       "units": "psi",
-      "channel": 0,
+      "channel": 2,
       "decimals": 0,
       "min": 0,
-      "max": 5000,
-      "warnLow": 500,
-      "warnHigh": 4800,
-      "dangerLow": 200,
-      "dangerHigh": 5000,
+      "max": 10000,
+      "warnHigh": 8000,
+      "dangerHigh": 9200,
       "calibration": {
         "slope": 1,
         "offset": 0
       },
       "pid": {
-        "x": 205,
+        "x": 530,
+        "y": 140,
+        "lead": [
+          400,
+          140
+        ]
+      }
+    },
+    {
+      "id": "PT3",
+      "name": "LOX Tank Upstream",
+      "abbrev": "PT3",
+      "kind": "pressure",
+      "group": "lox",
+      "units": "psi",
+      "channel": 3,
+      "decimals": 1,
+      "min": 0,
+      "max": 1500,
+      "warnHigh": 1200,
+      "dangerHigh": 1380,
+      "calibration": {
+        "slope": 1,
+        "offset": 0
+      },
+      "pid": {
+        "x": 530,
+        "y": 300,
+        "lead": [
+          400,
+          300
+        ]
+      }
+    },
+    {
+      "id": "PT4",
+      "name": "LOX Tank Downstream",
+      "abbrev": "PT4",
+      "kind": "pressure",
+      "group": "lox",
+      "units": "psi",
+      "channel": 4,
+      "decimals": 1,
+      "min": 0,
+      "max": 1500,
+      "warnHigh": 1200,
+      "dangerHigh": 1380,
+      "calibration": {
+        "slope": 1,
+        "offset": 0
+      },
+      "pid": {
+        "x": 238,
+        "y": 464,
+        "lead": [
+          340,
+          464
+        ]
+      }
+    },
+    {
+      "id": "PT5",
+      "name": "LOX Manifold",
+      "abbrev": "PT5",
+      "kind": "pressure",
+      "group": "lox",
+      "units": "psi",
+      "channel": 5,
+      "decimals": 1,
+      "min": 0,
+      "max": 1500,
+      "warnHigh": 1200,
+      "dangerHigh": 1380,
+      "calibration": {
+        "slope": 1,
+        "offset": 0
+      },
+      "pid": {
+        "x": 516,
+        "y": 756,
+        "lead": [
+          516,
+          662
+        ]
+      }
+    },
+    {
+      "id": "PT11",
+      "name": "Fuel GN2",
+      "abbrev": "PT11",
+      "kind": "pressure",
+      "group": "fuel",
+      "units": "psi",
+      "channel": 6,
+      "decimals": 0,
+      "min": 0,
+      "max": 10000,
+      "warnHigh": 8000,
+      "dangerHigh": 9200,
+      "calibration": {
+        "slope": 1,
+        "offset": 0
+      },
+      "pid": {
+        "x": 870,
+        "y": 140,
+        "lead": [
+          1000,
+          140
+        ]
+      }
+    },
+    {
+      "id": "PT13",
+      "name": "Fuel Tank Upstream",
+      "abbrev": "PT13",
+      "kind": "pressure",
+      "group": "fuel",
+      "units": "psi",
+      "channel": 7,
+      "decimals": 1,
+      "min": 0,
+      "max": 1500,
+      "warnHigh": 1200,
+      "dangerHigh": 1380,
+      "calibration": {
+        "slope": 1,
+        "offset": 0
+      },
+      "pid": {
+        "x": 870,
+        "y": 300,
+        "lead": [
+          1000,
+          300
+        ]
+      }
+    },
+    {
+      "id": "PT14",
+      "name": "Fuel Tank Downstream",
+      "abbrev": "PT14",
+      "kind": "pressure",
+      "group": "fuel",
+      "units": "psi",
+      "channel": 8,
+      "decimals": 1,
+      "min": 0,
+      "max": 1500,
+      "warnHigh": 1200,
+      "dangerHigh": 1380,
+      "calibration": {
+        "slope": 1,
+        "offset": 0
+      },
+      "pid": {
+        "x": 1160,
+        "y": 464,
+        "lead": [
+          1060,
+          464
+        ]
+      }
+    },
+    {
+      "id": "PT15",
+      "name": "Fuel Engine Manifold",
+      "abbrev": "PT15",
+      "kind": "pressure",
+      "group": "fuel",
+      "units": "psi",
+      "channel": 9,
+      "decimals": 1,
+      "min": 0,
+      "max": 1500,
+      "warnHigh": 1200,
+      "dangerHigh": 1380,
+      "calibration": {
+        "slope": 1,
+        "offset": 0
+      },
+      "pid": {
+        "x": 902,
+        "y": 756,
+        "lead": [
+          902,
+          662
+        ]
+      }
+    },
+    {
+      "id": "PT31",
+      "name": "Muscle Bus",
+      "abbrev": "PT31",
+      "kind": "pressure",
+      "group": "pneu",
+      "units": "psi",
+      "channel": 10,
+      "decimals": 1,
+      "min": 0,
+      "max": 500,
+      "warnHigh": 400,
+      "dangerHigh": 460,
+      "calibration": {
+        "slope": 1,
+        "offset": 0
+      },
+      "pid": {
+        "x": 752,
+        "y": 300,
+        "lead": [
+          752,
+          380
+        ]
+      }
+    },
+    {
+      "id": "PT32",
+      "name": "Purge Bus",
+      "abbrev": "PT32",
+      "kind": "pressure",
+      "group": "pneu",
+      "units": "psi",
+      "channel": 11,
+      "decimals": 1,
+      "min": 0,
+      "max": 500,
+      "warnHigh": 400,
+      "dangerHigh": 460,
+      "calibration": {
+        "slope": 1,
+        "offset": 0
+      },
+      "pid": {
+        "x": 1180,
         "y": 620,
         "lead": [
-          110,
+          1270,
           620
         ]
       }
     },
     {
-      "id": "PT-102",
-      "name": "Regulated N2 Pressure",
-      "abbrev": "N2 REG",
+      "id": "PT21",
+      "name": "LOX Venturi Inlet",
+      "abbrev": "PT21",
       "kind": "pressure",
+      "group": "lox",
       "units": "psi",
-      "channel": 1,
-      "decimals": 0,
-      "min": 0,
-      "max": 1000,
-      "warnLow": 0,
-      "warnHigh": 750,
-      "dangerLow": 0,
-      "dangerHigh": 850,
-      "calibration": {
-        "slope": 1,
-        "offset": 0
-      },
-      "pid": {
-        "x": 205,
-        "y": 250,
-        "lead": [
-          110,
-          250
-        ]
-      }
-    },
-    {
-      "id": "PT-201",
-      "name": "Fuel Tank Pressure",
-      "abbrev": "FUEL TANK",
-      "kind": "pressure",
-      "units": "psi",
-      "channel": 2,
-      "decimals": 1,
-      "min": 0,
-      "max": 1000,
-      "warnLow": 0,
-      "warnHigh": 600,
-      "dangerLow": 0,
-      "dangerHigh": 700,
-      "calibration": {
-        "slope": 1,
-        "offset": 0
-      },
-      "pid": {
-        "x": 340,
-        "y": 350,
-        "lead": [
-          405,
-          350
-        ]
-      }
-    },
-    {
-      "id": "PT-301",
-      "name": "Ox Tank Pressure",
-      "abbrev": "OX TANK",
-      "kind": "pressure",
-      "units": "psi",
-      "channel": 3,
-      "decimals": 1,
-      "min": 0,
-      "max": 1000,
-      "warnLow": 0,
-      "warnHigh": 600,
-      "dangerLow": 0,
-      "dangerHigh": 700,
-      "calibration": {
-        "slope": 1,
-        "offset": 0
-      },
-      "pid": {
-        "x": 700,
-        "y": 350,
-        "lead": [
-          765,
-          350
-        ]
-      }
-    },
-    {
-      "id": "PT-401",
-      "name": "Fuel Injector Pressure",
-      "abbrev": "FUEL INJ",
-      "kind": "pressure",
-      "units": "psi",
-      "channel": 4,
-      "decimals": 1,
-      "min": 0,
-      "max": 1000,
-      "warnLow": 0,
-      "warnHigh": 600,
-      "dangerLow": 0,
-      "dangerHigh": 700,
-      "calibration": {
-        "slope": 1,
-        "offset": 0
-      },
-      "pid": {
-        "x": 1075,
-        "y": 660,
-        "lead": [
-          1150,
-          660
-        ]
-      }
-    },
-    {
-      "id": "PT-402",
-      "name": "Ox Injector Pressure",
-      "abbrev": "OX INJ",
-      "kind": "pressure",
-      "units": "psi",
-      "channel": 5,
-      "decimals": 1,
-      "min": 0,
-      "max": 1000,
-      "warnLow": 0,
-      "warnHigh": 600,
-      "dangerLow": 0,
-      "dangerHigh": 700,
-      "calibration": {
-        "slope": 1,
-        "offset": 0
-      },
-      "pid": {
-        "x": 1360,
-        "y": 450,
-        "lead": [
-          1360,
-          520
-        ]
-      }
-    },
-    {
-      "id": "PT-501",
-      "name": "Chamber Pressure",
-      "abbrev": "CHAMBER",
-      "kind": "pressure",
-      "units": "psi",
-      "channel": 6,
-      "decimals": 1,
-      "min": 0,
-      "max": 1000,
-      "warnLow": 0,
-      "warnHigh": 450,
-      "dangerLow": 0,
-      "dangerHigh": 550,
-      "calibration": {
-        "slope": 1,
-        "offset": 0
-      },
-      "pid": {
-        "x": 1150,
-        "y": 760,
-        "lead": [
-          1255,
-          760
-        ]
-      }
-    },
-    {
-      "id": "PT-601",
-      "name": "Pneumatic Supply",
-      "abbrev": "PNEU SUP",
-      "kind": "pressure",
-      "units": "psi",
-      "channel": 7,
-      "decimals": 0,
-      "min": 0,
-      "max": 200,
-      "warnLow": 80,
-      "warnHigh": 150,
-      "dangerLow": 60,
-      "dangerHigh": 180,
-      "calibration": {
-        "slope": 1,
-        "offset": 0
-      },
-      "pid": {
-        "x": 215,
-        "y": 380,
-        "lead": [
-          215,
-          440
-        ]
-      }
-    },
-    {
-      "id": "TC-201",
-      "name": "Fuel Tank Temp",
-      "abbrev": "FUEL TEMP",
-      "kind": "temperature",
-      "units": "°F",
-      "channel": 8,
-      "decimals": 1,
-      "min": -350,
-      "max": 300,
-      "warnLow": 20,
-      "warnHigh": 120,
-      "dangerLow": -50,
-      "dangerHigh": 160,
-      "calibration": {
-        "slope": 1,
-        "offset": 0
-      },
-      "pid": {
-        "x": 340,
-        "y": 430,
-        "lead": [
-          405,
-          430
-        ]
-      }
-    },
-    {
-      "id": "TC-301",
-      "name": "LOX Tank Temp",
-      "abbrev": "LOX TEMP",
-      "kind": "temperature",
-      "units": "°F",
-      "channel": 9,
-      "decimals": 1,
-      "min": -350,
-      "max": 300,
-      "warnLow": -320,
-      "warnHigh": -250,
-      "dangerLow": -330,
-      "dangerHigh": -200,
-      "calibration": {
-        "slope": 1,
-        "offset": 0
-      },
-      "pid": {
-        "x": 700,
-        "y": 430,
-        "lead": [
-          765,
-          430
-        ]
-      }
-    },
-    {
-      "id": "TC-302",
-      "name": "Ox Line Temp",
-      "abbrev": "OX LINE",
-      "kind": "temperature",
-      "units": "°F",
-      "channel": 10,
-      "decimals": 1,
-      "min": -350,
-      "max": 300,
-      "warnLow": -320,
-      "warnHigh": -100,
-      "dangerLow": -330,
-      "dangerHigh": 60,
-      "calibration": {
-        "slope": 1,
-        "offset": 0
-      },
-      "pid": {
-        "x": 1100,
-        "y": 460,
-        "lead": [
-          1100,
-          520
-        ]
-      }
-    },
-    {
-      "id": "TC-501",
-      "name": "Chamber Wall Temp",
-      "abbrev": "CHMBR WALL",
-      "kind": "temperature",
-      "units": "°F",
-      "channel": 11,
-      "decimals": 0,
-      "min": 0,
-      "max": 3000,
-      "warnLow": 0,
-      "warnHigh": 1200,
-      "dangerLow": 0,
-      "dangerHigh": 1600,
-      "calibration": {
-        "slope": 1,
-        "offset": 0
-      },
-      "pid": {
-        "x": 1430,
-        "y": 760,
-        "lead": [
-          1345,
-          760
-        ]
-      }
-    },
-    {
-      "id": "TC-502",
-      "name": "Nozzle Throat Temp",
-      "abbrev": "THROAT",
-      "kind": "temperature",
-      "units": "°F",
       "channel": 12,
-      "decimals": 0,
+      "decimals": 1,
       "min": 0,
-      "max": 3000,
-      "warnLow": 0,
-      "warnHigh": 1600,
-      "dangerLow": 0,
-      "dangerHigh": 2200,
+      "max": 1500,
+      "warnHigh": 1200,
+      "dangerHigh": 1380,
       "calibration": {
         "slope": 1,
         "offset": 0
       },
       "pid": {
-        "x": 1430,
-        "y": 850,
+        "x": 498,
+        "y": 600,
         "lead": [
-          1330,
-          845
+          512,
+          662
         ]
       }
     },
     {
-      "id": "LC-101",
-      "name": "Thrust",
-      "abbrev": "THRUST",
-      "kind": "force",
-      "units": "lbf",
+      "id": "PT22",
+      "name": "LOX Venturi Throat",
+      "abbrev": "PT22",
+      "kind": "pressure",
+      "group": "lox",
+      "units": "psi",
       "channel": 13,
       "decimals": 1,
-      "min": -50,
-      "max": 2000,
-      "warnLow": -20,
-      "warnHigh": 1500,
-      "dangerLow": -40,
-      "dangerHigh": 1800,
+      "min": 0,
+      "max": 1500,
+      "warnHigh": 1200,
+      "dangerHigh": 1380,
       "calibration": {
         "slope": 1,
         "offset": 0
       },
       "pid": {
-        "x": 1300,
-        "y": 470,
+        "x": 562,
+        "y": 600,
         "lead": [
-          1300,
-          553
+          548,
+          662
         ]
       }
     },
     {
-      "id": "LC-201",
-      "name": "Fuel Tank Mass",
-      "abbrev": "FUEL MASS",
-      "kind": "force",
-      "units": "lbm",
+      "id": "PT23",
+      "name": "Fuel Venturi Throat",
+      "abbrev": "PT23",
+      "kind": "pressure",
+      "group": "fuel",
+      "units": "psi",
       "channel": 14,
-      "decimals": 2,
+      "decimals": 1,
       "min": 0,
-      "max": 100,
-      "warnLow": 2,
-      "warnHigh": 90,
-      "dangerLow": 0,
-      "dangerHigh": 98,
+      "max": 1500,
+      "warnHigh": 1200,
+      "dangerHigh": 1380,
       "calibration": {
         "slope": 1,
         "offset": 0
       },
       "pid": {
-        "x": 610,
-        "y": 480,
+        "x": 838,
+        "y": 600,
         "lead": [
-          535,
-          480
+          852,
+          662
         ]
       }
     },
     {
-      "id": "LC-301",
-      "name": "Ox Tank Mass",
-      "abbrev": "OX MASS",
-      "kind": "force",
-      "units": "lbm",
+      "id": "PT24",
+      "name": "Fuel Venturi Inlet",
+      "abbrev": "PT24",
+      "kind": "pressure",
+      "group": "fuel",
+      "units": "psi",
       "channel": 15,
-      "decimals": 2,
+      "decimals": 1,
       "min": 0,
-      "max": 100,
-      "warnLow": 2,
-      "warnHigh": 90,
-      "dangerLow": 0,
-      "dangerHigh": 98,
+      "max": 1500,
+      "warnHigh": 1200,
+      "dangerHigh": 1380,
       "calibration": {
         "slope": 1,
         "offset": 0
       },
       "pid": {
-        "x": 965,
-        "y": 400,
+        "x": 902,
+        "y": 600,
         "lead": [
-          895,
-          400
+          888,
+          662
+        ]
+      }
+    },
+    {
+      "id": "LC1",
+      "name": "TLCA",
+      "abbrev": "TLCA",
+      "kind": "force",
+      "group": "thrust",
+      "units": "lbf",
+      "channel": 100,
+      "decimals": 1,
+      "min": -100,
+      "max": 2000,
+      "calibration": {
+        "slope": 1,
+        "offset": 0
+      },
+      "pid": {
+        "x": 630,
+        "y": 820,
+        "lead": [
+          668,
+          750
+        ]
+      }
+    },
+    {
+      "id": "LC2",
+      "name": "TLCB",
+      "abbrev": "TLCB",
+      "kind": "force",
+      "group": "thrust",
+      "units": "lbf",
+      "channel": 101,
+      "decimals": 1,
+      "min": -100,
+      "max": 2000,
+      "calibration": {
+        "slope": 1,
+        "offset": 0
+      },
+      "pid": {
+        "x": 700,
+        "y": 820,
+        "lead": [
+          700,
+          760
+        ]
+      }
+    },
+    {
+      "id": "LC3",
+      "name": "TLCC",
+      "abbrev": "TLCC",
+      "kind": "force",
+      "group": "thrust",
+      "units": "lbf",
+      "channel": 102,
+      "decimals": 1,
+      "min": -100,
+      "max": 2000,
+      "calibration": {
+        "slope": 1,
+        "offset": 0
+      },
+      "pid": {
+        "x": 770,
+        "y": 820,
+        "lead": [
+          732,
+          750
+        ]
+      }
+    },
+    {
+      "id": "LC4",
+      "name": "LOX Tank Weight",
+      "abbrev": "LOX TANK WE",
+      "kind": "force",
+      "group": "thrust",
+      "units": "lbf",
+      "channel": 103,
+      "decimals": 1,
+      "min": -50,
+      "max": 600,
+      "calibration": {
+        "slope": 1,
+        "offset": 0
+      },
+      "pid": {
+        "x": 326,
+        "y": 650,
+        "lead": [
+          400,
+          640
+        ]
+      }
+    },
+    {
+      "id": "TC1",
+      "name": "LOX Tank Bottom",
+      "abbrev": "LOX TANK BO",
+      "kind": "temperature",
+      "group": "temp",
+      "units": "°F",
+      "channel": 200,
+      "decimals": 1,
+      "min": -320,
+      "max": 200,
+      "calibration": {
+        "slope": 1,
+        "offset": 0
+      },
+      "pid": {
+        "x": 238,
+        "y": 524,
+        "lead": [
+          340,
+          524
+        ]
+      }
+    },
+    {
+      "id": "TC2",
+      "name": "LOX Tank Top",
+      "abbrev": "LOX TANK TO",
+      "kind": "temperature",
+      "group": "temp",
+      "units": "°F",
+      "channel": 201,
+      "decimals": 1,
+      "min": -320,
+      "max": 200,
+      "calibration": {
+        "slope": 1,
+        "offset": 0
+      },
+      "pid": {
+        "x": 238,
+        "y": 404,
+        "lead": [
+          340,
+          404
+        ]
+      }
+    },
+    {
+      "id": "TC3",
+      "name": "Dragon",
+      "abbrev": "DRAGON",
+      "kind": "temperature",
+      "group": "temp",
+      "units": "°F",
+      "channel": 202,
+      "decimals": 1,
+      "min": -320,
+      "max": 200,
+      "calibration": {
+        "slope": 1,
+        "offset": 0
+      },
+      "pid": {
+        "x": 580,
+        "y": 756,
+        "lead": [
+          580,
+          662
+        ]
+      }
+    },
+    {
+      "id": "TC4",
+      "name": "Chamber",
+      "abbrev": "CHAMBER",
+      "kind": "temperature",
+      "group": "temp",
+      "units": "°F",
+      "channel": 203,
+      "decimals": 1,
+      "min": -100,
+      "max": 2282,
+      "calibration": {
+        "slope": 1,
+        "offset": 0
+      },
+      "warnHigh": 1597,
+      "dangerHigh": 1940,
+      "pid": {
+        "x": 836,
+        "y": 790,
+        "lead": [
+          744,
+          730
         ]
       }
     }
@@ -817,10 +925,11 @@
   "bangbang": [
     {
       "id": "bb-fuel",
-      "name": "Fuel Tank Press Control",
+      "side": "F",
+      "name": "Fuel Tank Press (Fuel BB)",
       "abbrev": "FUEL",
-      "sensor": "PT-201",
-      "valve": "SV-FP",
+      "sensor": "PT14",
+      "valve": "SV-FBB",
       "setpoint": 450,
       "deadband": 15,
       "setpointMin": 0,
@@ -831,14 +940,21 @@
       "enabled": false,
       "requiresArm": true,
       "maxOpenSeconds": 30,
-      "abortAbove": 700
+      "maxOpenMs": 500,
+      "minIntervalMs": 250,
+      "abortAbove": 700,
+      "ventValve": null,
+      "ventTrigger": 650,
+      "ventAuto": false,
+      "_ventValve": "UNVERIFIED - leave null until the wiring is confirmed. Two things are unresolved: whether the board's BB vent solenoid is this GN2 vent at all (hardware.json marks DC3/DC4 as pushbutton channels PB1/PB3, while the BB press valves are solenoids S1/S2), and whether the heartbeat's vent01 bit reports COIL state or FLOW state. These vents are normally-open, so the two readings are opposites: setting this now makes the board's 'not venting' reopen a vent the operator just closed."
     },
     {
       "id": "bb-ox",
-      "name": "Ox Tank Press Control",
+      "side": "L",
+      "name": "Ox Tank Press (LOX BB)",
       "abbrev": "OX",
-      "sensor": "PT-301",
-      "valve": "SV-OP",
+      "sensor": "PT4",
+      "valve": "SV-LOXBB",
       "setpoint": 470,
       "deadband": 15,
       "setpointMin": 0,
@@ -849,7 +965,13 @@
       "enabled": false,
       "requiresArm": true,
       "maxOpenSeconds": 30,
-      "abortAbove": 700
+      "maxOpenMs": 500,
+      "minIntervalMs": 250,
+      "abortAbove": 700,
+      "ventValve": null,
+      "ventTrigger": 650,
+      "ventAuto": false,
+      "_ventValve": "UNVERIFIED - leave null until the wiring is confirmed. Two things are unresolved: whether the board's BB vent solenoid is this GN2 vent at all (hardware.json marks DC3/DC4 as pushbutton channels PB1/PB3, while the BB press valves are solenoids S1/S2), and whether the heartbeat's vent01 bit reports COIL state or FLOW state. These vents are normally-open, so the two readings are opposites: setting this now makes the board's 'not venting' reopen a vent the operator just closed."
     }
   ],
   "autosequences": [
@@ -865,479 +987,115 @@
         {
           "t": 0,
           "action": "log",
-          "message": "Safing all actuators"
+          "message": "Driving all actuators to safe state"
         },
         {
           "t": 0,
-          "action": "bangbang",
-          "target": "*",
-          "enabled": false
-        },
-        {
-          "t": 0.1,
           "action": "safeAll"
+        },
+        {
+          "t": 1,
+          "action": "log",
+          "message": "Safe state reached"
         }
       ],
       "abortConditions": [],
       "hidden": false,
-      "duration": 0.1
-    },
-    {
-      "id": "seq-pneumatics",
-      "name": "Pneumatics On",
-      "abbrev": "PNEU ON",
-      "description": "Open N2 isolation and charge the pneumatic actuator supply.",
-      "style": "normal",
-      "requiresArm": false,
-      "confirm": false,
-      "steps": [
-        {
-          "t": 0,
-          "action": "log",
-          "message": "Charging pneumatics"
-        },
-        {
-          "t": 0,
-          "action": "valve",
-          "target": "SV-N2-ISO",
-          "state": "open"
-        },
-        {
-          "t": 1.5,
-          "action": "valve",
-          "target": "SV-PNEU",
-          "state": "open"
-        },
-        {
-          "t": 5,
-          "action": "log",
-          "message": "Pneumatics charged"
-        }
-      ],
-      "abortConditions": [],
-      "hidden": false,
-      "duration": 5
-    },
-    {
-      "id": "seq-leakcheck",
-      "name": "Leak Check",
-      "abbrev": "LEAK CK",
-      "description": "Low-pressure hold at 100 psi on both tanks for leak detection.",
-      "style": "normal",
-      "requiresArm": true,
-      "confirm": false,
-      "abortConditions": [
-        {
-          "sensor": "PT-201",
-          "op": ">",
-          "value": 200,
-          "message": "Fuel tank overpressure during leak check"
-        },
-        {
-          "sensor": "PT-301",
-          "op": ">",
-          "value": 200,
-          "message": "Ox tank overpressure during leak check"
-        }
-      ],
-      "steps": [
-        {
-          "t": 0,
-          "action": "log",
-          "message": "Leak check start"
-        },
-        {
-          "t": 0,
-          "action": "valve",
-          "target": "SV-FV",
-          "state": "closed"
-        },
-        {
-          "t": 0,
-          "action": "valve",
-          "target": "SV-OV",
-          "state": "closed"
-        },
-        {
-          "t": 1,
-          "action": "bangbang",
-          "target": "bb-fuel",
-          "enabled": true,
-          "setpoint": 100,
-          "deadband": 10
-        },
-        {
-          "t": 1,
-          "action": "bangbang",
-          "target": "bb-ox",
-          "enabled": true,
-          "setpoint": 100,
-          "deadband": 10
-        },
-        {
-          "t": 60,
-          "action": "bangbang",
-          "target": "*",
-          "enabled": false
-        },
-        {
-          "t": 60.5,
-          "action": "log",
-          "message": "Leak check hold complete - inspect and vent manually"
-        }
-      ],
-      "hidden": false,
-      "duration": 60.5
-    },
-    {
-      "id": "seq-press",
-      "name": "Tank Pressurize",
-      "abbrev": "PRESS",
-      "description": "Close vents and bring both tanks to flight setpoints under bang-bang control.",
-      "style": "normal",
-      "requiresArm": true,
-      "confirm": true,
-      "abortConditions": [
-        {
-          "sensor": "PT-201",
-          "op": ">",
-          "value": 700,
-          "message": "Fuel tank overpressure"
-        },
-        {
-          "sensor": "PT-301",
-          "op": ">",
-          "value": 700,
-          "message": "Ox tank overpressure"
-        },
-        {
-          "sensor": "PT-101",
-          "op": "<",
-          "value": 400,
-          "message": "N2 bottle depleted"
-        }
-      ],
-      "steps": [
-        {
-          "t": 0,
-          "action": "log",
-          "message": "Tank pressurization start"
-        },
-        {
-          "t": 0,
-          "action": "valve",
-          "target": "SV-N2-ISO",
-          "state": "open"
-        },
-        {
-          "t": 0.5,
-          "action": "valve",
-          "target": "SV-FV",
-          "state": "closed"
-        },
-        {
-          "t": 0.5,
-          "action": "valve",
-          "target": "SV-OV",
-          "state": "closed"
-        },
-        {
-          "t": 2,
-          "action": "bangbang",
-          "target": "bb-fuel",
-          "enabled": true
-        },
-        {
-          "t": 2,
-          "action": "bangbang",
-          "target": "bb-ox",
-          "enabled": true
-        },
-        {
-          "t": 45,
-          "action": "log",
-          "message": "Tanks at setpoint - holding under bang-bang control"
-        }
-      ],
-      "hidden": false,
-      "duration": 45
-    },
-    {
-      "id": "seq-coldflow",
-      "name": "Cold Flow",
-      "abbrev": "COLD FLOW",
-      "description": "Full main-valve sequence with NO ignition. Verifies flow rates and valve timing.",
-      "style": "caution",
-      "requiresArm": true,
-      "confirm": true,
-      "abortConditions": [
-        {
-          "sensor": "PT-201",
-          "op": ">",
-          "value": 700,
-          "message": "Fuel tank overpressure"
-        },
-        {
-          "sensor": "PT-301",
-          "op": ">",
-          "value": 700,
-          "message": "Ox tank overpressure"
-        },
-        {
-          "sensor": "PT-501",
-          "op": ">",
-          "value": 100,
-          "message": "Unexpected chamber pressure - possible ignition"
-        }
-      ],
-      "steps": [
-        {
-          "t": 0,
-          "action": "log",
-          "message": "COLD FLOW T-5"
-        },
-        {
-          "t": 0,
-          "action": "valve",
-          "target": "SV-PURGE",
-          "state": "open"
-        },
-        {
-          "t": 3,
-          "action": "valve",
-          "target": "SV-PURGE",
-          "state": "closed"
-        },
-        {
-          "t": 5,
-          "action": "log",
-          "message": "T-0 MAIN VALVES OPEN"
-        },
-        {
-          "t": 5,
-          "action": "valve",
-          "target": "MV-O",
-          "state": "open"
-        },
-        {
-          "t": 5.05,
-          "action": "valve",
-          "target": "MV-F",
-          "state": "open"
-        },
-        {
-          "t": 8,
-          "action": "log",
-          "message": "CUTOFF"
-        },
-        {
-          "t": 8,
-          "action": "valve",
-          "target": "MV-F",
-          "state": "closed"
-        },
-        {
-          "t": 8.05,
-          "action": "valve",
-          "target": "MV-O",
-          "state": "closed"
-        },
-        {
-          "t": 8.2,
-          "action": "bangbang",
-          "target": "*",
-          "enabled": false
-        },
-        {
-          "t": 8.5,
-          "action": "valve",
-          "target": "SV-PURGE",
-          "state": "open"
-        },
-        {
-          "t": 13.5,
-          "action": "valve",
-          "target": "SV-PURGE",
-          "state": "closed"
-        },
-        {
-          "t": 14,
-          "action": "log",
-          "message": "Cold flow complete"
-        }
-      ],
-      "hidden": false,
-      "duration": 14
+      "duration": 1
     },
     {
       "id": "seq-hotfire",
       "name": "HOT FIRE",
       "abbrev": "HOT FIRE",
-      "description": "Full ignition sequence. Igniter, main valves, 5 s burn, cutoff and purge.",
+      "description": "Full burn. Pre-purge, ox lead, 5 s burn, cutoff and post-purge. This stand has no igniter channel — ignition is external.",
       "style": "danger",
       "requiresArm": true,
       "confirm": true,
-      "abortConditions": [
-        {
-          "sensor": "PT-201",
-          "op": ">",
-          "value": 700,
-          "message": "Fuel tank overpressure"
-        },
-        {
-          "sensor": "PT-301",
-          "op": ">",
-          "value": 700,
-          "message": "Ox tank overpressure"
-        },
-        {
-          "sensor": "PT-501",
-          "op": ">",
-          "value": 550,
-          "message": "Chamber overpressure"
-        },
-        {
-          "sensor": "TC-501",
-          "op": ">",
-          "value": 1800,
-          "message": "Chamber wall overtemp"
-        }
-      ],
+      "abortConditions": [],
       "steps": [
         {
           "t": 0,
           "action": "log",
-          "message": "HOT FIRE SEQUENCE ARMED - T-10"
+          "message": "HOT FIRE ARMED"
         },
         {
           "t": 0,
-          "action": "valve",
-          "target": "SV-PURGE",
-          "state": "open"
-        },
-        {
-          "t": 3,
-          "action": "valve",
-          "target": "SV-PURGE",
-          "state": "closed"
-        },
-        {
-          "t": 5,
-          "action": "log",
-          "message": "T-5"
-        },
-        {
-          "t": 8,
-          "action": "log",
-          "message": "T-2 IGNITER FIRE"
-        },
-        {
-          "t": 8,
-          "action": "valve",
-          "target": "IGN-1",
-          "state": "open"
-        },
-        {
-          "t": 9.5,
           "action": "log",
           "message": "T-0.5 OX LEAD"
         },
         {
-          "t": 9.5,
+          "t": 0,
           "action": "valve",
-          "target": "MV-O",
+          "target": "MV-LOX",
           "state": "open"
         },
         {
-          "t": 10,
+          "t": 0.5,
           "action": "log",
-          "message": "T-0 FUEL MAIN OPEN - IGNITION"
+          "message": "T-0 FUEL RUNLINE OPEN"
         },
         {
-          "t": 10,
+          "t": 0.5,
           "action": "valve",
           "target": "MV-F",
           "state": "open"
         },
         {
-          "t": 10.5,
-          "action": "valve",
-          "target": "IGN-1",
-          "state": "closed"
-        },
-        {
-          "t": 15,
+          "t": 5.5,
           "action": "log",
           "message": "CUTOFF"
         },
         {
-          "t": 15,
+          "t": 5.5,
+          "action": "valve",
+          "target": "MV-LOX",
+          "state": "closed"
+        },
+        {
+          "t": 5.8,
           "action": "valve",
           "target": "MV-F",
           "state": "closed"
         },
         {
-          "t": 15.08,
+          "t": 6,
           "action": "valve",
-          "target": "MV-O",
-          "state": "closed"
-        },
-        {
-          "t": 15.2,
-          "action": "bangbang",
-          "target": "*",
-          "enabled": false
-        },
-        {
-          "t": 15.3,
-          "action": "valve",
-          "target": "SV-PURGE",
+          "target": "SV-FPURGE",
           "state": "open"
         },
         {
-          "t": 16,
+          "t": 6,
           "action": "valve",
-          "target": "SV-FP",
-          "state": "closed"
-        },
-        {
-          "t": 16,
-          "action": "valve",
-          "target": "SV-OP",
-          "state": "closed"
-        },
-        {
-          "t": 22,
-          "action": "valve",
-          "target": "SV-PURGE",
-          "state": "closed"
-        },
-        {
-          "t": 22.5,
-          "action": "valve",
-          "target": "SV-FV",
+          "target": "SV-LOXPURGE",
           "state": "open"
         },
         {
-          "t": 22.5,
+          "t": 9,
           "action": "valve",
-          "target": "SV-OV",
-          "state": "open"
+          "target": "SV-FPURGE",
+          "state": "closed"
         },
         {
-          "t": 24,
+          "t": 9,
+          "action": "valve",
+          "target": "SV-LOXPURGE",
+          "state": "closed"
+        },
+        {
+          "t": 11,
           "action": "log",
-          "message": "HOT FIRE COMPLETE - tanks venting"
+          "message": "HOT FIRE COMPLETE"
         }
       ],
       "hidden": false,
-      "duration": 24
+      "duration": 11,
+      "timeMode": "relative"
     },
     {
       "id": "seq-detank",
       "name": "Detank / Post-Test",
       "abbrev": "DETANK",
-      "description": "Vent both tanks, dump LOX, drain fuel, purge the engine.",
+      "description": "Secure after a test: controllers off, press valves shut, tanks vented down, then both propellant lines purged clear.",
       "style": "normal",
       "requiresArm": false,
       "confirm": true,
@@ -1345,7 +1103,7 @@
         {
           "t": 0,
           "action": "log",
-          "message": "Detank start"
+          "message": "Detank — securing pressurization"
         },
         {
           "t": 0,
@@ -1356,13 +1114,13 @@
         {
           "t": 0,
           "action": "valve",
-          "target": "SV-FP",
+          "target": "SV-FBB",
           "state": "closed"
         },
         {
           "t": 0,
           "action": "valve",
-          "target": "SV-OP",
+          "target": "SV-LOXBB",
           "state": "closed"
         },
         {
@@ -1374,48 +1132,65 @@
         {
           "t": 0.5,
           "action": "valve",
-          "target": "SV-OV",
+          "target": "SV-LOXV",
           "state": "open"
         },
         {
-          "t": 10,
-          "action": "valve",
-          "target": "SV-OD",
-          "state": "open"
-        },
-        {
-          "t": 12,
-          "action": "valve",
-          "target": "SV-FD",
-          "state": "open"
-        },
-        {
-          "t": 40,
-          "action": "valve",
-          "target": "SV-OD",
-          "state": "closed"
-        },
-        {
-          "t": 40,
-          "action": "valve",
-          "target": "SV-FD",
-          "state": "closed"
-        },
-        {
-          "t": 41,
-          "action": "valve",
-          "target": "SV-N2-ISO",
-          "state": "closed"
-        },
-        {
-          "t": 42,
+          "t": 30,
           "action": "log",
-          "message": "Detank complete"
+          "message": "Tanks vented — purging lines"
+        },
+        {
+          "t": 30,
+          "action": "valve",
+          "target": "SV-FPURGE",
+          "state": "open"
+        },
+        {
+          "t": 30,
+          "action": "valve",
+          "target": "SV-LOXPURGE",
+          "state": "open"
+        },
+        {
+          "t": 30,
+          "action": "valve",
+          "target": "SV-GOX-PURGE",
+          "state": "open"
+        },
+        {
+          "t": 45,
+          "action": "valve",
+          "target": "SV-FPURGE",
+          "state": "closed"
+        },
+        {
+          "t": 45,
+          "action": "valve",
+          "target": "SV-LOXPURGE",
+          "state": "closed"
+        },
+        {
+          "t": 45,
+          "action": "valve",
+          "target": "SV-GOX-PURGE",
+          "state": "closed"
+        },
+        {
+          "t": 46,
+          "action": "valve",
+          "target": "SV-LOX-FILL",
+          "state": "closed"
+        },
+        {
+          "t": 48,
+          "action": "log",
+          "message": "Detank complete — stand is safe"
         }
       ],
       "abortConditions": [],
-      "hidden": false,
-      "duration": 42
+      "hidden": true,
+      "duration": 48
     },
     {
       "id": "seq-abort",
@@ -1430,196 +1205,205 @@
         {
           "t": 0,
           "action": "log",
-          "message": "*** ABORT ***"
+          "message": "ABORT — runlines closed, tanks venting"
         },
         {
           "t": 0,
-          "action": "bangbang",
-          "target": "*",
-          "enabled": false
-        },
-        {
-          "t": 0,
-          "action": "abortStates"
-        },
-        {
-          "t": 5,
-          "action": "valve",
-          "target": "SV-PURGE",
-          "state": "closed"
-        },
-        {
-          "t": 5.5,
-          "action": "log",
-          "message": "Abort safing complete"
-        }
-      ],
-      "abortConditions": [],
-      "duration": 5.5
-    },
-    {
-      "id": "seq-hotfire-copy",
-      "name": "HOT FIRE (copy)",
-      "abbrev": "HOT FIRE",
-      "description": "Full ignition sequence. Igniter, main valves, 5 s burn, cutoff and purge.",
-      "style": "danger",
-      "requiresArm": true,
-      "confirm": true,
-      "abortConditions": [
-        {
-          "sensor": "PT-201",
-          "op": ">",
-          "value": 700,
-          "message": "Fuel tank overpressure"
-        },
-        {
-          "sensor": "PT-301",
-          "op": ">",
-          "value": 700,
-          "message": "Ox tank overpressure"
-        },
-        {
-          "sensor": "PT-501",
-          "op": ">",
-          "value": 550,
-          "message": "Chamber overpressure"
-        },
-        {
-          "sensor": "TC-501",
-          "op": ">",
-          "value": 1800,
-          "message": "Chamber wall overtemp"
-        }
-      ],
-      "steps": [
-        {
-          "t": 0,
-          "action": "log",
-          "message": "HOT FIRE SEQUENCE ARMED - T-10"
-        },
-        {
-          "t": 0,
-          "action": "valve",
-          "target": "SV-PURGE",
-          "state": "open"
-        },
-        {
-          "t": 3,
-          "action": "valve",
-          "target": "SV-PURGE",
-          "state": "closed"
-        },
-        {
-          "t": 5,
-          "action": "log",
-          "message": "T-5"
-        },
-        {
-          "t": 8,
-          "action": "log",
-          "message": "T-2 IGNITER FIRE"
-        },
-        {
-          "t": 8,
-          "action": "valve",
-          "target": "IGN-1",
-          "state": "open"
-        },
-        {
-          "t": 9.5,
-          "action": "log",
-          "message": "T-0.5 OX LEAD"
-        },
-        {
-          "t": 9.5,
-          "action": "valve",
-          "target": "MV-O",
-          "state": "open"
-        },
-        {
-          "t": 10,
-          "action": "log",
-          "message": "T-0 FUEL MAIN OPEN - IGNITION"
-        },
-        {
-          "t": 10,
-          "action": "valve",
-          "target": "MV-F",
-          "state": "open"
-        },
-        {
-          "t": 10.5,
-          "action": "valve",
-          "target": "IGN-1",
-          "state": "closed"
-        },
-        {
-          "t": 20,
-          "action": "log",
-          "message": "CUTOFF"
-        },
-        {
-          "t": 20,
           "action": "valve",
           "target": "MV-F",
           "state": "closed"
         },
         {
-          "t": 20.08,
+          "t": 0,
           "action": "valve",
-          "target": "MV-O",
+          "target": "MV-LOX",
           "state": "closed"
         },
         {
-          "t": 20.2,
+          "t": 0.1,
           "action": "bangbang",
           "target": "*",
           "enabled": false
         },
         {
-          "t": 20.3,
+          "t": 0.2,
           "action": "valve",
-          "target": "SV-PURGE",
+          "target": "SV-LOXBB",
+          "state": "closed"
+        },
+        {
+          "t": 0.2,
+          "action": "valve",
+          "target": "SV-FBB",
+          "state": "closed"
+        },
+        {
+          "t": 0.4,
+          "action": "valve",
+          "target": "SV-LOXV",
           "state": "open"
         },
         {
-          "t": 21,
-          "action": "valve",
-          "target": "SV-FP",
-          "state": "closed"
-        },
-        {
-          "t": 21,
-          "action": "valve",
-          "target": "SV-OP",
-          "state": "closed"
-        },
-        {
-          "t": 27,
-          "action": "valve",
-          "target": "SV-PURGE",
-          "state": "closed"
-        },
-        {
-          "t": 27.5,
+          "t": 0.4,
           "action": "valve",
           "target": "SV-FV",
           "state": "open"
         },
         {
-          "t": 27.5,
+          "t": 0.6,
           "action": "valve",
-          "target": "SV-OV",
+          "target": "SV-FPURGE",
           "state": "open"
         },
         {
-          "t": 29,
+          "t": 0.6,
+          "action": "valve",
+          "target": "SV-LOXPURGE",
+          "state": "open"
+        },
+        {
+          "t": 5,
+          "action": "valve",
+          "target": "SV-FPURGE",
+          "state": "closed"
+        },
+        {
+          "t": 5,
+          "action": "valve",
+          "target": "SV-LOXPURGE",
+          "state": "closed"
+        },
+        {
+          "t": 5.2,
           "action": "log",
-          "message": "HOT FIRE COMPLETE - tanks venting"
+          "message": "Abort state reached — stand is venting"
         }
       ],
+      "abortConditions": [],
+      "duration": 5.2
+    },
+    {
+      "id": "seq-custom-9",
+      "name": "Fuel Side Waterflow",
+      "abbrev": "FWater",
+      "description": "",
+      "style": "normal",
+      "requiresArm": true,
+      "confirm": true,
+      "abortConditions": [],
+      "steps": [
+        {
+          "t": 0,
+          "action": "log",
+          "message": "Fuel Side Waterflow Sequence Start"
+        },
+        {
+          "t": 0,
+          "action": "valve",
+          "target": "MV-F",
+          "state": "open"
+        },
+        {
+          "t": 5,
+          "action": "valve",
+          "target": "MV-F",
+          "state": "closed"
+        },
+        {
+          "t": 6,
+          "action": "log",
+          "message": "Fuel Side Waterflow Ended"
+        }
+      ],
+      "timeMode": "relative",
       "hidden": false,
-      "timeMode": "relative"
+      "duration": 6
+    },
+    {
+      "id": "seq-custom-10",
+      "name": "Lox Side Waterflow",
+      "abbrev": "LWater",
+      "description": "",
+      "style": "normal",
+      "requiresArm": true,
+      "confirm": true,
+      "abortConditions": [],
+      "steps": [
+        {
+          "t": 0,
+          "action": "log",
+          "message": "LOx Side Waterflow Sequence Start"
+        },
+        {
+          "t": 0,
+          "action": "valve",
+          "target": "MV-LOX",
+          "state": "open"
+        },
+        {
+          "t": 5,
+          "action": "valve",
+          "target": "MV-LOX",
+          "state": "closed"
+        },
+        {
+          "t": 6,
+          "action": "log",
+          "message": "LOx Side Waterflow Ended"
+        }
+      ],
+      "timeMode": "relative",
+      "hidden": false,
+      "duration": 6
+    },
+    {
+      "id": "seq-custom-11",
+      "name": "Combined Waterflow",
+      "abbrev": "NEW",
+      "description": "",
+      "style": "normal",
+      "requiresArm": true,
+      "confirm": true,
+      "abortConditions": [],
+      "steps": [
+        {
+          "t": 0,
+          "action": "log",
+          "message": "Combined Waterflow Started"
+        },
+        {
+          "t": 0.3,
+          "action": "valve",
+          "target": "MV-LOX",
+          "state": "open"
+        },
+        {
+          "t": 0.3,
+          "action": "valve",
+          "target": "MV-F",
+          "state": "open"
+        },
+        {
+          "t": 5.3,
+          "action": "valve",
+          "target": "MV-LOX",
+          "state": "closed"
+        },
+        {
+          "t": 5.8,
+          "action": "valve",
+          "target": "MV-F",
+          "state": "closed"
+        },
+        {
+          "t": 6.8,
+          "action": "log",
+          "message": "Combined Waterflow Ended"
+        }
+      ],
+      "timeMode": "relative",
+      "hidden": false,
+      "duration": 6.8
     }
   ],
   "recording": {
@@ -1637,408 +1421,284 @@
     "flushIntervalMs": 500
   },
   "pid": {
-    "width": 1620,
-    "height": 980,
+    "width": 1340,
+    "height": 880,
     "fluids": {
       "n2": {
         "label": "GN2 Pressurant",
-        "color": "#3b82f6",
-        "width": 5
-      },
-      "pneu": {
-        "label": "Pneumatic",
-        "color": "#22c55e",
-        "width": 3.5,
-        "dash": "1 0"
-      },
-      "fuel": {
-        "label": "Fuel (Ethanol)",
         "color": "#f59e0b",
-        "width": 6
+        "width": 4.5
       },
       "lox": {
         "label": "LOX",
         "color": "#38bdf8",
-        "width": 6
+        "width": 5.5
       },
-      "vent": {
-        "label": "Vent / Drain",
-        "color": "#94a3b8",
-        "width": 4
+      "fuel": {
+        "label": "Fuel",
+        "color": "#ef4444",
+        "width": 5.5
       },
       "purge": {
-        "label": "Purge",
-        "color": "#6366f1",
-        "width": 4
+        "label": "Purge / GOX",
+        "color": "#a855f7",
+        "width": 3.5
+      },
+      "pneu": {
+        "label": "Pneumatic",
+        "color": "#22c55e",
+        "width": 3
+      },
+      "vent": {
+        "label": "Vent",
+        "color": "#94a3b8",
+        "width": 3.5
       }
     },
     "components": [
       {
-        "type": "bottle",
-        "id": "TK-101",
-        "label": "GN2\nCOPV",
-        "sub": "4500 psi",
-        "x": 110,
-        "y": 790,
-        "w": 90,
-        "h": 170
-      },
-      {
-        "type": "valve-manual",
-        "id": "HV-101",
-        "label": "HV-101",
-        "x": 110,
-        "y": 660,
-        "rot": 90
-      },
-      {
-        "type": "filter",
-        "id": "F-101",
-        "label": "F-101",
-        "x": 110,
-        "y": 495,
-        "rot": 90
-      },
-      {
-        "type": "regulator",
-        "id": "REG-101",
-        "label": "REG-101",
-        "sub": "SET 600",
-        "x": 110,
-        "y": 340,
-        "rot": 90
-      },
-      {
-        "type": "tank",
-        "id": "TK-201",
-        "label": "FUEL",
-        "sub": "ETHANOL",
-        "x": 470,
-        "y": 400,
-        "w": 130,
-        "h": 220,
-        "fluid": "fuel",
-        "levelSensor": "LC-201",
-        "levelMax": 60
-      },
-      {
-        "type": "tank",
-        "id": "TK-301",
-        "label": "OX",
-        "sub": "LOX",
-        "x": 830,
-        "y": 400,
-        "w": 130,
-        "h": 220,
-        "fluid": "lox",
-        "levelSensor": "LC-301",
-        "levelMax": 70
-      },
-      {
-        "type": "check-valve",
-        "id": "CV-F",
-        "label": "CV-F",
-        "x": 470,
-        "y": 240,
-        "rot": 90
-      },
-      {
-        "type": "check-valve",
-        "id": "CV-O",
-        "label": "CV-O",
-        "x": 830,
-        "y": 240,
-        "rot": 90
-      },
-      {
-        "type": "check-valve",
-        "id": "CV-P",
-        "label": "CV-P",
-        "x": 1520,
-        "y": 560,
-        "rot": 90
-      },
-      {
-        "type": "burst-disk",
-        "id": "BD-201",
-        "label": "BD-201",
-        "sub": "750 psi",
-        "x": 525,
-        "y": 235,
-        "rot": 90
-      },
-      {
-        "type": "burst-disk",
-        "id": "BD-301",
-        "label": "BD-301",
-        "sub": "750 psi",
-        "x": 885,
-        "y": 235,
-        "rot": 90
-      },
-      {
-        "type": "vent-stack",
-        "id": "VS-1",
-        "label": "ATM",
-        "x": 270,
-        "y": 150
-      },
-      {
-        "type": "vent-stack",
-        "id": "VS-2",
-        "label": "ATM",
-        "x": 1000,
-        "y": 150
-      },
-      {
-        "type": "vent-stack",
-        "id": "VS-3",
-        "label": "ATM",
-        "x": 525,
-        "y": 195
-      },
-      {
-        "type": "vent-stack",
-        "id": "VS-4",
-        "label": "ATM",
-        "x": 885,
-        "y": 195
-      },
-      {
-        "type": "drain",
-        "id": "DR-1",
-        "label": "FUEL\nCATCH",
-        "x": 300,
-        "y": 620
-      },
-      {
-        "type": "drain",
-        "id": "DR-2",
-        "label": "LOX\nDUMP",
-        "x": 610,
-        "y": 700
-      },
-      {
-        "type": "qd",
-        "id": "QD-1",
-        "label": "LOX FILL\nQD",
-        "x": 1120,
-        "y": 460
-      },
-      {
-        "type": "terminator",
-        "id": "T-PNEU",
-        "label": "TO VALVE\nACTUATORS",
-        "x": 265,
-        "y": 440,
-        "rot": 0
-      },
-      {
-        "type": "thrust-mount",
-        "id": "TM-1",
-        "label": "THRUST STRUCTURE",
-        "x": 1300,
-        "y": 560,
-        "w": 130
-      },
-      {
-        "type": "engine",
-        "id": "E-1",
-        "label": "ENGINE",
-        "sub": "500 lbf",
-        "x": 1300,
-        "y": 620,
-        "w": 120,
-        "h": 260,
-        "plumeSensor": "PT-501",
-        "plumeThreshold": 60
-      },
-      {
         "type": "logo",
         "id": "LOGO-1",
-        "src": "/img/draco.png",
-        "srcDark": "/img/draco-white.png",
-        "x": 40,
-        "y": 26,
-        "w": 42,
-        "h": 56
+        "x": 30,
+        "y": 20,
+        "width": 38,
+        "height": 38
       },
       {
         "type": "text",
         "id": "TXT-1",
-        "label": "DRACO — PIPING & INSTRUMENTATION DIAGRAM",
-        "x": 96,
-        "y": 46,
-        "anchor": "start",
-        "size": 17,
-        "weight": 700
+        "x": 78,
+        "y": 36,
+        "label": "DRACO",
+        "size": 16,
+        "weight": 700,
+        "anchor": "start"
       },
       {
         "type": "text",
         "id": "TXT-2",
-        "label": "ERPL · LOX / ETHANOL — GN2 REGULATED PRESS-FED",
-        "x": 96,
-        "y": 68,
-        "anchor": "start",
-        "size": 12,
-        "weight": 400,
-        "muted": true
+        "x": 78,
+        "y": 54,
+        "label": "LOX / ETHANOL  -  GN2 REGULATED PRESS-FED",
+        "size": 10,
+        "anchor": "start"
+      },
+      {
+        "type": "bottle",
+        "id": "TK-GN2",
+        "x": 88,
+        "y": 210,
+        "w": 90,
+        "h": 120,
+        "label": "GN2",
+        "sub": "4 x 6K"
+      },
+      {
+        "type": "tank",
+        "id": "TK-LOX",
+        "x": 400,
+        "y": 484,
+        "w": 120,
+        "h": 168,
+        "fluid": "lox",
+        "label": "LOX",
+        "sub": "1700 psi",
+        "levelSensor": "LC4",
+        "levelMax": 600
+      },
+      {
+        "type": "tank",
+        "id": "TK-FUEL",
+        "x": 1000,
+        "y": 484,
+        "w": 120,
+        "h": 168,
+        "fluid": "fuel",
+        "label": "FUEL",
+        "sub": "1700 psi"
+      },
+      {
+        "type": "bottle",
+        "id": "AC-1",
+        "x": 640,
+        "y": 180,
+        "w": 84,
+        "h": 80,
+        "label": "AIR COMP"
+      },
+      {
+        "type": "tank",
+        "id": "TK-ACUMULATOR",
+        "x": 640,
+        "y": 286,
+        "w": 96,
+        "h": 66,
+        "fluid": "pneu",
+        "label": "ACUMULATOR"
+      },
+      {
+        "type": "terminator",
+        "id": "T-MUSCLE",
+        "x": 862,
+        "y": 380,
+        "label": "MUSCLE BUS"
+      },
+      {
+        "type": "bottle",
+        "id": "DW-1",
+        "x": 100,
+        "y": 700,
+        "w": 84,
+        "h": 100,
+        "label": "LOX DEWAR"
+      },
+      {
+        "type": "qd",
+        "id": "QD-1",
+        "x": 176,
+        "y": 606,
+        "label": "QD"
+      },
+      {
+        "type": "venturi",
+        "id": "VEN-LOX",
+        "x": 530,
+        "y": 662,
+        "label": "V1"
+      },
+      {
+        "type": "venturi",
+        "id": "VEN-FUEL",
+        "x": 870,
+        "y": 662,
+        "label": "V2"
+      },
+      {
+        "type": "engine",
+        "id": "E-1",
+        "x": 700,
+        "y": 676,
+        "w": 88,
+        "h": 100
+      },
+      {
+        "type": "terminator",
+        "id": "PM-1",
+        "x": 1180,
+        "y": 852,
+        "label": "PURGE MANIFOLD"
+      },
+      {
+        "type": "terminator",
+        "id": "T-GOX",
+        "x": 680,
+        "y": 500,
+        "label": "GOX"
       }
     ],
     "pipes": [
       {
-        "id": "p-riser",
+        "id": "p-gn2-riser",
         "fluid": "n2",
         "points": [
           [
-            110,
-            700
+            88,
+            150
           ],
           [
-            110,
-            90
+            88,
+            100
           ]
-        ],
-        "flowWhen": [
-          "SV-N2-ISO"
         ]
       },
       {
-        "id": "p-manifold",
+        "id": "p-gn2-hdr",
         "fluid": "n2",
         "points": [
           [
-            110,
-            90
+            88,
+            100
           ],
           [
-            1520,
-            90
+            400,
+            100
+          ],
+          [
+            1000,
+            100
           ]
-        ],
-        "flowWhen": [
-          "SV-N2-ISO"
         ]
       },
       {
-        "id": "p-pneu",
-        "fluid": "pneu",
-        "points": [
-          [
-            110,
-            440
-          ],
-          [
-            250,
-            440
-          ]
-        ],
-        "flowWhen": [
-          "SV-N2-ISO",
-          "SV-PNEU"
-        ]
-      },
-      {
-        "id": "p-fp",
+        "id": "p-lox-leg",
         "fluid": "n2",
         "points": [
           [
-            470,
-            90
+            400,
+            100
           ],
           [
-            470,
-            290
+            400,
+            336
+          ],
+          [
+            400,
+            400
           ]
         ],
         "flowWhen": [
-          "SV-N2-ISO",
-          "SV-FP"
+          "SV-LOXBB"
         ]
       },
       {
-        "id": "p-op",
+        "id": "p-fuel-leg",
         "fluid": "n2",
         "points": [
           [
-            830,
-            90
+            1000,
+            100
           ],
           [
-            830,
-            290
+            1000,
+            336
+          ],
+          [
+            1000,
+            400
           ]
         ],
         "flowWhen": [
-          "SV-N2-ISO",
-          "SV-OP"
+          "SV-FBB"
         ]
       },
       {
-        "id": "p-purge",
-        "fluid": "purge",
-        "points": [
-          [
-            1520,
-            90
-          ],
-          [
-            1520,
-            680
-          ],
-          [
-            1360,
-            680
-          ]
-        ],
-        "flowWhen": [
-          "SV-N2-ISO",
-          "SV-PURGE"
-        ]
-      },
-      {
-        "id": "p-fbd",
+        "id": "p-lox-vent",
         "fluid": "vent",
         "points": [
           [
-            525,
-            290
+            400,
+            336
           ],
           [
-            525,
-            215
+            232,
+            336
           ]
+        ],
+        "flowWhen": [
+          "SV-LOXV"
         ]
       },
       {
-        "id": "p-obd",
+        "id": "p-fuel-vent",
         "fluid": "vent",
         "points": [
           [
-            885,
-            290
+            1000,
+            336
           ],
           [
-            885,
-            215
-          ]
-        ]
-      },
-      {
-        "id": "p-fvent",
-        "fluid": "vent",
-        "points": [
-          [
-            405,
-            300
-          ],
-          [
-            270,
-            300
-          ],
-          [
-            270,
-            170
+            1168,
+            336
           ]
         ],
         "flowWhen": [
@@ -2046,37 +1706,30 @@
         ]
       },
       {
-        "id": "p-ovent",
-        "fluid": "vent",
-        "points": [
-          [
-            895,
-            300
-          ],
-          [
-            1000,
-            300
-          ],
-          [
-            1000,
-            170
-          ]
-        ],
-        "flowWhen": [
-          "SV-OV"
-        ]
-      },
-      {
-        "id": "p-loxfill",
+        "id": "p-dewar",
         "fluid": "lox",
         "points": [
           [
-            895,
-            460
+            100,
+            650
           ],
           [
-            1105,
-            460
+            100,
+            606
+          ]
+        ]
+      },
+      {
+        "id": "p-fill",
+        "fluid": "lox",
+        "points": [
+          [
+            100,
+            606
+          ],
+          [
+            400,
+            606
           ]
         ],
         "flowWhen": [
@@ -2084,28 +1737,90 @@
         ]
       },
       {
+        "id": "p-lox-drop",
+        "fluid": "lox",
+        "points": [
+          [
+            400,
+            568
+          ],
+          [
+            400,
+            606
+          ],
+          [
+            400,
+            662
+          ]
+        ]
+      },
+      {
+        "id": "p-lox-run",
+        "fluid": "lox",
+        "points": [
+          [
+            400,
+            662
+          ],
+          [
+            460,
+            662
+          ],
+          [
+            700,
+            662
+          ]
+        ],
+        "flowWhen": [
+          "MV-LOX"
+        ]
+      },
+      {
+        "id": "p-gox-purge",
+        "fluid": "lox",
+        "points": [
+          [
+            680,
+            662
+          ],
+          [
+            680,
+            500
+          ]
+        ],
+        "flowWhen": [
+          "MV-LOX"
+        ]
+      },
+      {
+        "id": "p-fuel-drop",
+        "fluid": "fuel",
+        "points": [
+          [
+            1000,
+            568
+          ],
+          [
+            1000,
+            662
+          ]
+        ]
+      },
+      {
         "id": "p-fuel-run",
         "fluid": "fuel",
         "points": [
           [
-            470,
-            510
+            1000,
+            662
           ],
           [
-            470,
-            790
+            960,
+            662
           ],
           [
-            1150,
-            790
-          ],
-          [
-            1150,
-            620
-          ],
-          [
-            1240,
-            620
+            700,
+            662
           ]
         ],
         "flowWhen": [
@@ -2113,83 +1828,119 @@
         ]
       },
       {
-        "id": "p-ox-run",
+        "id": "p-injector",
         "fluid": "lox",
         "points": [
           [
-            830,
-            510
+            700,
+            662
           ],
           [
-            830,
-            520
-          ],
-          [
-            1440,
-            520
-          ],
-          [
-            1440,
-            620
-          ],
-          [
-            1360,
-            620
+            700,
+            672
           ]
         ],
         "flowWhen": [
-          "MV-O"
+          "MV-LOX",
+          "MV-F"
         ]
       },
       {
-        "id": "p-fdrain",
-        "fluid": "fuel",
+        "id": "p-purge-hdr",
+        "fluid": "purge",
         "points": [
           [
-            470,
-            620
+            1180,
+            852
           ],
           [
-            320,
-            620
+            960,
+            852
+          ],
+          [
+            460,
+            852
           ]
-        ],
-        "flowWhen": [
-          "SV-FD"
         ]
       },
       {
-        "id": "p-odrain",
-        "fluid": "lox",
+        "id": "p-purge-lox",
+        "fluid": "purge",
         "points": [
           [
-            830,
-            700
+            460,
+            852
           ],
           [
-            630,
-            700
+            460,
+            662
           ]
         ],
         "flowWhen": [
-          "SV-OD"
+          "SV-LOXPURGE"
         ]
       },
       {
-        "id": "p-odrain-t",
-        "fluid": "lox",
+        "id": "p-purge-fuel",
+        "fluid": "purge",
         "points": [
           [
-            830,
-            520
+            960,
+            852
           ],
           [
-            830,
-            700
+            960,
+            662
           ]
         ],
         "flowWhen": [
-          "SV-OD"
+          "SV-FPURGE"
+        ]
+      },
+      {
+        "id": "p-gox-hdr",
+        "fluid": "purge",
+        "points": [
+          [
+            1180,
+            852
+          ],
+          [
+            1270,
+            852
+          ]
+        ]
+      },
+      {
+        "id": "p-air",
+        "fluid": "pneu",
+        "points": [
+          [
+            640,
+            209
+          ],
+          [
+            640,
+            253
+          ]
+        ]
+      },
+      {
+        "id": "p-muscle",
+        "fluid": "pneu",
+        "points": [
+          [
+            640,
+            319
+          ],
+          [
+            640,
+            380
+          ],
+          [
+            862,
+            380
+          ]
         ]
       }
     ]

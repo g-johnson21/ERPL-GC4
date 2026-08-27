@@ -1,0 +1,334 @@
+/**
+ * nidaq.js — NI cDAQ acquisition via a Python sidecar.
+ *
+ * The NI-DAQmx bindings only exist for Python, so acquisition runs in
+ * `devices/daq_streamer.py`, spawned as a child process. It streams
+ * newline-delimited JSON on stdout and accepts commands on stdin.
+ *
+ * That stdin channel is the whole reason to prefer this over the previous
+ * design: the old stack pushed telemetry one-way over TCP and had to smuggle
+ * tare/calibration commands back by writing sentinel files into a directory
+ * that the acquisition loop polled. A pipe is bidirectional, so commands are
+ * just messages.
+ *
+ * CHANNEL ADDRESSING — the easiest thing to get wrong. DAQ channel indices
+ * restart at 0 on every card, so "channel 3" is ambiguous on its own. GC-4's
+ * config uses one flat channel number per sensor, so `channelMap` translates:
+ *
+ *     "pt0": "PT-101"     NI-9208 ai0  -> the sensor with that id
+ *     "lc2": "LC-301"     NI-9237 ai2
+ *     "tc1": "TC-301"     NI-9211 ai1  (spanning both 9211 modules)
+ *
+ * Anything not in the map is acquired and logged but never surfaces as a
+ * sensor reading.
+ *
+ * TARING. `{action:'tare', card, channel, clear}` zeroes a channel against its
+ * last raw sample, inside the sidecar and before conversion — so the zero
+ * applies to the raw trace, not just to the display. `clear` puts the channel
+ * back on its untared calibration. Only channels in `channelMap` are reachable
+ * through `tareSensors`: an unmapped channel has no sensor to zero, and taring
+ * one by accident moves a reading nobody is watching.
+ *
+ * Offsets are not tracked here. Every telemetry frame carries the offset the
+ * sidecar is currently applying to each channel, so a sidecar restart cannot
+ * leave this driver reporting a zero the hardware has forgotten.
+ *
+ * This driver is read-only: it has no actuation. Pair it with the PANDA
+ * driver through `composite` for a stand that reads here and actuates there.
+ */
+import { spawn } from 'node:child_process';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const SCRIPT = path.join(__dirname, 'devices', 'daq_streamer.py');
+
+export class NiDaqDriver {
+  constructor(options = {}) {
+    this.name = 'nidaq';
+    this.python = options.python || process.env.GC_PYTHON || 'python';
+    this.chassis = options.chassis || 'cDAQ9189-2462EFD';
+    this.sampleClockHz = Number(options.sampleClockHz || 100);
+    this.samplesPerRead = Number(options.samplesPerRead || 10);
+    this.cards = options.cards || {};
+    this.channelMap = options.channelMap || {};
+    this.startupTimeoutMs = Number(options.startupTimeoutMs || 8000);
+    this.detail = this.chassis;
+
+    this.values = new Map();     // "<kind><index>" -> engineering value
+    this.statuses = new Map();   // "<kind><index>" -> 'ok' | 'disconnected' | ...
+    // Offset the sidecar is currently subtracting from each channel, in the
+    // card's own units. Learned from the telemetry frames rather than tracked
+    // here, so a sidecar restart cannot leave the host claiming a zero the
+    // hardware is no longer applying.
+    this.tares = new Map();      // "<kind><index>" -> offset
+    this.lastRxAt = 0;
+    this.connected = false;
+    this.frameCount = 0;
+    this.stdoutBuffer = '';
+    this.child = null;
+    this.onEvent = options.onEvent || (() => {});
+  }
+
+  async init(config) {
+    this.config = config;
+
+    const payload = {
+      chassis: this.chassis,
+      sampleClockHz: this.sampleClockHz,
+      samplesPerRead: this.samplesPerRead,
+      cards: this.cards,
+    };
+
+    this.child = spawn(this.python, ['-u', SCRIPT, JSON.stringify(payload)], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    this.child.stdout.setEncoding('utf8');
+    this.child.stdout.on('data', (chunk) => this.onStdout(chunk));
+    this.child.stderr.setEncoding('utf8');
+    this.child.stderr.on('data', (text) => {
+      for (const line of text.split(/\r?\n/)) {
+        if (line.trim()) console.error(`[nidaq] ${line.trim()}`);
+      }
+    });
+    this.child.on('exit', (code, signal) => {
+      this.connected = false;
+      if (this.closing) return;
+      console.error(`[nidaq] streamer exited (code=${code} signal=${signal})`);
+      // 143/SIGTERM means the whole process group is going down (Ctrl+C, a
+      // service stop). That is a shutdown, not an acquisition fault, and
+      // raising it as an error alarms the operator on a normal exit.
+      const terminated = signal === 'SIGTERM' || signal === 'SIGINT' || code === 143 || code === 130;
+      if (!terminated) {
+        this.onEvent(`NI-DAQ acquisition stopped (code ${code})`);
+      }
+    });
+    this.child.on('error', (err) => {
+      this.connected = false;
+      console.error(`[nidaq] failed to spawn "${this.python}": ${err.message}`);
+    });
+
+    this.watchdog = setInterval(() => {
+      if (Date.now() - this.lastRxAt > 2000) this.connected = false;
+    }, 500);
+    this.watchdog.unref?.();
+
+    // Wait for the first real frame rather than a fixed delay, so the startup
+    // banner and the first control ticks report a truthful link state. Card
+    // configuration takes a second or two; give up after `startupTimeoutMs`
+    // and let the watchdog report NO LINK rather than blocking the boot.
+    await this.waitForFirstFrame(this.startupTimeoutMs);
+    return this;
+  }
+
+  waitForFirstFrame(timeoutMs) {
+    return new Promise((resolve) => {
+      if (this.connected) return resolve(true);
+      const started = Date.now();
+      const poll = setInterval(() => {
+        if (this.connected || Date.now() - started > timeoutMs) {
+          clearInterval(poll);
+          resolve(this.connected);
+        }
+      }, 50);
+      poll.unref?.();
+    });
+  }
+
+  onStdout(chunk) {
+    this.stdoutBuffer += chunk;
+    const lines = this.stdoutBuffer.split('\n');
+    this.stdoutBuffer = lines.pop() ?? '';
+
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      let msg;
+      try {
+        msg = JSON.parse(line);
+      } catch {
+        console.error(`[nidaq] unparseable frame: ${line.slice(0, 120)}`);
+        continue;
+      }
+
+      if (msg.type === 'data') {
+        for (const ch of msg.channels || []) {
+          const key = `${ch.card}${ch.channel}`;
+          const value = ch.card === 'pt' ? ch.pressure_psi
+            : ch.card === 'lc' ? ch.lbf
+            : ch.temp_f;
+          this.statuses.set(key, ch.status);
+          if (Number.isFinite(ch.tare)) this.tares.set(key, ch.tare);
+          // null means the sidecar could not produce a reading (open input,
+          // unconfigured channel). Leave the last good value in place and let
+          // the status carry the fault, rather than writing null into control.
+          if (value !== null && value !== undefined) this.values.set(key, value);
+          if (ch.raw !== null && ch.raw !== undefined) {
+            this.values.set(`${key}_raw`, ch.raw);
+          }
+        }
+        this.performance = msg.performance;
+        this.frameCount++;
+        this.lastRxAt = Date.now();
+        this.connected = true;
+      } else if (msg.type === 'status') {
+        if (!msg.ok) this.onEvent(`NI-DAQ: ${msg.message}`);
+        console.error(`[nidaq] ${msg.message}`);
+      } else if (msg.type === 'ack') {
+        // A tare that silently did nothing is the worst outcome: the operator
+        // walks away believing a channel is zeroed. Say which ones refused.
+        if (msg.action === 'tare' && msg.skipped?.length) {
+          this.onEvent(
+            `NI-DAQ: ${msg.skipped.length} channel(s) could not be tared ` +
+            `(${msg.skipped.join(', ')}) — no valid reading`,
+            'warn'
+          );
+        } else if (msg.ok === false) {
+          this.onEvent(`NI-DAQ: "${msg.action}" failed${msg.error ? ` — ${msg.error}` : ''}`);
+        }
+      }
+    }
+  }
+
+  command(obj) {
+    if (!this.child?.stdin.writable) return false;
+    this.child.stdin.write(JSON.stringify(obj) + '\n');
+    return true;
+  }
+
+  /**
+   * Zero a channel (or a whole card, or everything) against its current
+   * reading. `clear` restores the channel to its untared calibration instead.
+   *
+   * Addressed by card and channel, which is how the sidecar thinks. Callers
+   * that speak in sensor ids want `tareSensors` below.
+   */
+  tare(card, channel, { clear = false } = {}) {
+    return this.command({ action: 'tare', card, channel, clear });
+  }
+
+  /**
+   * Zero one or more sensors, addressed by sensor id.
+   *
+   * Only channels present in `channelMap` can be tared — an unmapped card
+   * channel has no sensor to zero, and taring one by accident would move a
+   * reading nobody is looking at. Sensors this device does not measure come
+   * back in `unsupported` rather than failing the whole request, so a
+   * composite stand can hand the same list to each of its devices.
+   */
+  tareSensors(ids, { clear = false } = {}) {
+    const tared = [];
+    const unsupported = [];
+    for (const id of ids) {
+      const target = this.channelForSensor(id);
+      if (!target) { unsupported.push(id); continue; }
+      if (!this.tare(target.card, target.channel, { clear })) {
+        return {
+          ok: false,
+          error: 'NI-DAQ acquisition is not running',
+          tared,
+          unsupported,
+        };
+      }
+      tared.push(id);
+    }
+    return { ok: true, tared, unsupported };
+  }
+
+  /** sensor id -> {card, channel}, or null when this device does not read it. */
+  channelForSensor(id) {
+    if (!this.sensorChannels) {
+      // channelMap is fixed at construction, so this is built once. First
+      // mapping wins if a sensor is listed twice.
+      this.sensorChannels = new Map();
+      for (const [key, sensorId] of Object.entries(this.channelMap)) {
+        const m = /^([a-z]+)(\d+)$/.exec(key);
+        if (!m || this.sensorChannels.has(sensorId)) continue;
+        this.sensorChannels.set(sensorId, { card: m[1], channel: Number(m[2]) });
+      }
+    }
+    return this.sensorChannels.get(id) || null;
+  }
+
+  /**
+   * Current tare offset per sensor, in the sensor's engineering units.
+   *
+   * Every mapped channel appears, zero included — the presence of an entry is
+   * what tells the UI a sensor can be tared at all. Entries only exist once
+   * telemetry has arrived, so a card that is down offers no tare button,
+   * which is the honest answer.
+   *
+   * The sidecar zeroes the value BEFORE stand.json's calibration is applied,
+   * so the visible shift is scaled by the slope. (The calibration's offset
+   * term cancels: it applies equally to the tared and untared reading.)
+   */
+  tareStatus() {
+    const out = {};
+    for (const [key, id] of Object.entries(this.channelMap)) {
+      const offset = this.tares.get(key);
+      if (offset === undefined) continue;
+      const sensor = this.config?.sensors.find((s) => s.id === id);
+      const { slope = 1 } = sensor?.calibration || {};
+      out[id] = offset * slope;
+    }
+    return out;
+  }
+
+  setCalMode(card, channel, useAlt) {
+    return this.command({ action: 'set_cal_mode', card, channel, useAlt });
+  }
+
+  read() {
+    const out = {};
+    for (const [key, id] of Object.entries(this.channelMap)) {
+      const value = this.values.get(key);
+      if (value === undefined) continue;
+      const sensor = this.config?.sensors.find((s) => s.id === id);
+      const { slope = 1, offset = 0 } = sensor?.calibration || {};
+      out[id] = value * slope + offset;
+    }
+    return out;
+  }
+
+  /** Per-channel acquisition status, for surfacing an open transducer in the UI. */
+  channelStatus() {
+    const out = {};
+    for (const [key, id] of Object.entries(this.channelMap)) {
+      const s = this.statuses.get(key);
+      if (s) out[id] = s;
+    }
+    return out;
+  }
+
+  setValve() { /* read-only device */ }
+
+  get status() {
+    const rate = this.performance?.sample_rate_hz;
+    return {
+      name: this.name,
+      connected: this.connected,
+      // When the last frame actually landed. The header turns this into
+      // "LIVE" or an age, so an operator can tell a link that dropped a
+      // second ago from one that has been dead since before the count.
+      // 0 means nothing has ever been received.
+      lastRxAt: this.lastRxAt,
+      detail: this.connected
+        ? `${this.detail} · ${this.frameCount} frames${rate ? ` @ ${rate} Hz` : ''}`
+        : `${this.detail} · NO LINK`,
+    };
+  }
+
+  async close() {
+    this.closing = true;
+    clearInterval(this.watchdog);
+    this.command({ action: 'shutdown' });
+    await new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.child?.kill();
+        resolve();
+      }, 1500);
+      timer.unref?.();
+      this.child?.once('exit', () => { clearTimeout(timer); resolve(); });
+    });
+  }
+}

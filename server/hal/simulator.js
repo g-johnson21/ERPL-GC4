@@ -9,11 +9,42 @@
  * Roles are matched to valve/sensor IDs via `roles` below. If your stand uses
  * different IDs, edit the mapping here (or run with --driver=udp / serial).
  * Any sensor not covered by the model simply reads ambient + noise.
+ *
+ * BANG-BANG
+ *   The regulator does NOT run in this file. It runs in bb-firmware.js, an
+ *   emulation of the PANDA board, and this driver talks to it over the same
+ *   ASCII command grammar the real board uses — encoded, handed across, and
+ *   parsed back out of `BB:` and `EVT:` lines. So `npm run sim` exercises the
+ *   real §5 protocol end to end, including the config echo and the enable
+ *   handshake, rather than a shortcut that would agree with the server no
+ *   matter what the wire format said.
+ *
+ *   The emulated board reads its OWN transducer, offset and noised
+ *   independently of the DAQ channel the ground station sees. That divergence
+ *   is deliberate: two sensors on one tank is the real situation, and a
+ *   simulator where both loops read the identical number would hide it.
  */
+import { BangBangFirmware } from './bb-firmware.js';
+import {
+  parseLine,
+  encodeConfig,
+  encodeVent,
+  encodeMdot,
+  encodeEnable,
+  encodeManualVent,
+  encodeAbort,
+} from './bb-protocol.js';
 
 const AMBIENT_PSI = 14.7;
 const AMBIENT_F = 72;
 const LOX_F = -297;
+
+/**
+ * Fixed bias of the emulated board's PT against the DAQ's, per side, in psi.
+ * Small enough to be plausible, large enough that a UI meant to surface the
+ * disagreement visibly does.
+ */
+const BOARD_PT_BIAS = { l: 1.8, f: -2.4 };
 
 /** Map model roles -> IDs from config/stand.json. Edit to match your stand. */
 const roles = {
@@ -88,6 +119,23 @@ export class SimulatorDriver {
     this.opts = options;
     this.valveState = new Map();   // valveId -> 'open' | 'closed'
     this.lastT = Date.now() / 1000;
+    this.onEvent = options.onEvent || (() => {});
+    // Set by the bang-bang bank, to attribute a board rejection to whatever
+    // command was in flight. Mirrors the PANDA driver's hook.
+    this.onBbError = options.onBbError || null;
+
+    // Per-instance, because init() rewires roles from the loaded config and a
+    // shared module-level object would leak that between stands.
+    this.roles = structuredClone(roles);
+
+    // The emulated board. Its lines come back through parseLine(), the same
+    // decoder the real driver uses, so the mirror below is built by the code
+    // path that has to work on hardware.
+    this.bb = { l: freshBbSide(), f: freshBbSide() };
+    this.bbEchoes = false;
+    this.bbSides = {};             // 'l' | 'f' -> {valve, ventValve}
+    this.firmware = new BangBangFirmware({ onLine: (line) => this.onBoardLine(line) });
+
     this.reset();
   }
 
@@ -114,6 +162,17 @@ export class SimulatorDriver {
       mdotF: 0,
       mdotO: 0,
     };
+
+    // Tare offsets, in engineering units, subtracted from the model's output.
+    //
+    // The real stand zeroes inside the NI-DAQ sidecar, before conversion; the
+    // model has no such layer, so it subtracts here instead. What matters is
+    // that both honour the same driver contract — the point of the simulator
+    // is that the screens above it can be exercised for real with no hardware
+    // attached, and a zeroing function nobody can try out is a zeroing
+    // function nobody trusts on test day.
+    this.tares = new Map();
+    this.lastSample = {};
   }
 
   async init(config) {
@@ -121,18 +180,175 @@ export class SimulatorDriver {
     for (const v of config.valves) {
       this.valveState.set(v.id, v.safeState || (v.normallyOpen ? 'open' : 'closed'));
     }
+    this.bindBangBang(config);
     return this;
+  }
+
+  /**
+   * Point the model's press/vent/tank roles at whatever the bang-bang config
+   * actually names, so the emulated board pressurises the tank the operator is
+   * watching instead of a role id from an older stand.
+   *
+   * Only the four roles bang-bang needs are rewired. The rest of the `roles`
+   * map above still assumes the previous stand's ids, so anything else the
+   * model drives may be reading a channel this config does not define.
+   */
+  bindBangBang(config) {
+    this.bbSides = {};
+    for (const c of config.bangbang || []) {
+      const side = String(c.side || '').toLowerCase();
+      if (side !== 'l' && side !== 'f') continue;
+      this.bbSides[side] = { valve: c.valve, ventValve: c.ventValve };
+      if (side === 'l') {
+        if (c.valve) this.roles.valves.oxPress = c.valve;
+        if (c.ventValve) this.roles.valves.oxVent = c.ventValve;
+        if (c.sensor) this.roles.sensors.oxP = c.sensor;
+      } else {
+        if (c.valve) this.roles.valves.fuelPress = c.valve;
+        if (c.ventValve) this.roles.valves.fuelVent = c.ventValve;
+        if (c.sensor) this.roles.sensors.fuelP = c.sensor;
+      }
+    }
   }
 
   setValve(valve, state /* 'open' | 'closed' */) {
     this.valveState.set(valve.id, state);
-    if (valve.id === roles.valves.igniter && state === 'open') {
+    if (valve.id === this.roles.valves.igniter && state === 'open') {
       this.s.igniterFiredAt = Date.now() / 1000;
     }
   }
 
   isOpen(role) {
-    return this.valveState.get(roles.valves[role]) === 'open';
+    return this.valveState.get(this.roles.valves[role]) === 'open';
+  }
+
+  /** Does this stand actually have the valve the model wants for this role? */
+  hasValve(role) {
+    return this.valveState.has(this.roles.valves[role]);
+  }
+
+  /**
+   * Is pressurant available at the regulator?
+   *
+   * A role this stand does not define is not a CLOSED valve — it is a part of
+   * the model this stand does not have. Draco has no separate N2 isolation
+   * valve, and reading its absence as "shut" left the regulator at ambient,
+   * so the bang-bang loop could open its press valve onto nothing and never
+   * reach setpoint. An absent isolation valve means the supply is simply
+   * always live.
+   */
+  pressurantAvailable() {
+    return !this.hasValve('n2iso') || this.isOpen('n2iso');
+  }
+
+  setArmed(armed) {
+    // Mirrors the board's 'r': disarming runs the firmware's forceSafe()
+    // across both sides, so a regulator does not survive a disarm.
+    if (!armed) this.firmware.forceSafe();
+  }
+
+  safeAll() {
+    this.firmware.forceSafe();
+  }
+
+  // ----------------------------------------------------------- bang-bang ----
+  //
+  // The same six commands the PANDA driver sends, encoded with the same
+  // encoders and handed to the emulated board as ASCII. Going through the wire
+  // format rather than calling the firmware's methods directly is the point:
+  // a mistake in the grammar shows up here instead of at the pad.
+
+  bbConfig(side, cfg) { return this.boardCommand(() => encodeConfig(side, cfg)); }
+  bbVent(side, cfg) { return this.boardCommand(() => encodeVent(side, cfg)); }
+  bbMdot(side, cfg) { return this.boardCommand(() => encodeMdot(side, cfg)); }
+  bbEnable(side, on) { return this.boardCommand(() => encodeEnable(side, on)); }
+  bbManualVent(side, open) { return this.boardCommand(() => encodeManualVent(side, open)); }
+  bbAbort(side) { return this.boardCommand(() => encodeAbort(side)); }
+
+  boardCommand(build) {
+    let command;
+    try {
+      command = build();
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+    this.firmware.command(command);
+    return { ok: true, command };
+  }
+
+  /** Decode a line from the emulated board exactly as the real driver would. */
+  onBoardLine(line) {
+    const msg = parseLine(line);
+    if (msg.kind === 'heartbeat') {
+      const side = this.bb[msg.side];
+      if (!side) return;
+      side.state = msg.state;
+      side.stateValid = msg.stateValid;
+      side.press = msg.press;
+      side.vent = msg.vent;
+      if (msg.pressure !== undefined) side.pressure = msg.pressure;
+      side.lastBeatAt = Date.now();
+      return;
+    }
+    if (msg.kind === 'event') {
+      if (msg.category === 'CFG_PUSH' && this.bb[msg.side]) {
+        this.bbEchoes = true;
+        Object.assign(this.bb[msg.side].confirmed, msg.config.fields);
+        this.bb[msg.side].confirmedAt = Date.now();
+      }
+      this.onEvent(`SIM-PANDA ${msg.category}${msg.side ? `:${msg.side}` : ''} ${msg.detail}`.trim(), 'info');
+      return;
+    }
+    if (msg.kind === 'error') {
+      this.onEvent(line, 'error');
+      this.onBbError?.(line);
+    }
+  }
+
+  bbStatus() {
+    const now = Date.now();
+    const out = {};
+    for (const [key, side] of Object.entries(this.bb)) {
+      out[key] = {
+        ...side,
+        // Never stale: the emulated board is in-process, so the only way to
+        // lose its heartbeat is for the whole server to stop.
+        stale: false,
+        confirmed: { ...side.confirmed },
+        echoes: this.bbEchoes,
+        lastBeatAt: side.lastBeatAt || now,
+      };
+    }
+    return out;
+  }
+
+  /**
+   * Run the emulated regulator one tick and let its solenoid demand drive the
+   * model. The board's PT is the model's tank pressure with an independent
+   * bias and noise — see BOARD_PT_BIAS.
+   */
+  stepBoard(nowMs) {
+    this.firmware.update({
+      l: this.s.oxP + BOARD_PT_BIAS.l + gauss() * 0.6,
+      f: this.s.fuelP + BOARD_PT_BIAS.f + gauss() * 0.6,
+    }, nowMs);
+
+    const outputs = this.firmware.outputs();
+    for (const [side, wiring] of Object.entries(this.bbSides)) {
+      const demand = outputs[side];
+      if (!demand) continue;
+      if (wiring.valve) this.applyCoil(wiring.valve, demand.press);
+      if (wiring.ventValve) this.applyCoil(wiring.ventValve, demand.vent);
+    }
+  }
+
+  /** The board commands a COIL; the model tracks FLOW state. */
+  applyCoil(valveId, energized) {
+    const valve = this.config?.valves.find((v) => v.id === valveId);
+    if (!valve) return;
+    this.valveState.set(valveId, valve.normallyOpen
+      ? (energized ? 'closed' : 'open')
+      : (energized ? 'open' : 'closed'));
   }
 
   /** Advance physics and return { sensorId: engineeringValue }. */
@@ -140,6 +356,9 @@ export class SimulatorDriver {
     const now = Date.now() / 1000;
     const elapsed = Math.min(0.25, Math.max(0, now - this.lastT));
     this.lastT = now;
+
+    // Before the physics, so a valve the board just opened acts on this tick.
+    this.stepBoard(now * 1000);
 
     // Fixed sub-steps. These are explicit-Euler relaxations, so a long tick
     // (Node timer jitter, GC pause, a busy laptop) would otherwise overshoot:
@@ -159,7 +378,7 @@ export class SimulatorDriver {
     const s = this.s;
 
     // --- Pressurant supply ---------------------------------------------
-    const isoOpen = this.isOpen('n2iso');
+    const isoOpen = this.pressurantAvailable();
     const targetReg = isoOpen ? Math.min(s.bottleP, tune.regSetPsi) : AMBIENT_PSI;
     s.regP += (targetReg - s.regP) * Math.min(1, 6 * dt);
 
@@ -268,7 +487,7 @@ export class SimulatorDriver {
     const s = this.s;
     const out = {};
     const put = (role, value, noise) => {
-      const id = roles.sensors[role];
+      const id = this.roles.sensors[role];
       if (id) out[id] = value + gauss() * noise;
     };
 
@@ -298,14 +517,68 @@ export class SimulatorDriver {
         out[sensor.id] = base + gauss() * ((sensor.max - sensor.min) * 0.002);
       }
     }
+
+    // Applied last, to the finished reading, so a tared channel sits at zero
+    // plus its own noise — exactly what the hardware path produces.
+    for (const [id, offset] of this.tares) {
+      if (offset && id in out) out[id] -= offset;
+    }
+
+    this.lastSample = out;
+    return out;
+  }
+
+  /**
+   * Zero sensors against their current reading; `clear` restores them.
+   *
+   * Mirrors the NI-DAQ driver's contract, including the re-tare behaviour: the
+   * existing offset is added back before the new one is taken, so taring twice
+   * lands in the same place rather than stacking.
+   */
+  tareSensors(ids, { clear = false } = {}) {
+    const tared = [];
+    for (const id of ids) {
+      if (!this.config?.sensors.some((s) => s.id === id)) continue;
+      if (clear) {
+        this.tares.set(id, 0);
+      } else {
+        const shown = this.lastSample[id];
+        if (!Number.isFinite(shown)) continue;      // nothing to zero against
+        this.tares.set(id, shown + (this.tares.get(id) || 0));
+      }
+      tared.push(id);
+    }
+    return { ok: true, tared, unsupported: ids.filter((id) => !tared.includes(id)) };
+  }
+
+  /** Every modelled sensor can be tared, so every one reports an offset. */
+  tareStatus() {
+    const out = {};
+    for (const s of this.config?.sensors || []) out[s.id] = this.tares.get(s.id) || 0;
     return out;
   }
 
   get status() {
-    return { name: this.name, connected: true, detail: this.detail };
+    // The model produces a fresh sample on demand, so it is by definition
+    // current — reporting the clock keeps the link indicator honest instead
+    // of showing a simulated stand as permanently stale.
+    return { name: this.name, connected: true, lastRxAt: Date.now(), detail: this.detail };
   }
 
   async close() {}
+}
+
+function freshBbSide() {
+  return {
+    state: 'OFF',
+    stateValid: true,
+    press: false,
+    vent: false,
+    pressure: null,
+    lastBeatAt: 0,
+    confirmed: {},
+    confirmedAt: 0,
+  };
 }
 
 function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }

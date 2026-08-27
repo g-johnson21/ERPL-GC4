@@ -1,0 +1,298 @@
+{
+  "_comment": [
+    "Hardware wiring for the --driver=stand composite driver.",
+    "Copy config/hardware.example.json here and edit for your stand.",
+    "",
+    "This is deliberately NOT part of stand.json: that file is edited through",
+    "the Config page in the browser and rewritten on every save. Wiring should",
+    "not be reachable from a browser, and should not churn when someone",
+    "retimes an autosequence.",
+    "",
+    "Channel inventory: 16 PT (NI-9208), 4 LC (NI-9237),",
+    "8 TC (two NI-9211s), 11 PANDA DC current-sense channels.",
+    "",
+    "channelMap ties a hardware channel to a sensor id in stand.json.",
+    "DAQ channel indices RESTART AT 0 on every card, so the key carries the",
+    "card: pt0 is NI-9208 ai0, lc0 is NI-9237 ai0, tc0 is the first 9211 ai0.",
+    "TC channels run across both 9211 modules: tc0-tc3 are slot 3, tc4-tc7",
+    "are slot 4. A channel with metadata but no channelMap entry is acquired",
+    "and logged, but never becomes a sensor reading."
+  ],
+  "nidaq": {
+    "required": true,
+    "python": "python",
+    "chassis": "cDAQ9189-2462EFD",
+    "sampleClockHz": 100,
+    "samplesPerRead": 10,
+    "cards": {
+      "pt": {
+        "slot": 2,
+        "channels": 16,
+        "channelMeta": {
+          "0": {
+            "maxPsi": 1000,
+            "zeroMa": 4.0
+          },
+          "1": {
+            "maxPsi": 1000,
+            "zeroMa": 4.0
+          },
+          "2": {
+            "maxPsi": 10000.0,
+            "zeroMa": 4.0
+          },
+          "3": {
+            "maxPsi": 1500.0,
+            "zeroMa": 4.0
+          },
+          "4": {
+            "maxPsi": 1500.0,
+            "zeroMa": 4.0
+          },
+          "5": {
+            "maxPsi": 1500.0,
+            "zeroMa": 4.0
+          },
+          "6": {
+            "maxPsi": 10000.0,
+            "zeroMa": 4.0
+          },
+          "7": {
+            "maxPsi": 1500.0,
+            "zeroMa": 4.0
+          },
+          "8": {
+            "maxPsi": 1500.0,
+            "zeroMa": 4.0
+          },
+          "9": {
+            "maxPsi": 1500.0,
+            "zeroMa": 4.0
+          },
+          "10": {
+            "maxPsi": 500.0,
+            "zeroMa": 4.0
+          },
+          "11": {
+            "maxPsi": 500.0,
+            "zeroMa": 4.0,
+            "maxPsiAlt": 2000.0
+          },
+          "12": {
+            "maxPsi": 1500.0,
+            "zeroMa": 4.0
+          },
+          "13": {
+            "maxPsi": 1500.0,
+            "zeroMa": 4.0
+          },
+          "14": {
+            "maxPsi": 1500.0,
+            "zeroMa": 4.0
+          },
+          "15": {
+            "maxPsi": 1500.0,
+            "zeroMa": 4.0
+          }
+        }
+      },
+      "lc": {
+        "slot": 1,
+        "channels": 4,
+        "excitationV": 10.0,
+        "bridgeOhms": 350.0,
+        "channelMeta": {
+          "0": {
+            "slope": 296590.0,
+            "offset": 0.0
+          },
+          "1": {
+            "slope": 59447.0,
+            "offset": -2.91
+          },
+          "2": {
+            "slope": 59447.9,
+            "offset": -2.91
+          },
+          "3": {
+            "slope": 59447.0,
+            "offset": -2.91
+          }
+        }
+      },
+      "tc": {
+        "modules": [
+          {
+            "slot": 3,
+            "channels": 4
+          },
+          {
+            "slot": 4,
+            "channels": 4
+          }
+        ],
+        "channelMeta": {
+          "0": {
+            "type": "K",
+            "offset": 0.0
+          },
+          "1": {
+            "type": "K",
+            "offset": 0.0
+          },
+          "2": {
+            "type": "K",
+            "offset": 0.0
+          },
+          "3": {
+            "type": "K",
+            "offset": 0.0
+          },
+          "4": {
+            "type": "K",
+            "offset": 0.0
+          },
+          "5": {
+            "type": "K",
+            "offset": 0.0
+          },
+          "6": {
+            "type": "K",
+            "offset": 0.0
+          },
+          "7": {
+            "type": "K",
+            "offset": 0.0
+          }
+        }
+      }
+    },
+    "channelMap": {
+      "pt2": "PT1",
+      "pt3": "PT3",
+      "pt4": "PT4",
+      "pt5": "PT5",
+      "pt6": "PT11",
+      "pt7": "PT13",
+      "pt8": "PT14",
+      "pt9": "PT15",
+      "pt10": "PT31",
+      "pt11": "PT32",
+      "pt12": "PT21",
+      "pt13": "PT22",
+      "pt14": "PT23",
+      "pt15": "PT24",
+      "lc0": "LC1",
+      "lc1": "LC2",
+      "lc2": "LC3",
+      "lc3": "LC4",
+      "tc0": "TC1",
+      "tc1": "TC2",
+      "tc2": "TC3",
+      "tc3": "TC4"
+    }
+  },
+  "panda": {
+    "required": true,
+    "port": "COM5",
+    "baud": 460800,
+    "_ptInputMode": "Current firmware sends VOLTS across the shunt on 'p' lines, not mA. Set to 'ma' only if your firmware pre-converts.",
+    "ptInputMode": "volts",
+    "defaultShuntOhms": 47,
+    "shuntOhms": {},
+    "_dcThresholdA": "A solenoid channel counts as energized above this current, in amps.",
+    "dcThresholdA": 0.1,
+    "_armHardware": "Mirror GC-4's ARM state to the board's own arm latch ('a'/'r').",
+    "armHardware": true,
+    "_channelMap": "The PANDA reports its own sensors too. Map any you want to surface; these overwrite the DAQ's value for the same sensor id, so leave it empty unless the PANDA is the authority for that channel.",
+    "channelMap": {},
+    "_dcChannels": [
+      "Solenoid / pushbutton current sense from the board's 's' lines, in",
+      "AMPS. Diagnostics, not process values: they confirm a coil actually",
+      "drew current, so they render as small text on the actuator they watch.",
+      "",
+      "  key      position in the 's' line (0-based)",
+      "  id       the PANDA channel the board ACTUATES (S<n>) -- NOT the same",
+      "           as the key: per sensor_config.xlsx the purges (DC7/DC8) sit",
+      "           at s-line positions 4/5 while the runlines (DC5/DC6) sit at",
+      "           6/7, so report order and actuation order are swapped.",
+      "  pidTag   the tag on Draco V4.00 (S1..S5, PB1..PB6)",
+      "  valve    the stand.json valve this channel senses",
+      "",
+      "Source: sensor_config.xlsx DC_Solenoids. Position 8 is unpopulated."
+    ],
+    "_dcOrder": "Wire position -> logical index, for firmware whose 's' line order does not match channel order. This board reports in order, so it is null. Re-verify against the harness before setting it.",
+    "dcOrder": null,
+    "dcChannels": {
+      "0": {
+        "id": "DC1",
+        "name": "LOX BB",
+        "pidTag": "S1",
+        "valve": "SV-OP"
+      },
+      "1": {
+        "id": "DC2",
+        "name": "Fuel BB",
+        "pidTag": "S2",
+        "valve": "SV-FP",
+        "_note": "workbook short_name says s1 for both BB rows; Draco V4.00 shows S2 on the fuel leg"
+      },
+      "2": {
+        "id": "DC3",
+        "name": "Lox GN2 Vent",
+        "pidTag": "PB1",
+        "valve": "SV-OV"
+      },
+      "3": {
+        "id": "DC4",
+        "name": "Fuel GN2 Vent",
+        "pidTag": "PB3",
+        "valve": "SV-FV"
+      },
+      "4": {
+        "id": "DC7",
+        "name": "Fuel Purge",
+        "pidTag": "S5",
+        "valve": "SV-FPURGE"
+      },
+      "5": {
+        "id": "DC8",
+        "name": "LOX Purge",
+        "pidTag": "S4",
+        "valve": "SV-OPURGE"
+      },
+      "6": {
+        "id": "DC5",
+        "name": "LOX Runline",
+        "pidTag": "PB2",
+        "valve": "MV-O"
+      },
+      "7": {
+        "id": "DC6",
+        "name": "Fuel Runline",
+        "pidTag": "PB4",
+        "valve": "MV-F"
+      },
+      "9": {
+        "id": "DC9",
+        "name": "LOX Fill",
+        "pidTag": "PB5",
+        "valve": "SV-LOX-FILL"
+      },
+      "10": {
+        "id": "DC10",
+        "name": "Muscle Bus Vent",
+        "pidTag": "S3",
+        "valve": "SV-MBV"
+      },
+      "11": {
+        "id": "DC11",
+        "name": "GOX Purge",
+        "pidTag": "PB6",
+        "valve": "SV-GOX-PURGE"
+      }
+    }
+  },
+  "_valveDevice": "Optional per-valve routing, valveId -> device key. Defaults to the first actuation-capable device (the PANDA).",
+  "valveDevice": {}
+}

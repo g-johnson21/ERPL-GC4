@@ -129,6 +129,20 @@ export class Recorder {
       for (const c of this.stand.config.bangbang) {
         cols.push({ header: csvEscape(`${c.id} setpoint`), get: (s) => s.controllers[c.id]?.setpoint ?? '' });
         cols.push({ header: csvEscape(`${c.id} enabled`), get: (s) => (s.controllers[c.id]?.enabled ? '1' : '0') });
+        // What the BOARD reported, alongside what we asked it for. A trace
+        // read back months later has to be able to answer "was the loop
+        // actually running, and on what pressure" — and the answer to both is
+        // the board's, not ours. `enabled` above is only our request.
+        cols.push({ header: csvEscape(`${c.id} board state`), get: (s) => s.controllers[c.id]?.board?.state ?? '' });
+        cols.push({ header: csvEscape(`${c.id} board press`), get: (s) => (s.controllers[c.id]?.board?.press ? '1' : '0') });
+        cols.push({ header: csvEscape(`${c.id} board vent`), get: (s) => (s.controllers[c.id]?.board?.vent ? '1' : '0') });
+        cols.push({
+          header: csvEscape(`${c.id} board psi`),
+          get: (s) => {
+            const p = s.controllers[c.id]?.board?.pressure;
+            return Number.isFinite(p) ? p.toFixed(2) : '';
+          },
+        });
       }
     }
 

@@ -5,6 +5,10 @@ data/*.meta.json
 # Timestamped config backups written on every save from the Config page.
 config/backups/
 
+# Per-machine hardware wiring (COM port, chassis name, channel maps).
+# config/hardware.example.json is the tracked template.
+config/hardware.json
+
 node_modules/
 *.log
 .DS_Store

@@ -102,12 +102,24 @@ export class Sequencer {
         break;
       }
       case 'bangbang': {
+        // Whatever the controller lets an operator retune from the control
+        // screen, a sequence step may also set — otherwise a step could not
+        // reproduce a configuration an operator can dial in by hand.
         const patch = {};
-        if (step.enabled !== undefined) patch.enabled = step.enabled;
-        if (step.setpoint !== undefined) patch.setpoint = step.setpoint;
-        if (step.deadband !== undefined) patch.deadband = step.deadband;
-        if (step.target === '*') this.stand.bangbang.setAll(patch, src);
-        else this.stand.bangbang.set(step.target, patch, src);
+        for (const key of ['enabled', 'setpoint', 'deadband', 'maxOpenMs', 'minIntervalMs',
+                           'maxOpenSeconds', 'abortAbove', 'ventTrigger', 'ventAuto',
+                           'vent', 'abort']) {
+          if (step[key] !== undefined) patch[key] = step[key];
+        }
+        // A rejected patch used to pass silently. It cannot now: the limits a
+        // step may set are validated, so a bad step has to say so rather than
+        // leaving the operator to wonder why the controller never changed.
+        const res = step.target === '*'
+          ? this.stand.bangbang.setAll(patch, src)
+          : this.stand.bangbang.set(step.target, patch, src);
+        if (!res.ok) {
+          this.stand.log('error', `${stamp} ${step.target} bang-bang REJECTED: ${res.error}`, src);
+        }
         break;
       }
       case 'safeAll':

@@ -52,9 +52,15 @@ export function mountHeader(activePage) {
   document.body.prepend(header);
   syncThemeIcon();
 
-  setInterval(() => { $('#header-clock').textContent = fmtClock(Date.now()); }, 250);
+  // The link indicators show an age, which has to keep counting between
+  // telemetry frames — and especially after they stop arriving, which is
+  // exactly when an operator is reading them.
+  setInterval(() => {
+    $('#header-clock').textContent = fmtClock(Date.now());
+    updateHeaderStatus();
+  }, 250);
 
-  bus.on('state', updateHeaderStatus);
+  bus.on('state', () => { lastStateAt = Date.now(); updateHeaderStatus(); });
   bus.on('connection', updateHeaderStatus);
   updateHeaderStatus();
 
@@ -95,6 +101,17 @@ function toggleSidebar() {
   window.dispatchEvent(new Event('resize'));
 }
 
+/**
+ * When the browser last received a snapshot, by the LOCAL clock.
+ *
+ * Device ages are measured on the server's clock (`snapshot.t` minus the
+ * device's last receive time) and then extended locally. Subtracting a server
+ * timestamp from `Date.now()` directly would read whatever the two machines
+ * disagree about — a second operator station whose clock is a minute off would
+ * show a perfectly healthy DAQ as a minute stale.
+ */
+let lastStateAt = 0;
+
 function updateHeaderStatus() {
   const host = $('#header-status');
   if (!host || !bus.state) return;
@@ -103,17 +120,28 @@ function updateHeaderStatus() {
 
   const chips = [];
 
-  if (!bus.connected) {
-    chips.push(chip('LINK LOST', 'danger', true));
-  } else if (!s.driver.connected) {
-    chips.push(chip(`${s.driver.name.toUpperCase()} NO LINK`, 'danger', true));
-  } else {
-    chips.push(chip(s.driver.name.toUpperCase(), 'info'));
-  }
+  // Losing the browser's own link to the server is reported separately from
+  // the hardware links: the device chips below are then a snapshot of what was
+  // true when the stream died, not what is true now.
+  if (!bus.connected) chips.push(chip('LINK LOST', 'danger', true));
+
+  for (const dev of s.driver.devices || []) chips.push(linkChip(dev, s));
 
   if (s.abort.active) chips.push(chip('ABORT', 'danger', true));
   else if (s.armed) chips.push(chip('ARMED', 'danger', true));
   else chips.push(chip('SAFE', 'ok'));
+
+  // Instrumentation is zeroed from the Data page, but a tare changes what the
+  // readings mean on EVERY screen. One chip in the shared header says so
+  // without putting a marker on every card, bubble and strip readout.
+  const tared = Object.entries(s.sensors)
+    .filter(([, r]) => Number.isFinite(r.tare) && r.tare !== 0)
+    .map(([id]) => id);
+  if (tared.length) {
+    const node = chip(`TARE ${tared.length}`, 'warn');
+    node.title = `Zero offsets are applied to: ${tared.join(', ')}\nManage them on the Data page.`;
+    chips.push(node);
+  }
 
   if (s.sequence.running) {
     chips.push(chip(`${s.sequence.name}  T+${s.sequence.t.toFixed(1)}`, 'warn', true));
@@ -127,6 +155,57 @@ function updateHeaderStatus() {
 
 function chip(text, kind = '', live = false) {
   return el(`span.chip.${kind}${live ? '.live' : ''}`, {}, el('span.dot'), text);
+}
+
+/**
+ * One hardware link: NIDAQ, PANDA, or whichever single device a simpler
+ * driver presents.
+ *
+ * Reads LIVE while data is arriving and switches to the time since the last
+ * frame the moment it stops. An age is the useful number during a fault —
+ * "NO LINK" cannot distinguish a cable knocked out two seconds ago from a
+ * board that never came up, and those are different problems.
+ */
+function linkChip(dev, snapshot) {
+  const label = (dev.key || dev.name || 'link').toUpperCase();
+  const age = deviceAgeMs(dev, snapshot);
+
+  let text, kind;
+  if (dev.connected) {
+    text = `${label} LIVE`;
+    kind = 'ok';
+  } else if (age === null) {
+    text = `${label} NO LINK`;                 // never said anything
+    kind = dev.required ? 'danger' : 'warn';
+  } else {
+    text = `${label} ${fmtAge(age)}`;
+    kind = dev.required ? 'danger' : 'warn';
+  }
+
+  const node = chip(text, kind, !dev.connected);
+  node.title = [
+    dev.detail || label,
+    dev.required ? 'required device' : 'optional device',
+    age === null ? 'no data received since startup' : `last data ${fmtAge(age)} ago`,
+  ].join('\n');
+  return node;
+}
+
+/** Age of a device's last frame in ms, or null if it has never sent one. */
+function deviceAgeMs(dev, snapshot) {
+  if (!dev.lastRxAt) return null;
+  const atSnapshot = Math.max(0, snapshot.t - dev.lastRxAt);
+  const sinceSnapshot = lastStateAt ? Math.max(0, Date.now() - lastStateAt) : 0;
+  return atSnapshot + sinceSnapshot;
+}
+
+/** Compact age: 0.4s, 12s, 3m 05s, 2h 14m. */
+function fmtAge(ms) {
+  const secs = ms / 1000;
+  if (secs < 10) return `${secs.toFixed(1)}s`;
+  if (secs < 60) return `${Math.floor(secs)}s`;
+  if (secs < 3600) return `${Math.floor(secs / 60)}m ${String(Math.floor(secs % 60)).padStart(2, '0')}s`;
+  return `${Math.floor(secs / 3600)}h ${String(Math.floor((secs % 3600) / 60)).padStart(2, '0')}m`;
 }
 
 // ============================================================= SIDEBAR =====
@@ -144,6 +223,8 @@ export function mountSidebar(container) {
 
   bus.on('state', updateSidebar);
   bus.on('log', appendLogLine);
+  bus.on('config', renderSequenceList);
+  renderSequenceList();
   updateSidebar();
   renderLog();
   refreshFileList();
@@ -203,6 +284,52 @@ function controllerSection() {
   );
 }
 
+/**
+ * The duty-cycle limits and trips an operator may retune from this panel.
+ *
+ * These used to be config-file-only, which meant changing a pulse width
+ * between attempts required disarming the stand, editing JSON, and
+ * hot-reloading every browser. They are runtime settings on the server now, so
+ * every setting a bang-bang controller has lives on the actuation screen.
+ */
+const LIMIT_FIELDS = [
+  {
+    key: 'maxOpenMs', label: 'Max pulse', units: 'ms', min: 0, max: 120000, step: 50,
+    title: 'BOARD — sent as max_open_ms.\n'
+         + 'One actuation holds the press valve open at most this long, then closes.\n'
+         + 'The loop keeps running and may reopen after the dwell.\n0 = no pulse limit.',
+  },
+  {
+    key: 'minIntervalMs', label: 'Dwell', units: 'ms', min: 0, max: 120000, step: 50,
+    title: 'BOARD — sent as wait_ms.\n'
+         + 'The board\'s minimum dwell between valve state transitions.\n'
+         + 'UNVERIFIED: GC-4\'s old limit never delayed a CLOSE. The board\'s wait_ms is\n'
+         + 'documented as a dwell between any transitions and may delay one.\n0 = no dwell.',
+  },
+  {
+    key: 'maxOpenSeconds', label: 'Leak trip', units: 's', min: 0, max: 3600, step: 1,
+    title: 'GROUND STATION — no board equivalent.\n'
+         + 'The board reporting its press valve open this long without reaching setpoint\n'
+         + 'tells the board to stop and raises a fault (a leak, or a dead transducer).\n'
+         + 'Needs the link: if the heartbeat stops, so does this trip.\n0 = no trip.',
+  },
+  {
+    key: 'ventTrigger', label: 'Auto-vent at', units: '', min: 0, max: 100000, step: 5,
+    nullable: true,
+    title: 'BOARD — sent as the V command\'s trigger.\n'
+         + 'Pressure at which the board enters AUTO-VENT and opens its vent solenoid.\n'
+         + 'Only acts when auto-vent is armed. Empty = no vent config pushed.',
+  },
+];
+
+/** The board's per-side state machine, as the heartbeat reports it. */
+const BOARD_STATES = {
+  OFF: { label: 'OFF', tone: 'idle', title: 'Loop inactive. The board has its valves closed.' },
+  SUS: { label: 'SUSTAIN', tone: 'ok', title: 'The board is regulating against the deadband.' },
+  AV: { label: 'AUTO-VENT', tone: 'warn', title: 'Vent trigger exceeded — the board is venting.' },
+  ABT: { label: 'ABORT', tone: 'danger', title: 'Latched abort on the board. Nothing here clears it.' },
+};
+
 function controllerCard(c) {
   const sensor = bus.sensor(c.sensor);
 
@@ -235,10 +362,23 @@ function controllerCard(c) {
   return el(`div.bb-card#bb-card-${c.id}`, {},
     el('div.bb-head', {},
       el('span.bb-name', { text: c.name }),
-      el('span.bb-sub', { text: `${c.sensor} → ${c.valve}` })
+      // Which board bus this is. The letter is the one that goes on the wire,
+      // so an operator reading a raw command log can match them up.
+      el('span.bb-side', {
+        text: c.side ? `BUS ${c.side}` : 'NO BUS',
+        title: c.side
+          ? `The board's ${c.side === 'L' ? 'LOX' : 'Fuel'} bus. Commands go out as B${c.side}/b${c.side}/x${c.side}.`
+          : 'No board side configured — this controller cannot be pushed to the board.',
+      })
     ),
+    el('div.bb-sub', {
+      id: `bb-src-${c.id}`,
+      title: 'The board regulates on its OWN transducer. The DAQ channel below it is a\n'
+           + 'second sensor on the same tank, and the two can legitimately disagree.',
+      text: `board PT → ${c.valve}`,
+    }),
     el('div.bb-readout', {},
-      // Reserved width keeps the units label and the FILLING/HOLD badge from
+      // Reserved width keeps the units label and the state badge from
       // shifting as the pressure reading swings.
       el('span.now', {
         id: `bb-now-${c.id}`,
@@ -246,8 +386,12 @@ function controllerCard(c) {
         text: '––––',
       }),
       el('span.tgt', { text: sensor?.units || '' }),
-      el('span.out', { id: `bb-out-${c.id}`, text: 'HOLD', dataset: { on: 'false' } })
+      el('span.out', { id: `bb-out-${c.id}`, text: 'OFF', dataset: { tone: 'idle' } })
     ),
+    // The ground station's own view of the same tank, and the gap between
+    // them. A quiet disagreement between two transducers is the thing worth
+    // seeing before it matters, not after.
+    el('div.bb-compare', { id: `bb-cmp-${c.id}` }),
     el('div.bb-track', {},
       el('i.band', { id: `bb-band-${c.id}` }),
       el('i.needle', { id: `bb-needle-${c.id}` })
@@ -256,9 +400,161 @@ function controllerCard(c) {
       el('div', {}, el('label.field', { for: `bb-sp-${c.id}`, text: `Setpoint (${sensor?.units || ''})` }), setpointInput),
       el('div', {}, el('label.field', { for: `bb-db-${c.id}`, text: 'Deadband ±' }), deadbandInput)
     ),
-    el('label.toggle', {}, enableToggle, el('span.track'), el('span', { text: 'Enable control' })),
+    limitsPanel(c, sensor),
+    el('label.toggle', {}, enableToggle, el('span.track'), el('span', { text: 'Enable board control' })),
+    // Overrides. Both go straight out on the wire — neither waits on the
+    // config handshake, because neither can make the stand less safe.
+    el('div.bb-overrides', {},
+      el('button.btn.sm#bb-vent-' + c.id, {
+        text: 'VENT',
+        title: 'Manual vent override (v<side>). Independent of auto-vent, and\n'
+             + 'accepted by the board in any state, including abort.',
+        onclick: (e) => {
+          const open = e.currentTarget.dataset.on !== 'true';
+          bus.setController(c.id, { vent: open });
+        },
+      }),
+      el('button.btn.sm.danger', {
+        text: 'ABORT SIDE',
+        title: 'Per-side abort (x<side>). LATCHED on the board — nothing in the\n'
+             + 'protocol clears it, so recovery needs a disarm/rearm or a power cycle.',
+        onclick: () => {
+          if (confirm(`Abort ${c.name} on the board?\n\nThis is LATCHED: it cannot be cleared from this screen.`)) {
+            bus.setController(c.id, { abort: true });
+          }
+        },
+      })
+    ),
     el('div.bb-fault.hidden', { id: `bb-fault-${c.id}` })
   );
+}
+
+/**
+ * Collapsed by default, with the live values summarised on the closed row —
+ * the limits matter constantly but are changed rarely, so they must be
+ * readable at a glance without four more input boxes competing with the
+ * setpoint for attention.
+ */
+function limitsPanel(c, sensor) {
+  const details = el('details.bb-limits', {
+    id: `bb-lim-${c.id}`,
+    open: limitsOpen(),
+    ontoggle: (e) => saveLimitsOpen(e.target.open),
+  });
+
+  details.append(
+    el('summary', {},
+      el('span.bb-lim-title', { text: 'Limits & trips' }),
+      el('span.bb-lim-sum', { id: `bb-limsum-${c.id}`, text: '' })
+    ),
+    el('div.bb-lim-grid', {},
+      LIMIT_FIELDS.map((f) => {
+        const units = f.units || sensor?.units || '';
+        return el('div', {},
+          el('label.field', {
+            for: `bb-${f.key}-${c.id}`,
+            title: f.title,
+            text: units ? `${f.label} (${units})` : f.label,
+          }),
+          el('input', {
+            type: 'number',
+            id: `bb-${f.key}-${c.id}`,
+            title: f.title,
+            min: f.min,
+            max: f.max,
+            step: f.step,
+            placeholder: f.nullable ? 'off' : undefined,
+            onchange: (e) => commitControllerField(c, f.key, e.target, { nullable: f.nullable }),
+          })
+        );
+      }),
+      el('div', {},
+        el('label.field', {
+          for: `bb-abortAbove-${c.id}`,
+          title: 'GROUND STATION — no board equivalent.\n'
+               + 'Either transducer above this latches a stand-wide ABORT and aborts this side.\n'
+               + 'Needs the link. Leave empty for no threshold.',
+          text: `Abort above (${sensor?.units || ''})`,
+        }),
+        el('input', {
+          type: 'number',
+          id: `bb-abortAbove-${c.id}`,
+          placeholder: 'off',
+          step: 1,
+          onchange: (e) => commitControllerField(c, 'abortAbove', e.target, { nullable: true }),
+        })
+      )
+    ),
+    // Arming auto-vent is a checkbox rather than a number, because it is a
+    // yes/no decision about whether the board may vent a tank unprompted.
+    el('label.bb-lim-check', {
+      title: 'BOARD — the V command\'s auto flag.\n'
+           + 'Lets the board open its vent solenoid on its own once the trigger is passed.\n'
+           + 'Needs a trigger pressure above.',
+    },
+      el('input', {
+        type: 'checkbox',
+        id: `bb-ventAuto-${c.id}`,
+        onchange: (e) => {
+          bus.setController(c.id, { ventAuto: e.target.checked }).then((res) => {
+            if (!res.ok) e.target.checked = !e.target.checked;
+          });
+        },
+      }),
+      el('span', { text: 'Board may auto-vent' })
+    )
+  );
+  return details;
+}
+
+/**
+ * Send one limit to the server and let the server's answer stand.
+ *
+ * The server owns the bounds and the cross-check between the pulse limit and
+ * the leak trip, so a rejected edit is snapped back to the running value
+ * rather than left on screen looking applied.
+ */
+function commitControllerField(c, key, input, { nullable = false } = {}) {
+  const text = input.value.trim();
+  let value;
+  if (nullable && text === '') {
+    value = null;
+  } else {
+    value = Number(text);
+    if (!Number.isFinite(value)) {
+      toast('Enter a number', 'error');
+      input.value = runtimeField(c.id, key);
+      return;
+    }
+  }
+  bus.setController(c.id, { [key]: value }).then((res) => {
+    if (!res.ok) input.value = runtimeField(c.id, key);
+  });
+}
+
+function runtimeField(id, key) {
+  const v = bus.state?.controllers?.[id]?.[key];
+  return v === null || v === undefined ? '' : v;
+}
+
+/** One-line rendering of the limits, for the collapsed summary row. */
+function limitSummary(rt, sensor) {
+  const units = sensor?.units ? ` ${sensor.units}` : '';
+  return [
+    rt.maxOpenMs > 0 ? `pulse ${rt.maxOpenMs}ms` : 'pulse ∞',
+    rt.minIntervalMs > 0 ? `dwell ${rt.minIntervalMs}ms` : 'dwell 0',
+    rt.maxOpenSeconds > 0 ? `trip ${rt.maxOpenSeconds}s` : 'trip off',
+    rt.ventTrigger != null ? `vent ${rt.ventTrigger}${rt.ventAuto ? ' auto' : ''}` : 'vent off',
+    rt.abortAbove != null ? `abort ${rt.abortAbove}${units}` : 'abort off',
+  ].join(' · ');
+}
+
+const LIMITS_OPEN_KEY = 'gc4-bb-limits-open';
+function limitsOpen() {
+  try { return localStorage.getItem(LIMITS_OPEN_KEY) === 'true'; } catch { return false; }
+}
+function saveLimitsOpen(open) {
+  try { localStorage.setItem(LIMITS_OPEN_KEY, String(open)); } catch { /* ignore */ }
 }
 
 function commitNumber(input, min, max, apply) {
@@ -272,22 +568,10 @@ function commitNumber(input, min, max, apply) {
 // ------------------------------------------------------------- SEQUENCES --
 
 function sequenceSection() {
-  const sequences = bus.config.autosequences.filter((s) => !s.hidden);
-
   return el('div.sidebar-section', {},
     el('div.section-title', {}, 'Autosequences'),
     el('div#seq-running'),
-    el('div.seq-list', {}, sequences.map((seq) =>
-      el('button.seq-btn', {
-        dataset: { style: seq.style, seqId: seq.id },
-        title: seq.description || seq.name,
-        onclick: () => runSequence(seq),
-      },
-        el('span.seq-dot'),
-        el('span', { text: seq.name }),
-        el('span.seq-meta', { text: seq.duration ? `${seq.duration.toFixed(0)}s` : '' })
-      )
-    )),
+    el('div.seq-list#seq-list'),
     el('button.btn.wide.sm.ghost', {
       style: { marginTop: '8px' },
       html: `${icon('warning', 14)} SAFE ALL ACTUATORS`,
@@ -301,6 +585,32 @@ function sequenceSection() {
       },
     })
   );
+}
+
+/**
+ * (Re)build the sequence buttons from config.
+ *
+ * Not built once at boot: autosequences may be edited while the stand is
+ * ARMED, and a hot-reload then updates this list in place instead of
+ * reloading the control screen out from under a live test.
+ */
+function renderSequenceList() {
+  const host = $('#seq-list');
+  if (!host) return;
+  clear(host);
+
+  for (const seq of bus.config.autosequences.filter((s) => !s.hidden)) {
+    host.append(el('button.seq-btn', {
+      dataset: { style: seq.style, seqId: seq.id },
+      title: seq.description || seq.name,
+      onclick: () => runSequence(seq),
+    },
+      el('span.seq-dot'),
+      el('span', { text: seq.name }),
+      el('span.seq-meta', { text: seq.duration ? `${seq.duration.toFixed(0)}s` : '' })
+    ));
+  }
+  updateSidebar();   // apply the current interlocks to the fresh buttons
 }
 
 async function runSequence(seq) {
@@ -480,13 +790,69 @@ function updateSidebar() {
     const value = bus.reading(c.sensor);
     const sensor = bus.sensor(c.sensor);
 
+    const board = rt.board;
+    // The pressure the BOARD is regulating on. The DAQ channel is a second
+    // sensor on the same tank and is shown beneath it, not in place of it —
+    // reading the wrong one is how you conclude a loop is misbehaving when
+    // it is doing exactly what its own transducer told it to.
+    const boardValue = board && !board.stale ? board.pressure : null;
+
     const now = $(`#bb-now-${c.id}`);
-    if (now) now.textContent = fmtValue(value, sensor?.decimals ?? 1);
+    if (now) now.textContent = Number.isFinite(boardValue) ? fmtValue(boardValue, sensor?.decimals ?? 1) : '––––';
 
     const out = $(`#bb-out-${c.id}`);
     if (out) {
-      out.dataset.on = String(rt.output);
-      out.textContent = rt.output ? 'FILLING' : 'HOLD';
+      const meta = BOARD_STATES[board?.state] || null;
+      if (!board) {
+        out.textContent = 'NO BOARD';
+        out.dataset.tone = 'idle';
+        out.title = 'This driver does not run board-side bang-bang.';
+      } else if (board.stale) {
+        // NOT the same as stopped. The board keeps regulating on its own; we
+        // have merely stopped being told about it.
+        out.textContent = 'NO LINK';
+        out.dataset.tone = 'warn';
+        out.title = 'No heartbeat from the board. It is probably still regulating —\n'
+                  + 'the loop lives there — but nothing on this screen is current.';
+      } else if (rt.awaiting === 'config') {
+        out.textContent = 'CONFIRMING';
+        out.dataset.tone = 'warn';
+        out.title = 'Waiting for the board to echo the configuration before enabling it.\n'
+                  + 'Enabling on an unconfirmed setpoint regulates to the wrong pressure.';
+      } else if (rt.awaiting === 'enable') {
+        out.textContent = 'STARTING';
+        out.dataset.tone = 'warn';
+        out.title = 'Config confirmed; waiting for the board to report SUSTAIN.';
+      } else if (meta) {
+        out.textContent = board.press ? 'FILLING' : meta.label;
+        out.dataset.tone = board.press ? 'ok' : meta.tone;
+        out.title = meta.title;
+      } else {
+        out.textContent = board.state || '?';
+        out.dataset.tone = 'danger';
+        out.title = `The board reported a state this client does not recognise: "${board.state}"`;
+      }
+    }
+
+    const cmp = $(`#bb-cmp-${c.id}`);
+    if (cmp) {
+      const parts = [];
+      if (Number.isFinite(value)) parts.push(`${c.sensor} ${fmtValue(value, sensor?.decimals ?? 1)}`);
+      if (Number.isFinite(boardValue) && Number.isFinite(value)) {
+        const delta = boardValue - value;
+        parts.push(`Δ ${delta >= 0 ? '+' : ''}${delta.toFixed(1)}`);
+      }
+      if (board?.press) parts.push('press OPEN');
+      if (board?.vent) parts.push('vent OPEN');
+      cmp.textContent = parts.join('  ·  ');
+      cmp.title = `Board PT vs ${c.sensor} (the DAQ). Two sensors on one tank —`
+                + ` a persistent gap is a calibration difference worth chasing.`;
+    }
+
+    const ventBtn = $(`#bb-vent-${c.id}`);
+    if (ventBtn) {
+      ventBtn.dataset.on = String(Boolean(board?.vent));
+      ventBtn.textContent = board?.vent ? 'VENTING' : 'VENT';
     }
 
     // Setpoint band + live needle drawn across the sensor's full range.
@@ -499,9 +865,12 @@ function updateSidebar() {
       band.style.left = `${Math.max(0, left)}%`;
       band.style.width = `${Math.max(0.8, Math.min(100, width))}%`;
     }
+    // Drawn from the board's own reading, so the needle sits where the loop
+    // thinks it is — the band it is being judged against belongs to the board.
     const needle = $(`#bb-needle-${c.id}`);
-    if (needle && Number.isFinite(value)) {
-      needle.style.left = `${Math.max(0, Math.min(100, ((value - lo) / span) * 100))}%`;
+    const needleAt = Number.isFinite(boardValue) ? boardValue : value;
+    if (needle && Number.isFinite(needleAt)) {
+      needle.style.left = `${Math.max(0, Math.min(100, ((needleAt - lo) / span) * 100))}%`;
     }
 
     const sp = $(`#bb-sp-${c.id}`);
@@ -509,16 +878,36 @@ function updateSidebar() {
     const db = $(`#bb-db-${c.id}`);
     if (db && document.activeElement !== db) db.value = rt.deadband;
 
+    // Limits are mirrored the same way as the setpoint: never overwrite the
+    // box someone is typing in, so a sequence step or a second operator
+    // changing the value cannot yank a half-typed number away.
+    for (const key of ['maxOpenMs', 'minIntervalMs', 'maxOpenSeconds', 'abortAbove', 'ventTrigger']) {
+      const input = $(`#bb-${key}-${c.id}`);
+      if (input && document.activeElement !== input) input.value = runtimeField(c.id, key);
+    }
+    const ventAuto = $(`#bb-ventAuto-${c.id}`);
+    if (ventAuto && document.activeElement !== ventAuto) ventAuto.checked = Boolean(rt.ventAuto);
+
+    const limSum = $(`#bb-limsum-${c.id}`);
+    if (limSum) limSum.textContent = limitSummary(rt, sensor);
+
     const en = $(`#bb-en-${c.id}`);
     if (en) {
       en.checked = rt.enabled;
-      en.disabled = s.abort.active || (c.requiresArm && !s.armed && !rt.enabled);
+      // A side the board has latched into ABORT cannot be re-enabled from
+      // here at all, so the control says so by being unavailable rather than
+      // by accepting a click the server will refuse.
+      en.disabled = s.abort.active || board?.state === 'ABT' || !rt.side ||
+                    (c.requiresArm && !s.armed && !rt.enabled);
     }
 
     const fault = $(`#bb-fault-${c.id}`);
     if (fault) {
-      fault.classList.toggle('hidden', !rt.fault);
-      fault.textContent = rt.fault ? `⚠ ${rt.fault}` : '';
+      // A rejection from the board is worth showing even when nothing tripped:
+      // it is the only negative acknowledgement the protocol has.
+      const message = rt.fault || (rt.lastError ? `Board rejected: ${rt.lastError}` : null);
+      fault.classList.toggle('hidden', !message);
+      fault.textContent = message ? `⚠ ${message}` : '';
     }
   }
 

@@ -100,6 +100,21 @@
 }
 .valve-btn[data-hazard="true"][data-state="open"] { border-color: var(--danger); }
 
+/* Coil current sense — a diagnostic, so it stays quiet unless it disagrees
+   with the commanded state. */
+.valve-btn .v-dc {
+  margin-top: 5px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: .03em;
+  text-align: center;
+  color: var(--text-faint);
+}
+.valve-btn .v-dc[data-mismatch="true"] {
+  color: var(--warn);
+  font-weight: 700;
+}
+
 .valve-btn .v-lock {
   position: absolute;
   top: 8px; right: 8px;
@@ -115,27 +130,136 @@
   gap: 10px;
 }
 
+/* ------------------------------------------------- data page: one screen */
+
+/* The Data page claims the viewport so the column grid below has a definite
+   height to divide up. Without this the grid measures against content and the
+   whole point — every channel visible at once — is lost the moment a stand
+   has one sensor too many. */
+.content.data-page {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.content.data-page > #data-body {
+  flex: 1;
+  min-height: 0;
+}
+/* The table is the dense alternative and is allowed to scroll. */
+.content.data-page.table-mode > #data-body { overflow: auto; }
+
+.sensor-columns {
+  --col-gap: 7px;
+  --col-head: 22px;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 10px;
+  height: 100%;
+  min-height: 0;
+}
+
+.sensor-column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--col-gap);
+  min-width: 0;
+  min-height: 0;
+}
+
+.sensor-column > .col-head {
+  height: var(--col-head);
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--group-color, var(--text-muted));
+  min-width: 0;
+}
+.col-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.col-count {
+  font-family: var(--mono);
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--text-faint);
+  margin-right: auto;
+}
+.sensor-column > .col-head .group-swatch { background: var(--group-color); }
+
+/* Every card the same height, sized so the longest column fills exactly.
+   N cards and one header make N gaps between them. */
+.sensor-column > .sensor-card {
+  flex: none;
+  height: calc(
+    (100% - var(--col-head) - var(--col-gap) * var(--rows)) / var(--rows)
+  );
+  /* Below this a card stops being readable, and scrolling is the lesser
+     evil. 84px is what a 1280x720 laptop needs for the longest column, which
+     is the smallest screen this is expected to run on. */
+  min-height: 84px;
+}
+
 .sensor-card {
-  padding: 10px 12px 8px;
+  padding: 6px 8px 5px;
   border-radius: var(--radius);
   border: 1px solid var(--border);
+  /* The group's colour, as an outline rather than a fill: LOX blue and Fuel
+     red have to be identifiable at a glance without turning the value itself
+     into something that competes with the alarm colours. */
+  border-left: 3px solid var(--group-color, var(--border));
   background: var(--surface);
   box-shadow: var(--shadow);
   position: relative;
   overflow: hidden;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 .sensor-card .s-top {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 8px;
+  flex: none;
+}
+/* The name leads. It is what an operator scans for on a wall of cards, so it
+   is the biggest, boldest thing on the card — the tag below confirms. */
+.sensor-card .s-name {
+  font-size: 13px;
+  line-height: 1.25;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.sensor-card .s-sub {
+  display: flex;
+  align-items: center;
+  line-height: 1.2;
+  gap: 6px;
+  margin: 0 0 1px;
+  flex: none;
+  min-width: 0;
 }
 .sensor-card .s-id {
   font-family: var(--mono);
-  font-size: 11.5px;
-  font-weight: 700;
+  font-size: 10px;
+  font-weight: 600;
   color: var(--text-muted);
+  flex: none;
+}
+.sensor-card .s-ch {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--text-faint);
+  flex: none;
 }
 .sensor-card .s-status {
   width: 8px; height: 8px;
@@ -143,25 +267,98 @@
   background: var(--ok);
   flex: none;
 }
-.sensor-card .s-name {
-  font-size: 11px;
+/* ---------------------------------------------------------- tare controls */
+
+/* Sits between the tag and the status dot. Quiet until a channel is actually
+   zeroed, then it carries the offset — a tared channel reading 0 psi looks
+   exactly like an untared one, so the offset has to be on the face of it. */
+.tare-chip {
+  margin-left: auto;
+  padding: 1px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: transparent;
   color: var(--text-faint);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: .05em;
+  line-height: 1.5;
+  cursor: pointer;
+  flex: none;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  margin-bottom: 2px;
 }
+.tare-chip + .tare-chip { margin-left: 3px; }
+.tare-chip:hover { color: var(--text); border-color: var(--border-strong); background: var(--surface-2); }
+.tare-chip.on {
+  background: var(--warn-bg);
+  border-color: var(--warn);
+  color: var(--warn);
+}
+.tare-chip.clear { padding: 1px 5px; letter-spacing: 0; }
+
+.tare-all { flex: none; letter-spacing: .06em; }
+.tare-all + .tare-all { margin-left: -3px; }
+
+/* Group banner rows carry the same colour as the cards' outline. */
+.data-table tr.group-row td {
+  background: var(--surface-2);
+  font-weight: 700;
+  font-size: 10.5px;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--group-color, var(--text-muted));
+  border-left: 3px solid var(--group-color, transparent);
+}
+.data-table tr.group-row .group-swatch {
+  background: var(--group-color);
+  display: inline-block;
+  margin-right: 7px;
+  vertical-align: middle;
+}
+.data-table tr.group-row .col-count { margin-left: 8px; }
+.data-table td.s-rate { font-size: 10.5px; }
+
+.data-table td.tare-cell { white-space: nowrap; }
+.data-table td.tare-cell .tare-chip { margin-left: 0; }
+.data-table td.tare-cell .tare-chip + .tare-chip { margin-left: 3px; }
+
 .sensor-card .s-value {
   display: flex;
   align-items: baseline;
   gap: 4px;
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
-  font-size: 25px;
+  font-size: 20px;
   font-weight: 650;
   letter-spacing: -0.02em;
-  line-height: 1.15;
-  min-height: 29px;        /* reserve the row so cards never change height */
+  line-height: 1.1;
+  min-height: 22px;        /* reserve the row so cards never change height */
+  flex: none;
+}
+
+/* Rate of change, beside the reading it belongs to. Direction is carried by
+   both an arrow and a colour: colour alone is unreadable to a red-green
+   colourblind operator, and this is a number people act on. */
+.s-rate {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0;
+  white-space: nowrap;
+  color: var(--text-faint);
+}
+.s-rate[data-dir="up"] { color: var(--warn); }
+.s-rate[data-dir="down"] { color: var(--info); }
+/* The Control Grid's strip is barely a hundred pixels wide, so the rate gets
+   its own row there rather than sharing one with the reading. */
+#readout-strip .s-rate {
+  display: block;
+  margin: 1px 0 0;
+  font-size: 9.5px;
+  line-height: 1.25;
 }
 /* Right-aligned in a reserved box: the decimal point holds still and the
    units label never moves, however many digits the reading has. */
@@ -183,7 +380,12 @@
 .sensor-card .s-spark {
   display: block;
   width: 100%;
-  height: 30px;
+  /* Takes whatever the card has left after the fixed rows. The card is sized
+     to fit the viewport, so the trace absorbs the difference between a tall
+     window and a short one instead of the card overflowing. */
+  flex: 1 1 0;
+  height: 0;
+  min-height: 0;
   margin-top: 2px;
 }
 .sensor-card .s-bar {
@@ -191,7 +393,8 @@
   background: var(--surface-3);
   border-radius: 2px;
   overflow: hidden;
-  margin-top: 5px;
+  margin-top: 3px;
+  flex: none;
 }
 .sensor-card .s-bar i {
   display: block;
@@ -201,13 +404,17 @@
   transition: width .1s linear;
 }
 
-.sensor-card[data-status="warn"] { border-color: color-mix(in srgb, var(--warn) 55%, var(--border)); }
+.sensor-card[data-status="warn"] {
+  border-color: color-mix(in srgb, var(--warn) 55%, var(--border));
+  border-left-color: var(--group-color, var(--border));
+}
 .sensor-card[data-status="warn"] .s-status,
 .sensor-card[data-status="warn"] .s-bar i { background: var(--warn); }
 .sensor-card[data-status="warn"] .s-value { color: var(--warn); }
 
 .sensor-card[data-status="danger"] {
   border-color: var(--danger);
+  border-left-color: var(--group-color, var(--danger));
   background: color-mix(in srgb, var(--danger) 8%, var(--surface));
 }
 .sensor-card[data-status="danger"] .s-status,
@@ -302,6 +509,47 @@
 .bb-name { font-size: 12px; font-weight: 700; }
 .bb-sub { font-family: var(--mono); font-size: 10px; color: var(--text-faint); }
 
+/* Which of the board's two buses this controller is. The letter is the one
+   that goes on the wire, so a raw command log can be matched to a card. */
+.bb-side {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  padding: 2px 5px;
+  border-radius: 3px;
+  background: var(--surface-3);
+  color: var(--text-muted);
+  flex: none;
+}
+
+.bb-card .bb-sub { display: block; margin: -4px 0 6px; }
+
+/* The ground station's own reading of the same tank, and the gap. Small on
+   purpose: it is a cross-check, not the number being regulated. */
+.bb-compare {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 10px;
+  color: var(--text-faint);
+  margin: -4px 0 7px;
+  min-height: 12px;
+}
+
+.bb-overrides { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 7px; }
+.bb-overrides .btn[data-on="true"] { background: var(--warn-bg); color: var(--warn); border-color: var(--warn); }
+
+.bb-lim-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 7px;
+  font-size: 11px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.bb-lim-check input { margin: 0; }
+
 .bb-readout {
   display: flex;
   align-items: baseline;
@@ -322,7 +570,13 @@
   background: var(--idle-bg);
   color: var(--idle);
 }
-.bb-readout .out[data-on="true"] { background: var(--ok-bg); color: var(--ok); }
+/* Toned by what the BOARD reports, not by anything this browser computed.
+   `warn` covers the states where the screen is not current — a lost heartbeat
+   or a config the board has not confirmed — which read very differently from
+   a loop that is simply off. */
+.bb-readout .out[data-tone="ok"] { background: var(--ok-bg); color: var(--ok); }
+.bb-readout .out[data-tone="warn"] { background: var(--warn-bg); color: var(--warn); }
+.bb-readout .out[data-tone="danger"] { background: var(--danger-bg); color: var(--danger); }
 
 .bb-track {
   position: relative;
@@ -347,6 +601,50 @@
 
 .bb-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 7px; }
 .bb-inputs .field { margin-bottom: 2px; }
+
+/* Duty-cycle limits and trips. Collapsed by default: changed rarely, but the
+   values have to stay readable on the closed row, so the summary carries them. */
+.bb-limits {
+  border-top: 1px solid var(--border);
+  margin: 0 0 8px;
+  padding-top: 6px;
+}
+.bb-limits > summary {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 10.5px;
+  color: var(--text-muted);
+  user-select: none;
+}
+.bb-limits > summary::-webkit-details-marker { display: none; }
+.bb-limits > summary::before {
+  content: "▸";
+  font-size: 9px;
+  color: var(--text-faint);
+  transition: transform .12s;
+}
+.bb-limits[open] > summary::before { transform: rotate(90deg); }
+.bb-limits > summary:hover { color: var(--text); }
+.bb-lim-title { font-weight: 700; letter-spacing: .04em; text-transform: uppercase; flex: none; }
+/* The values get their own full-width row rather than sharing the title's.
+   Four settings do not fit beside a label in a 280px sidebar, and an
+   ellipsised limit is worse than no limit shown at all. */
+.bb-lim-sum {
+  flex-basis: 100%;
+  margin-left: 15px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  line-height: 1.4;
+  color: var(--text-faint);
+}
+/* Open, the inputs below say the same thing with more precision. */
+.bb-limits[open] .bb-lim-sum { display: none; }
+.bb-lim-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 7px; }
+.bb-lim-grid .field { margin-bottom: 2px; }
 
 .toggle {
   display: flex;

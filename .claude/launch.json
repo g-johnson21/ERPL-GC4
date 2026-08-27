@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "gc4-sim",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "sim", "--", "--port=5173"],
+      "port": 5173
+    }
+  ]
+}
