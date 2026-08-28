@@ -204,3 +204,38 @@ test('a line that is not a bang-bang command is refused, not guessed at', () => 
   assert.equal(parseCommand('xL0'), null, 'abort takes no argument');
   assert.equal(parseCommand('BL200.0'), null, 'config missing the deadband');
 });
+
+// --------------------------------------------------------- LINK: watchdog ---
+
+test('LINK: is classified by prefix, not as telemetry', () => {
+  const msg = parseLine('LINK:1:0:120');
+  assert.equal(msg.kind, 'link');
+  assert.equal(msg.armed, true);
+  assert.equal(msg.lost, false);
+  assert.equal(msg.silentMs, 120);
+});
+
+test('LINK: reports an unarmed watchdog as unarmed', () => {
+  const msg = parseLine('LINK:0:0:0');
+  assert.equal(msg.kind, 'link');
+  assert.equal(msg.armed, false);
+});
+
+test('LINK: carries the board-side loss flag', () => {
+  const msg = parseLine('LINK:1:1:750');
+  assert.equal(msg.lost, true);
+  assert.equal(msg.silentMs, 750);
+});
+
+test('a malformed LINK: line is rejected rather than read as armed', () => {
+  // The failure direction that matters: nothing garbled may parse as
+  // "armed: true", because that would report protection the board is not
+  // providing. Every one of these must come back as unknown.
+  for (const line of ['LINK:', 'LINK:1', 'LINK:1:0', 'LINK:x:0:0', 'LINK:1:x:0',
+                      'LINK:1:0:abc', 'LINK:2:0:0', 'LINK:1:0:-5']) {
+    const msg = parseLine(line);
+    assert.equal(msg.kind, 'unknown', `"${line}" should not parse`);
+    assert.notEqual(msg.armed, true);
+  }
+});
+

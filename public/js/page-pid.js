@@ -6,7 +6,7 @@
  */
 import { bus } from './bus.js';
 import { bootPage } from './chrome.js';
-import { $, el, icon, fmtValue, fmtCurrent, coilState } from './util.js';
+import { $, el, icon, fmtValue, fmtCurrent, coilState, shiftGate } from './util.js';
 import { svgEl, renderComponent, renderValve, renderInstrument, renderPipe, renderJunction } from './pid-symbols.js';
 
 const content = await bootPage('pid');
@@ -91,9 +91,9 @@ for (const valve of bus.config.valves) {
   if (!valve.pid) continue;
   const group = bus.group(valve.group);
   const node = renderValve(valve, group?.color || '#64748b');
-  node.addEventListener('click', () => onValveActivate(valve));
+  node.addEventListener('click', (e) => onValveActivate(valve, e));
   node.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onValveActivate(valve); }
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onValveActivate(valve, e); }
   });
   layerValves.append(node);
 }
@@ -108,12 +108,14 @@ for (const sensor of bus.config.sensors) {
 
 // ------------------------------------------------------------ interaction --
 
-/** Commands fire immediately — see the note in page-grid.js. */
-function onValveActivate(valve) {
+/** Commands fire immediately, and away from safe needs SHIFT — see page-grid.js. */
+function onValveActivate(valve, event) {
   const current = bus.valveState(valve.id);
   const next = current === 'open' ? 'closed' : 'open';
   const gate = bus.canCommand(valve.id, next);
   if (!gate.ok) return;
+
+  if (next !== valve.safeState && !shiftGate(event, `${next === 'open' ? 'open' : 'close'} ${valve.name}`)) return;
 
   bus.commandValve(valve.id, next);
 }
@@ -223,7 +225,10 @@ function setLocked(locked) {
 }
 
 document.addEventListener('keydown', (e) => {
-  if (e.target.matches('input, textarea, select')) return;
+  // `instanceof Element` because a key event can be targeted at the document
+  // itself, which has no `matches` — and an exception thrown here takes the
+  // rest of the view hotkeys down with it.
+  if (e.target instanceof Element && e.target.matches('input, textarea, select')) return;
   if (e.key === '0') resetView();
   if (e.key === '+' || e.key === '=') zoomByButton(1.2);
   if (e.key === '-') zoomByButton(1 / 1.2);
@@ -291,8 +296,11 @@ function update() {
     const label = document.getElementById(`pvs-${valve.id}`);
     if (label) label.textContent = state === 'open' ? valve.openLabel : valve.closedLabel;
 
-    const gate = bus.canCommand(valve.id, state === 'open' ? 'closed' : 'open');
+    const next = state === 'open' ? 'closed' : 'open';
+    const gate = bus.canCommand(valve.id, next);
     node.dataset.locked = String(!gate.ok);
+    // Lights up while SHIFT is held — the same guard the Control Grid uses.
+    node.dataset.needsShift = String(gate.ok && next !== valve.safeState);
 
     updateCoil(valve, state);
   }

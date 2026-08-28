@@ -177,6 +177,13 @@ export class CompositeDriver {
     return out;
   }
 
+  /** Merged per-valve channel names, from whichever device wires them. */
+  dcLabels() {
+    const out = {};
+    for (const dev of this.devices) Object.assign(out, dev.driver.dcLabels?.() || {});
+    return out;
+  }
+
   /** Look up one device, so a route can reach e.g. the DAQ's tare command. */
   device(key) {
     return this.devices.find((d) => d.key === key)?.driver;

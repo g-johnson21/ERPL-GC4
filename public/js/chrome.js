@@ -6,7 +6,7 @@
  * recording options all come from stand.json.
  */
 import { bus } from './bus.js';
-import { $, el, clear, icon, fmtDuration, fmtBytes, fmtValue, fmtClock, confirmAction, toast, valueWidthCh } from './util.js';
+import { $, el, clear, icon, fmtDuration, fmtBytes, fmtValue, fmtClock, confirmAction, promptAction, shiftGate, toast, valueWidthCh } from './util.js';
 import { currentTheme, toggleTheme, applyConfigDefault } from './theme.js';
 
 // ============================================================== HEADER =====
@@ -33,6 +33,7 @@ export function mountHeader(activePage) {
         html: `${icon(page.icon || 'grid')}<span>${page.label}</span>`,
       })
     )),
+    recordingControl(),
     el('div.header-spacer'),
     el('div.header-status#header-status'),
     el('span.clock#header-clock', { text: '--:--:--' }),
@@ -60,15 +61,49 @@ export function mountHeader(activePage) {
     updateHeaderStatus();
   }, 250);
 
-  bus.on('state', () => { lastStateAt = Date.now(); updateHeaderStatus(); });
+  bus.on('state', () => { lastStateAt = Date.now(); updateHeaderStatus(); updateRecordingControl(); });
   bus.on('connection', updateHeaderStatus);
   updateHeaderStatus();
+  updateRecordingControl();
 
   document.addEventListener('keydown', (e) => {
-    if (e.target.matches('input, textarea, select')) return;
+    // ABORT, first and unconditionally — including from inside a text field.
+    // A panic key that only works when focus happens to be in the right place
+    // is not a panic key. The one exception is an open dialog, which owns
+    // Escape as its cancel; that path stops the event before it reaches here.
+    if (e.key === 'Escape') {
+      if (document.querySelector('.modal-backdrop')) return;
+      e.preventDefault();
+      bus.abort('Operator abort (Esc)');
+      return;
+    }
+    // `instanceof Element` because a key event can be targeted at the document
+    // itself, which has no `matches` — and an exception thrown here takes the
+    // rest of the hotkeys down with it.
+    if (e.target instanceof Element && e.target.matches('input, textarea, select')) return;
     if (e.key === '\\') { toggleSidebar(); }
     if (e.key.toLowerCase() === 't' && !e.ctrlKey && !e.metaKey) { toggleTheme(); syncThemeIcon(); }
   });
+
+  trackShiftKey();
+}
+
+/**
+ * Mirror the SHIFT key onto the body, so every control that needs it held can
+ * light up while it is.
+ *
+ * Without this the guard is invisible: an operator clicks a valve, nothing
+ * happens, and the only feedback is a toast. With it, holding SHIFT shows
+ * exactly which buttons just became live before anything is clicked.
+ *
+ * Reset on blur as well as keyup — alt-tabbing away with SHIFT down otherwise
+ * leaves the page believing it is still held.
+ */
+function trackShiftKey() {
+  const set = (on) => document.body.classList.toggle('shift-armed', on);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Shift') set(true); });
+  document.addEventListener('keyup', (e) => { if (e.key === 'Shift') set(false); });
+  window.addEventListener('blur', () => set(false));
 }
 
 /**
@@ -146,9 +181,9 @@ function updateHeaderStatus() {
   if (s.sequence.running) {
     chips.push(chip(`${s.sequence.name}  T+${s.sequence.t.toFixed(1)}`, 'warn', true));
   }
-  if (s.recording.active) {
-    chips.push(chip(`REC ${fmtDuration(s.recording.elapsed)}`, 'danger', true));
-  }
+  // No REC chip: the log control a few inches to the left says the same thing
+  // with the file name attached, and two indicators for one fact is how a
+  // header runs out of room for the ones that have no duplicate.
 
   host.append(...chips);
 }
@@ -199,6 +234,174 @@ function deviceAgeMs(dev, snapshot) {
   return atSnapshot + sinceSnapshot;
 }
 
+// =========================================================== RECORDING =====
+
+/**
+ * Log-file control, in the header, on every page.
+ *
+ * It lives here rather than in the sidebar for two reasons. It is the same
+ * decision from every screen — the Data page has no sidebar and used to have
+ * no way to start a recording at all — and it belongs beside the ARMED and
+ * link chips, because "are we getting this on tape" is a status question of
+ * exactly that kind.
+ *
+ * NOTHING ELSE STARTS OR STOPS A FILE. Not a sequence, not a countdown, not
+ * an abort. A file that opens and closes on its own is a file that ended
+ * while the tanks were still up.
+ */
+function recordingControl() {
+  return el('div.rec-control', {},
+    el('button.btn.rec-new#rec-new', {
+      html: `${icon('record', 13)}<span>Start New Log File</span>`,
+      title: 'Open a new CSV. If one is already open it is closed first, so a\n'
+           + 'second attempt lands in its own file rather than at the end of the first.',
+      onclick: startNewLog,
+    }),
+    // Only while something is open — a stop button that is never available is
+    // clutter, and one that is always available invites a click that does
+    // nothing.
+    el('button.btn.rec-halt.hidden#rec-halt', {
+      html: icon('stop', 13),
+      title: 'Close the current log file',
+      'aria-label': 'Stop logging',
+      onclick: () => bus.stopRecording(),
+    }),
+    el('button.rec-indicator#rec-indicator', {
+      dataset: { active: 'false' },
+      title: 'Recording status — click for the recorded files on this machine',
+      onclick: toggleFilePopover,
+    },
+      el('span.rec-dot'),
+      el('span.rec-name#rec-name', { text: 'Not Currently Logging' }),
+      el('span.rec-meta#rec-meta', { text: '' })
+    )
+  );
+}
+
+const LOG_NAME_KEY = 'gc4-log-name';
+
+/**
+ * Close whatever is open and start a fresh file.
+ *
+ * The name is asked for rather than generated. Every one of these files is
+ * read back weeks later, and `Draco_20260827_223832_waterflow.csv` is
+ * findable in a way that `..._test.csv` is not. Prefilled with the last name
+ * used and submitted on Enter, so a repeat attempt costs one keystroke.
+ */
+async function startNewLog() {
+  const fallback = bus.config.recording.defaultTestName;
+  let last = fallback;
+  try { last = localStorage.getItem(LOG_NAME_KEY) || fallback; } catch { /* ignore */ }
+
+  const name = await promptAction({
+    title: bus.state?.recording?.active ? 'Start a new log file?' : 'Start a log file',
+    message: bus.state?.recording?.active
+      ? 'The file now open will be closed and a new one started.'
+      : 'Everything from this point lands in a new CSV in the recordings folder.',
+    label: 'Test name',
+    value: last,
+    placeholder: fallback,
+    confirmLabel: 'START LOGGING',
+  });
+  if (!name) return;
+
+  try { localStorage.setItem(LOG_NAME_KEY, name); } catch { /* ignore */ }
+
+  // Rolling over is stop-then-start. The server refuses a start while a file
+  // is open, deliberately — it is not going to guess that two overlapping
+  // recordings were meant to be one.
+  if (bus.state?.recording?.active) await bus.stopRecording();
+  const res = await bus.startRecording(name);
+  if (res.ok) setTimeout(refreshFileList, 400);
+}
+
+/** Previous frame's recording flag, so a file closing can refresh the list. */
+let lastRecordingActive = null;
+
+function updateRecordingControl() {
+  const rec = bus.state?.recording;
+  const indicator = $('#rec-indicator');
+  if (!rec || !indicator) return;
+
+  indicator.dataset.active = String(rec.active);
+  $('#rec-name').textContent = rec.active ? rec.file : 'Not Currently Logging';
+  // Rows and size beside the name: the one failure this control can hide is a
+  // file that is open but not filling.
+  const stats = `${fmtDuration(rec.elapsed)} · ${rec.rows.toLocaleString()} rows · ${fmtBytes(rec.bytes)}`;
+  $('#rec-meta').textContent = rec.active ? stats : '';
+  // Both the untruncated name and the stats live here, because the header
+  // drops one and clips the other when the window is narrow.
+  indicator.title = rec.active
+    ? `Logging to ${rec.file}\n${stats} @ ${rec.rateHz} Hz\nClick for the recorded files on this machine`
+    : 'Nothing is being recorded.\nClick for the recorded files on this machine';
+  $('#rec-halt').classList.toggle('hidden', !rec.active);
+
+  if (lastRecordingActive === true && rec.active === false) refreshFileList();
+  lastRecordingActive = rec.active;
+}
+
+/**
+ * The recorded-file list, as a popover off the indicator.
+ *
+ * It was a permanent panel in the sidebar, which meant the Data page could
+ * not reach it and the actuation pages gave it height they needed for the
+ * event log. Downloading yesterday's trace is not something anyone does
+ * mid-test, so it does not deserve standing screen space.
+ */
+let closeFilePopover = null;
+
+function toggleFilePopover() {
+  if (closeFilePopover) { closeFilePopover(); return; }
+
+  const panel = el('div.rec-files#rec-files', {},
+    el('div.section-title', {}, 'Recorded Files',
+      el('button.btn.sm.ghost', { html: icon('refresh', 13), title: 'Refresh', onclick: refreshFileList })
+    ),
+    el('div.file-list#file-list', {}, el('div.empty-note', { text: 'Loading…' }))
+  );
+  $('#rec-indicator').after(panel);
+  refreshFileList();
+
+  // Dismiss on a click anywhere outside. One teardown path for both ways of
+  // closing it, so the document listener always goes with the panel rather
+  // than outliving it.
+  const onDown = (e) => {
+    if (panel.contains(e.target) || $('#rec-indicator')?.contains(e.target)) return;
+    closeFilePopover();
+  };
+  closeFilePopover = () => {
+    document.removeEventListener('mousedown', onDown);
+    panel.remove();
+    closeFilePopover = null;
+  };
+  // Next tick, or the click that opened it closes it again immediately.
+  setTimeout(() => { if (closeFilePopover) document.addEventListener('mousedown', onDown); }, 0);
+}
+
+async function refreshFileList() {
+  const host = $('#file-list');
+  if (!host) return;
+  let files = [];
+  try { files = await bus.listRecordings(); } catch { /* server may be down */ }
+
+  clear(host);
+  if (!files.length) {
+    host.append(el('div.empty-note', { text: 'No recordings yet' }));
+    return;
+  }
+  for (const f of files.slice(0, 40)) {
+    host.append(el('div.file-row', {},
+      el('a', {
+        href: `/api/record/download/${encodeURIComponent(f.name)}`,
+        text: f.name,
+        title: `${f.name}\n${new Date(f.modified).toLocaleString()}`,
+        download: '',
+      }),
+      el('span.fsize', { text: fmtBytes(f.size) })
+    ));
+  }
+}
+
 /** Compact age: 0.4s, 12s, 3m 05s, 2h 14m. */
 function fmtAge(ms) {
   const secs = ms / 1000;
@@ -216,8 +419,7 @@ export function mountSidebar(container) {
     armSection(),
     controllerSection(),
     sequenceSection(),
-    logSection(),
-    recordingSection()
+    logSection()
   );
   container.append(sidebar);
 
@@ -227,14 +429,21 @@ export function mountSidebar(container) {
   renderSequenceList();
   updateSidebar();
   renderLog();
-  refreshFileList();
   return sidebar;
 }
 
 // ------------------------------------------------------------ ARM / ABORT --
 
+/**
+ * Pinned to the top of the sidebar — it does not scroll with the rest.
+ *
+ * ARM, DISARM and ABORT are the three controls whose whole value is being
+ * reachable without looking for them. Under a stand with two bang-bang cards
+ * and a list of sequences they scrolled off the top, which made the ABORT
+ * button's position depend on where someone had last left the scrollbar.
+ */
 function armSection() {
-  return el('div.sidebar-section', {},
+  return el('div.sidebar-section.pinned', {},
     el('div.section-title', {}, 'Stand State'),
     el('div.arm-panel', {},
       el('div.btn-row', {},
@@ -353,10 +562,17 @@ function controllerCard(c) {
     onchange: (e) => commitNumber(e.target, c.deadbandMin, c.deadbandMax, (v) => bus.setController(c.id, { deadband: v })),
   });
 
+  // Gated on `click`, not `change`: a change event carries no modifier keys,
+  // and the SHIFT guard has to be able to refuse the toggle before the
+  // checkbox has flipped. Disabling stays a bare click — see shiftGate().
   const enableToggle = el('input', {
     type: 'checkbox',
     id: `bb-en-${c.id}`,
-    onchange: (e) => bus.setController(c.id, { enabled: e.target.checked }),
+    onclick: (e) => {
+      const turningOn = e.target.checked;
+      if (turningOn && !shiftGate(e, `enable ${c.name}`)) { e.preventDefault(); return; }
+      bus.setController(c.id, { enabled: turningOn });
+    },
   });
 
   return el(`div.bb-card#bb-card-${c.id}`, {},
@@ -401,7 +617,15 @@ function controllerCard(c) {
       el('div', {}, el('label.field', { for: `bb-db-${c.id}`, text: 'Deadband ±' }), deadbandInput)
     ),
     limitsPanel(c, sensor),
-    el('label.toggle', {}, enableToggle, el('span.track'), el('span', { text: 'Enable board control' })),
+    // The single most consequential control on the card — it hands a tank to
+    // a regulator — and it used to be the smallest thing on it, a 34px switch
+    // indistinguishable from the auto-vent checkbox two rows up. Full width,
+    // and it says what a click will do rather than naming the setting.
+    el('label.toggle.lg.bb-enable', { id: `bb-enrow-${c.id}` },
+      enableToggle,
+      el('span.track'),
+      el('span.bb-enable-text', { id: `bb-entext-${c.id}`, text: 'ENABLE BOARD CONTROL' })
+    ),
     // Overrides. Both go straight out on the wire — neither waits on the
     // config handshake, because neither can make the stand less safe.
     el('div.bb-overrides', {},
@@ -601,9 +825,12 @@ function renderSequenceList() {
 
   for (const seq of bus.config.autosequences.filter((s) => !s.hidden)) {
     host.append(el('button.seq-btn', {
-      dataset: { style: seq.style, seqId: seq.id },
-      title: seq.description || seq.name,
-      onclick: () => runSequence(seq),
+      // Every sequence needs SHIFT: even the ones that only ever safe the
+      // stand run a timeline, and starting one by mis-clicking a list is how
+      // a purge fires during a fill.
+      dataset: { style: seq.style, seqId: seq.id, needsShift: 'true' },
+      title: `${seq.description || seq.name}\nHold SHIFT and click to run.`,
+      onclick: (e) => runSequence(seq, e),
     },
       el('span.seq-dot'),
       el('span', { text: seq.name }),
@@ -613,7 +840,8 @@ function renderSequenceList() {
   updateSidebar();   // apply the current interlocks to the fresh buttons
 }
 
-async function runSequence(seq) {
+async function runSequence(seq, event) {
+  if (!shiftGate(event, `start "${seq.name}"`)) return;
   if (seq.confirm) {
     const ok = await confirmAction({
       title: `Run "${seq.name}"?`,
@@ -663,77 +891,7 @@ function appendLogLine(entry) {
   if (atBottom) list.scrollTop = list.scrollHeight;
 }
 
-// ------------------------------------------------------------- RECORDING --
-
-function recordingSection() {
-  const cfg = bus.config.recording;
-
-  return el('div.sidebar-section.footer', {},
-    el('div.section-title', {}, 'Data Recording',
-      el('span.faint', { text: `${cfg.rateHz} Hz → CSV` })
-    ),
-    el('div.rec-status', { id: 'rec-status', dataset: { active: 'false' } },
-      el('span.rec-dot'),
-      el('span.rec-file#rec-file', { text: 'Not recording' })
-    ),
-    el('label.field', { for: 'rec-name', text: 'Test name' }),
-    el('input', {
-      type: 'text',
-      id: 'rec-name',
-      value: cfg.defaultTestName,
-      placeholder: 'e.g. hotfire-03',
-      onkeydown: (e) => { if (e.key === 'Enter') startRecording(); },
-    }),
-    el('div.btn-row', { style: { marginTop: '7px' } },
-      el('button.btn.danger#rec-start', { html: `${icon('record', 13)} START`, onclick: startRecording }),
-      el('button.btn#rec-stop', { html: `${icon('stop', 13)} STOP`, onclick: () => bus.stopRecording(), disabled: true })
-    ),
-    el('div.rec-stats', {},
-      el('span#rec-rows', { text: '0 rows' }),
-      el('span#rec-size', { text: '0 B' }),
-      el('span#rec-elapsed', { text: '0:00' })
-    ),
-    el('div.section-title', { style: { marginTop: '12px' } }, 'Recorded Files',
-      el('button.btn.sm.ghost', { html: icon('refresh', 13), title: 'Refresh file list', onclick: refreshFileList })
-    ),
-    el('div.file-list#file-list', {}, el('div.empty-note', { text: 'No recordings yet' }))
-  );
-}
-
-function startRecording() {
-  const name = $('#rec-name')?.value?.trim() || bus.config.recording.defaultTestName;
-  bus.startRecording(name).then((res) => {
-    if (res.ok) setTimeout(refreshFileList, 400);
-  });
-}
-
-async function refreshFileList() {
-  const host = $('#file-list');
-  if (!host) return;
-  let files = [];
-  try { files = await bus.listRecordings(); } catch { /* server may be down */ }
-
-  clear(host);
-  if (!files.length) {
-    host.append(el('div.empty-note', { text: 'No recordings yet' }));
-    return;
-  }
-  for (const f of files.slice(0, 40)) {
-    host.append(el('div.file-row', {},
-      el('a', {
-        href: `/api/record/download/${encodeURIComponent(f.name)}`,
-        text: f.name,
-        title: `${f.name}\n${new Date(f.modified).toLocaleString()}`,
-        download: '',
-      }),
-      el('span.fsize', { text: fmtBytes(f.size) })
-    ));
-  }
-}
-
 // ------------------------------------------------------------ STATE SYNC --
-
-let lastRecordingActive = null;
 
 function updateSidebar() {
   const s = bus.state;
@@ -899,6 +1057,18 @@ function updateSidebar() {
       // by accepting a click the server will refuse.
       en.disabled = s.abort.active || board?.state === 'ABT' || !rt.side ||
                     (c.requiresArm && !s.armed && !rt.enabled);
+
+      const row = $(`#bb-enrow-${c.id}`);
+      if (row) {
+        // Only turning it ON needs the modifier, so the highlight and the
+        // label follow the direction the next click would go.
+        row.dataset.needsShift = String(!rt.enabled && !en.disabled);
+        row.title = rt.enabled
+          ? 'Click to hand the tank back to manual and stop the board regulating.'
+          : 'Hold SHIFT and click to let the board regulate this tank.';
+      }
+      const text = $(`#bb-entext-${c.id}`);
+      if (text) text.textContent = rt.enabled ? 'BOARD CONTROL ON' : 'ENABLE BOARD CONTROL';
     }
 
     const fault = $(`#bb-fault-${c.id}`);
@@ -947,21 +1117,7 @@ function updateSidebar() {
     btn.disabled = s.sequence.running || s.abort.active || (seq.requiresArm && !s.armed);
   }
 
-  // --- recording ---
-  const rec = s.recording;
-  const status = $('#rec-status');
-  if (status) {
-    status.dataset.active = String(rec.active);
-    $('#rec-file').textContent = rec.active ? rec.file : 'Not recording';
-    $('#rec-rows').textContent = `${rec.rows.toLocaleString()} rows`;
-    $('#rec-size').textContent = fmtBytes(rec.bytes);
-    $('#rec-elapsed').textContent = fmtDuration(rec.elapsed);
-    $('#rec-start').disabled = rec.active;
-    $('#rec-stop').disabled = !rec.active;
-    $('#rec-name').disabled = rec.active;
-  }
-  if (lastRecordingActive === true && rec.active === false) refreshFileList();
-  lastRecordingActive = rec.active;
+  // Recording lives in the header now, on every page — see recordingControl().
 }
 
 // ------------------------------------------------------------- PAGE SETUP --

@@ -123,16 +123,36 @@ export function fmtCurrent(amps) {
   return `${(amps * 1000).toFixed(2)} mA`;
 }
 
+/**
+ * The time base a channel's rate is quoted in.
+ *
+ * Pressure is per MINUTE. What an operator actually reads a PT's slope for is
+ * tank decay during a leak check, and psi/s renders a 30 psi/min leak as
+ * "0.5" — a number that looks like noise sitting next to a reading in the
+ * hundreds. Everything else stays per second: thrust and chamber temperature
+ * are read during a burn, where a per-minute figure would be nonsense.
+ */
+export function rateBasis(sensor) {
+  return sensor?.kind === 'pressure'
+    ? { factor: 60, per: '/min' }
+    : { factor: 1, per: '/s' };
+}
+
 export function fmtRate(rate, sensor, { compact = false } = {}) {
-  const per = compact ? '/s' : ` ${sensor.units}/s`;
+  const basis = rateBasis(sensor);
+  const per = compact ? basis.per : ` ${sensor.units}${basis.per}`;
   if (rate === null || rate === undefined || !Number.isFinite(rate)) {
     return { text: `––${per}`, dir: 'flat' };
   }
+  // The flat band stays a PHYSICAL threshold — 0.05 % of full scale per
+  // second — and is judged on the unscaled slope. Only the printed magnitude
+  // changes with the time base, so switching a channel to psi/min does not
+  // start it flickering between ▲ and ▼ on a still tank.
   const span = Math.abs((sensor.max ?? 1) - (sensor.min ?? 0)) || 1;
-  const deadband = span * 0.0005;                 // 0.05 % of full scale per second
+  const deadband = span * 0.0005;
   const dir = rate > deadband ? 'up' : rate < -deadband ? 'down' : 'flat';
   const arrow = dir === 'up' ? '▲' : dir === 'down' ? '▼' : '–';
-  const magnitude = Math.abs(rate).toFixed(sensor.decimals ?? 1);
+  const magnitude = Math.abs(rate * basis.factor).toFixed(sensor.decimals ?? 1);
   return { text: `${arrow} ${magnitude}${per}`, dir };
 }
 
@@ -233,6 +253,65 @@ export function confirmAction({ title, message, confirmLabel = 'Confirm', danger
     document.addEventListener('keydown', onKey);
     confirmBtn.focus();
   });
+}
+
+/**
+ * One text field in a modal. Returns Promise<string|null>; null is a cancel.
+ *
+ * Enter submits, so naming a log file between attempts is a click and a
+ * keystroke rather than a trip to a form.
+ */
+export function promptAction({ title, message, label, value = '', confirmLabel = 'OK', placeholder = '' }) {
+  return new Promise((resolve) => {
+    const done = (v) => { backdrop.remove(); document.removeEventListener('keydown', onKey, true); resolve(v); };
+    const submit = () => done(input.value.trim() || null);
+    const onKey = (e) => {
+      // Captured, and stopped: Escape is the ABORT hotkey everywhere else on
+      // the page, and a dialog asking for a filename must not be a way to
+      // trip the stand.
+      if (e.key === 'Escape') { e.stopPropagation(); done(null); }
+      if (e.key === 'Enter') { e.stopPropagation(); submit(); }
+    };
+
+    const input = el('input', { type: 'text', value, placeholder, style: { width: '100%' } });
+    const backdrop = el('div.modal-backdrop', { onclick: (e) => { if (e.target === backdrop) done(null); } },
+      el('div.modal', {},
+        el('h2', { text: title }),
+        message ? el('p', { text: message }) : null,
+        label ? el('label.field', { text: label }) : null,
+        input,
+        el('div.modal-actions', {},
+          el('button.btn.ghost', { text: 'Cancel', onclick: () => done(null) }),
+          el('button.btn.accent', { text: confirmLabel, onclick: submit })
+        )
+      )
+    );
+
+    document.body.append(backdrop);
+    document.addEventListener('keydown', onKey, true);
+    input.focus();
+    input.select();
+  });
+}
+
+// ------------------------------------------------------------ shift gate --
+
+/**
+ * Guard for every command that makes the stand LESS safe.
+ *
+ * Opening a valve, arming a bang-bang loop and starting an autosequence all
+ * take a held SHIFT; closing, disabling and stopping take a bare click. The
+ * asymmetry is the point — a stray click can only ever move the stand toward
+ * its safe state, and the one command an operator makes under pressure
+ * (make it stop) never costs a modifier.
+ *
+ * This is a slip guard, not an interlock. The real rules live on the server,
+ * which cannot see a keyboard.
+ */
+export function shiftGate(event, action) {
+  if (event?.shiftKey) return true;
+  toast(`Hold SHIFT and click to ${action}`, 'warn', 2400);
+  return false;
 }
 
 // ------------------------------------------------------------------ misc --

@@ -24,7 +24,7 @@ sequence and interlock before you ever touch hardware.
 - [Quick start](#quick-start)
 - [The four pages](#the-four-pages)
 - [The control sidebar](#the-control-sidebar)
-- [Safety model](#safety-model)
+- [Safety model](#safety-model) · [Shift to actuate](#shift-to-actuate)
 - [Customizing for your stand](#customizing-for-your-stand)
 - [Connecting real hardware](#connecting-real-hardware)
 - [Data recording](#data-recording)
@@ -51,15 +51,19 @@ state; the server is the single authority.
 
 Try this to see the whole system work:
 
-1. **Pneumatics On** in the sidebar — charges the actuator supply.
-2. **ARM** (top of the sidebar), confirm.
-3. Enable both bang-bang controllers — the emulated board takes over and the
-   tanks come up to setpoint. Watch the board's PT and the DAQ's disagree
+1. **Shift-click Pneumatics On** in the sidebar — charges the actuator supply.
+   Anything that moves the stand away from safe wants SHIFT held; hold it for a
+   moment first and watch which controls light up.
+2. **ARM** (pinned to the top of the sidebar), confirm.
+3. **Start New Log File** in the header, name it, Enter. The indicator turns
+   green and names the file.
+4. Shift-enable both bang-bang controllers — the emulated board takes over and
+   the tanks come up to setpoint. Watch the board's PT and the DAQ's disagree
    slightly on the card; that divergence is modelled on purpose.
-4. **HOT FIRE** — 10 s countdown, igniter, ox lead, 5 s burn, cutoff and purge.
-   Recording starts automatically; the CSV appears in the sidebar when it stops.
+5. **Shift-click HOT FIRE** — 10 s countdown, igniter, ox lead, 5 s burn, cutoff
+   and purge. Stop the log when you have seen enough of the tail.
 
-Press **ABORT** at any point to see everything drive safe.
+Press **ABORT** — or just **Escape** — at any point to see everything drive safe.
 
 ---
 
@@ -84,6 +88,9 @@ the gate that makes actuators live, and once the stand is armed the operator is
 working the valves — a modal between the click and the coil costs time exactly
 when it is most expensive. The interlocks below still apply to every command;
 what is gone is the second click, not the rule.
+
+**Opening a valve takes a held SHIFT.** Closing it does not. See
+[Shift to actuate](#shift-to-actuate).
 
 ### P&ID (`/pid.html`)
 
@@ -126,17 +133,24 @@ Each card carries, in this order:
 - the **sensor's name**, the largest and boldest thing on it — that is what you
   scan for on a wall of twenty-two cards;
 - the **tag** and hardware channel below it, in monospace, to confirm what you
-  found;
-- the live value and its **rate of change** (`▲ 12.4 psi/s`), a least-squares
+  found — and beside them the **window min and max**, so the peak a channel hit
+  during the last ramp is on the face of the card rather than in a tooltip;
+- the live value and its **rate of change** (`▲ 12.4 psi/min`), a least-squares
   slope over the last 3 s rather than a two-point difference, so a noisy
   transducer reports its trend instead of its jitter. Direction is carried by
   an arrow as well as a colour, and a slope inside 0.05 % of full scale per
   second reads as flat rather than flickering between ▲ and ▼ on a still tank;
 - a sparkline over the selectable window (15/30/60/120 s) and a range bar.
 
-Window min/max moved to each card's tooltip to make room; it stays exact in the
-Table view. Switch to **Table** for the dense view — same groups, same order,
-plus a Rate column.
+**Pressure rates are quoted per minute, everything else per second.** What a PT's
+slope is actually read for is tank decay during a leak check, and psi/s renders a
+30 psi/min leak as `0.5` — a number that looks like noise beside a reading in the
+hundreds. Thrust and chamber temperature are read during a burn, where a
+per-minute figure would be meaningless, so they stay in units/s.
+
+Switch to **Table** for the dense view — same groups, same order, plus Rate, Min
+and Max columns. Below 1200 px the cards drop min/max rather than clip it to
+nonsense; the Table view and the card tooltip still carry the exact figures.
 
 #### Taring
 
@@ -225,6 +239,13 @@ disarm. Saving of any kind is refused while a sequence is running.
 
 The same sidebar mounts on both actuation pages, so switching views never means
 re-learning a layout. Everything in it is generated from `stand.json`.
+
+**ARM, DISARM and ABORT are pinned to the top and do not scroll.** Under a stand
+with two bang-bang cards and a list of sequences they used to scroll off, which
+made the ABORT button's position depend on where someone had last left the
+scrollbar. Below them the panels scroll as usual, ending in the event log — which
+takes twice the height it used to, now that the recording panel has moved to the
+header.
 
 ### Link indicators
 
@@ -399,6 +420,30 @@ So a normally-open vent (`safeState: "open"`) can always be opened, even during
 an abort, while a drain valve (`safeState: "closed"`) cannot be opened until the
 abort is cleared.
 
+### Shift to actuate
+
+The same asymmetry, one layer up, in the browser:
+
+> **Every command that moves the stand away from safe takes a held SHIFT.**
+> Every command toward safe takes a bare click.
+
+That covers opening a valve (on the Control Grid *and* the P&ID), starting an
+autosequence, and enabling a bang-bang controller. Closing a valve, stopping a
+sequence, disabling a controller, SAFE ALL, DISARM and ABORT all take one click,
+with nothing held.
+
+Hold SHIFT and every control that needs it outlines itself in amber, so which
+buttons just went live is visible before anything is clicked rather than
+discovered from a toast afterwards. The outline follows the valve, not the
+button: a vent shows it when the next click would open it, and drops it once
+open.
+
+This is a **slip guard, not an interlock**. It is not a confirmation either —
+there is nothing to read and nothing to dismiss, and the click still lands in a
+single motion. It exists because on a wall of eleven near-identical buttons the
+failure that actually happens is the mis-click. The rules that matter still live
+on the server, which cannot see a keyboard.
+
 Other protections, all per-item configurable:
 
 - **Momentary actuators** — igniters auto-revert after `momentaryMs` even if the
@@ -443,6 +488,39 @@ Two things are deliberately *not* protected by a dialog:
 > It cannot help if the laptop loses power or the link drops. Your stand
 > controller must implement its own watchdog and drive outputs safe on loss of
 > comms. The `udp`/`serial` drivers send a heartbeat to support this.
+
+### Comms loss (PANDA)
+
+The board only ever hears from GC when the operator acts, so silence is not
+evidence of a dead link — during a hold it is the normal case. It therefore
+watches for an `h` heartbeat, which this driver sends at 5 Hz:
+
+| Silence at the board | What the board does on its own |
+|---|---|
+| 600 ms | Both bang-bang controllers forced safe — press *and* vent closed |
+| 10 s | Full self-disarm: arm relay dropped, sequence cancelled, all channels off |
+
+Two rules on the ground-station side make this work, and both are load-bearing:
+
+1. **Beat unconditionally** — never gated on ARM state or operator activity.
+2. **Stop beating the moment the driver stops *hearing* the board**, even though
+   the serial port is still writable. A one-way failure (our RX dead, TX fine)
+   would otherwise hold the watchdog open on a stand nobody can see. Going quiet
+   hands the board back to its own watchdog — the only thing still in a position
+   to make the stand safe.
+
+The board's watchdog is heartbeat-**gated**: dormant until it sees its first
+`h`, so firmware flashed ahead of a heartbeat-capable ground station cannot
+nuisance-disarm. It reports its own state once a second as
+`LINK:<armed>:<lost>:<silentMs>`, and the driver raises an **error** in two
+cases that both mean *the stand is unprotected*:
+
+- `armed: 0` — the board has a watchdog but has never seen a heartbeat.
+- **no `LINK:` line at all** within 10 s of a board that is otherwise talking —
+  it is running firmware from before the watchdog existed. The absence of a line
+  cannot raise its own alarm, so it is checked for explicitly. Reflash the board.
+
+Both show in the link detail as `WATCHDOG UNARMED` / `NO WATCHDOG IN FIRMWARE`.
 
 ---
 
@@ -489,6 +567,13 @@ target for autosequences immediately. `rot` is `0` for a horizontal pipe run and
 `calibration` converts raw ADC counts to engineering units:
 `value = raw * slope + offset`. The `lead` is the point on the drawing the
 instrument taps; a dashed line is drawn from the bubble to it.
+
+**Array order is display order** — within its group, a sensor appears on the Data
+page, the Control Grid's readout strip and in the CSV in the order it sits in
+`sensors`. On Draco that means each propellant leg reads in flow order: GN2,
+tank upstream, tank downstream, venturi inlet, venturi throat, manifold. `kind`
+also decides how the rate of change is quoted: `pressure` is per minute,
+everything else per second.
 
 ### Grouping sensors
 
@@ -692,6 +777,13 @@ Two traps the workbook sets, both of which will silently mis-wire a channel:
 Valve `abbrev`s are prefixed with the drawing tag (`PB2 OX RUN`) so a button
 in the UI can be matched to a symbol on the P&ID without a lookup table.
 
+The tank-upstream transducers are **PT2** (LOX) and **PT12** (fuel). They were
+carried as PT3 and PT13 here for a while, which are the tags of the bang-bang
+board's *own* transducers — a different pair of sensors on the same tanks, read
+by the board rather than by the DAQ. The DAQ channel map still reads
+`"pt3": "PT2"` and `"pt7": "PT12"`: the key is the NI-9208 channel index, the
+value is the P&ID tag, and they were never meant to match.
+
 NI-DAQmx binds only to Python, so acquisition runs in
 [`server/hal/devices/daq_streamer.py`](server/hal/devices/daq_streamer.py),
 spawned as a child process speaking newline-JSON over stdio. You need the
@@ -781,21 +873,65 @@ see `composite.js`. Everything else gets a single indicator automatically.
 
 ## Data recording
 
-Recording controls sit at the bottom of the sidebar on both actuation pages.
-Type a test name, hit **START**, and every sample lands in
-`data/{stand}_{date}_{time}_{name}.csv`. Sequences listed in
-`recording.autoStartOnSequence` start recording on their own.
+**The log control lives in the header, on every page.** A button that reads
+**Start New Log File**, a stop square that appears only while a file is open, and
+an indicator: a green dot and the file name while logging, a grey dot and
+*Not Currently Logging* when not. Clicking the indicator lists the recordings on
+this machine with download links, newest first.
+
+Starting asks for a test name, prefilled with the last one used and submitted on
+Enter, then opens `data/{stand}_{date}_{time}_{name}.csv`. Pressing **Start New
+Log File** while one is already open closes it and starts a fresh one, so a
+second attempt lands in its own trace rather than at the end of the first.
+
+It is in the header rather than the sidebar for two reasons: it is the same
+decision from every screen — the Data page has no sidebar and previously had no
+way to start a recording at all — and it belongs beside the ARMED and link chips,
+because *are we getting this on tape* is a status question of exactly that kind.
+
+> **Nothing but an operator starts or stops a file.** Not a sequence, not a
+> countdown, not an abort. A sequence that opened its own file split one test
+> across two traces; one that closed a file ended the recording seconds after
+> cutoff, while the stand was still pressurized and still the interesting part.
+> A sequence may write notes into whatever file is open — they land in the
+> `event` column — and that is the whole of its authority over recording.
 
 One row per sample at `recording.rateHz` (default 50 Hz):
 
 | Column | Notes |
 |---|---|
-| `iso_time`, `epoch_ms`, `elapsed_s` | Absolute and test-relative time |
-| `PT-101 (psi)`, `TC-201 (°F)`, … | One per sensor, tag and units in the header |
-| `MV-F (state)`, … | One per valve, `1` open / `0` closed |
-| `bb-fuel setpoint`, `bb-fuel enabled` | Controller settings as they change |
+| `timestamp`, `elapsed_s` | ISO wall clock, and seconds since the file opened |
+| `PT21 LOX Venturi Inlet (psi)`, … | One per sensor: tag, name and units |
+| `Thrust Combined (lbf)` | One per `recording.derived` entry — see below |
+| `DC1 LOx Tank BB (state)`, … | One per valve, `1` open / `0` closed |
+| `bb-fuel setpoint`, `bb-fuel enabled`, `bb-fuel board psi`, … | What we asked the board for, and what it reported back |
 | `armed`, `sequence` | Stand state and the running sequence id |
 | `event` | Log lines emitted since the previous row |
+
+**Headers carry the name, not just the tag** — `PT21 LOX Venturi Inlet (psi)`,
+not `PT21 (psi)`. Analysis scripts select columns by that string, and a bare tag
+makes every plot script a lookup table against a config file it does not have.
+This is the format the team's combined traces already use, so a GC-4 recording
+drops straight into the same notebooks. `°F` is written `degF`: the degree sign
+is correct on screen and a liability in a file opened by Excel on one laptop and
+pandas on another.
+
+Valve columns lead with the **board's own channel name** (`DC1`, `DC2`, …) where
+the hardware config declares one, because that is what the wiring diagram, the
+firmware log and every previous trace call that actuator. Where it does not, the
+valve's `stand.json` tag is used instead.
+
+`recording.derived` adds columns computed from other channels:
+
+```json
+"derived": [
+  { "header": "Thrust Combined", "units": "lbf", "sum": ["LC1", "LC2", "LC3"], "decimals": 3 }
+]
+```
+
+Declared rather than inferred — which load cells add up is a property of the
+stand, and guessing it wrong corrupts a thrust curve silently. A row where any
+input is missing is left blank rather than partially summed.
 
 Because commands, arm state, and sequence progress are all *in the same file* as
 the data, a single CSV tells the whole story of a test — you can see exactly what
@@ -805,24 +941,31 @@ A `.meta.json` sidecar next to each CSV stores the complete config used for that
 run — calibrations, setpoints, sequences — so a trace can still be interpreted
 correctly months later, after the stand has been rebuilt twice.
 
-Files are listed in the sidebar with download links, newest first.
-
 ---
 
 ## Keyboard shortcuts
 
 | Key | Action |
 |---|---|
+| **`Esc`** | **ABORT, immediately** |
+| `Shift` (held) | Arms every control that moves the stand away from safe |
 | `T` | Toggle light / dark theme |
 | `\` | Show / hide the control sidebar |
 | `0` | Reset P&ID zoom and pan |
 | `+` / `-` | Zoom the P&ID |
 | `L` | Lock / unlock the P&ID view |
 | `Ctrl+S` | Save the configuration (Config page) |
-| `Esc` | Cancel a confirmation dialog |
 
-There is deliberately **no keyboard shortcut for ABORT or for valve actuation** —
-a mis-key during a test should never move hardware.
+**Escape aborts, from any page and from inside any text field.** A panic key that
+only works when focus happens to be in the right place is not a panic key. It
+fires without a confirmation, because that is the point.
+
+The single exception is an **open dialog**, which keeps Escape as its own cancel.
+Otherwise dismissing the ARM confirmation would trip the stand — the one moment
+Escape unambiguously means "not that".
+
+There is still **no keyboard shortcut for valve actuation**. Abort drives
+everything to a known safe state; a mis-keyed valve command does the opposite.
 
 ---
 

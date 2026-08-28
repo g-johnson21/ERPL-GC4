@@ -232,7 +232,7 @@
       "type": "solenoid",
       "channel": 7,
       "normallyOpen": false,
-      "requiresArm": false,
+      "requiresArm": true,
       "momentary": false,
       "openLabel": "OPEN",
       "closedLabel": "CLOSED",
@@ -254,7 +254,7 @@
       "type": "solenoid",
       "channel": 8,
       "normallyOpen": false,
-      "requiresArm": false,
+      "requiresArm": true,
       "momentary": false,
       "openLabel": "OPEN",
       "closedLabel": "CLOSED",
@@ -298,7 +298,7 @@
       "type": "solenoid",
       "channel": 10,
       "normallyOpen": false,
-      "requiresArm": false,
+      "requiresArm": true,
       "momentary": false,
       "openLabel": "OPEN",
       "closedLabel": "CLOSED",
@@ -320,7 +320,7 @@
       "type": "solenoid",
       "channel": 11,
       "normallyOpen": false,
-      "requiresArm": false,
+      "requiresArm": true,
       "momentary": false,
       "openLabel": "OPEN",
       "closedLabel": "CLOSED",
@@ -390,9 +390,9 @@
       }
     },
     {
-      "id": "PT3",
-      "name": "LOX Tank Upstream",
-      "abbrev": "PT3",
+      "id": "PT2",
+      "name": "LOX Upstream",
+      "abbrev": "PT2",
       "kind": "pressure",
       "group": "lox",
       "units": "psi",
@@ -438,6 +438,58 @@
         "lead": [
           340,
           464
+        ]
+      }
+    },
+    {
+      "id": "PT21",
+      "name": "LOX Venturi Inlet",
+      "abbrev": "PT21",
+      "kind": "pressure",
+      "group": "lox",
+      "units": "psi",
+      "channel": 12,
+      "decimals": 1,
+      "min": 0,
+      "max": 1500,
+      "warnHigh": 1200,
+      "dangerHigh": 1380,
+      "calibration": {
+        "slope": 1,
+        "offset": 0
+      },
+      "pid": {
+        "x": 498,
+        "y": 600,
+        "lead": [
+          512,
+          662
+        ]
+      }
+    },
+    {
+      "id": "PT22",
+      "name": "LOX Venturi Throat",
+      "abbrev": "PT22",
+      "kind": "pressure",
+      "group": "lox",
+      "units": "psi",
+      "channel": 13,
+      "decimals": 1,
+      "min": 0,
+      "max": 1500,
+      "warnHigh": 1200,
+      "dangerHigh": 1380,
+      "calibration": {
+        "slope": 1,
+        "offset": 0
+      },
+      "pid": {
+        "x": 562,
+        "y": 600,
+        "lead": [
+          548,
+          662
         ]
       }
     },
@@ -494,9 +546,9 @@
       }
     },
     {
-      "id": "PT13",
-      "name": "Fuel Tank Upstream",
-      "abbrev": "PT13",
+      "id": "PT12",
+      "name": "Fuel Upstream",
+      "abbrev": "PT12",
       "kind": "pressure",
       "group": "fuel",
       "units": "psi",
@@ -542,6 +594,58 @@
         "lead": [
           1060,
           464
+        ]
+      }
+    },
+    {
+      "id": "PT24",
+      "name": "Fuel Venturi Inlet",
+      "abbrev": "PT24",
+      "kind": "pressure",
+      "group": "fuel",
+      "units": "psi",
+      "channel": 15,
+      "decimals": 1,
+      "min": 0,
+      "max": 1500,
+      "warnHigh": 1200,
+      "dangerHigh": 1380,
+      "calibration": {
+        "slope": 1,
+        "offset": 0
+      },
+      "pid": {
+        "x": 902,
+        "y": 600,
+        "lead": [
+          888,
+          662
+        ]
+      }
+    },
+    {
+      "id": "PT23",
+      "name": "Fuel Venturi Throat",
+      "abbrev": "PT23",
+      "kind": "pressure",
+      "group": "fuel",
+      "units": "psi",
+      "channel": 14,
+      "decimals": 1,
+      "min": 0,
+      "max": 1500,
+      "warnHigh": 1200,
+      "dangerHigh": 1380,
+      "calibration": {
+        "slope": 1,
+        "offset": 0
+      },
+      "pid": {
+        "x": 838,
+        "y": 600,
+        "lead": [
+          852,
+          662
         ]
       }
     },
@@ -620,110 +724,6 @@
         "lead": [
           1270,
           620
-        ]
-      }
-    },
-    {
-      "id": "PT21",
-      "name": "LOX Venturi Inlet",
-      "abbrev": "PT21",
-      "kind": "pressure",
-      "group": "lox",
-      "units": "psi",
-      "channel": 12,
-      "decimals": 1,
-      "min": 0,
-      "max": 1500,
-      "warnHigh": 1200,
-      "dangerHigh": 1380,
-      "calibration": {
-        "slope": 1,
-        "offset": 0
-      },
-      "pid": {
-        "x": 498,
-        "y": 600,
-        "lead": [
-          512,
-          662
-        ]
-      }
-    },
-    {
-      "id": "PT22",
-      "name": "LOX Venturi Throat",
-      "abbrev": "PT22",
-      "kind": "pressure",
-      "group": "lox",
-      "units": "psi",
-      "channel": 13,
-      "decimals": 1,
-      "min": 0,
-      "max": 1500,
-      "warnHigh": 1200,
-      "dangerHigh": 1380,
-      "calibration": {
-        "slope": 1,
-        "offset": 0
-      },
-      "pid": {
-        "x": 562,
-        "y": 600,
-        "lead": [
-          548,
-          662
-        ]
-      }
-    },
-    {
-      "id": "PT23",
-      "name": "Fuel Venturi Throat",
-      "abbrev": "PT23",
-      "kind": "pressure",
-      "group": "fuel",
-      "units": "psi",
-      "channel": 14,
-      "decimals": 1,
-      "min": 0,
-      "max": 1500,
-      "warnHigh": 1200,
-      "dangerHigh": 1380,
-      "calibration": {
-        "slope": 1,
-        "offset": 0
-      },
-      "pid": {
-        "x": 838,
-        "y": 600,
-        "lead": [
-          852,
-          662
-        ]
-      }
-    },
-    {
-      "id": "PT24",
-      "name": "Fuel Venturi Inlet",
-      "abbrev": "PT24",
-      "kind": "pressure",
-      "group": "fuel",
-      "units": "psi",
-      "channel": 15,
-      "decimals": 1,
-      "min": 0,
-      "max": 1500,
-      "warnHigh": 1200,
-      "dangerHigh": 1380,
-      "calibration": {
-        "slope": 1,
-        "offset": 0
-      },
-      "pid": {
-        "x": 902,
-        "y": 600,
-        "lead": [
-          888,
-          662
         ]
       }
     },
@@ -1097,7 +1097,7 @@
       "abbrev": "DETANK",
       "description": "Secure after a test: controllers off, press valves shut, tanks vented down, then both propellant lines purged clear.",
       "style": "normal",
-      "requiresArm": false,
+      "requiresArm": true,
       "confirm": true,
       "steps": [
         {
@@ -1220,31 +1220,31 @@
           "state": "closed"
         },
         {
-          "t": 0.1,
+          "t": 0,
           "action": "bangbang",
           "target": "*",
           "enabled": false
         },
         {
-          "t": 0.2,
+          "t": 0.1,
           "action": "valve",
           "target": "SV-LOXBB",
           "state": "closed"
         },
         {
-          "t": 0.2,
+          "t": 0.1,
           "action": "valve",
           "target": "SV-FBB",
           "state": "closed"
         },
         {
-          "t": 0.4,
+          "t": 0.2,
           "action": "valve",
           "target": "SV-LOXV",
           "state": "open"
         },
         {
-          "t": 0.4,
+          "t": 0.2,
           "action": "valve",
           "target": "SV-FV",
           "state": "open"
@@ -1262,13 +1262,13 @@
           "state": "open"
         },
         {
-          "t": 5,
+          "t": 3,
           "action": "valve",
           "target": "SV-FPURGE",
           "state": "closed"
         },
         {
-          "t": 5,
+          "t": 3,
           "action": "valve",
           "target": "SV-LOXPURGE",
           "state": "closed"
@@ -1280,7 +1280,8 @@
         }
       ],
       "abortConditions": [],
-      "duration": 5.2
+      "duration": 5.2,
+      "timeMode": "absolute"
     },
     {
       "id": "seq-custom-9",
@@ -1372,38 +1373,114 @@
           "message": "Combined Waterflow Started"
         },
         {
-          "t": 0.3,
+          "t": 5,
           "action": "valve",
           "target": "MV-LOX",
-          "state": "open"
-        },
-        {
-          "t": 0.3,
-          "action": "valve",
-          "target": "MV-F",
           "state": "open"
         },
         {
           "t": 5.3,
           "action": "valve",
+          "target": "MV-F",
+          "state": "open"
+        },
+        {
+          "t": 10.3,
+          "action": "valve",
           "target": "MV-LOX",
           "state": "closed"
         },
         {
-          "t": 5.8,
+          "t": 10.8,
           "action": "valve",
           "target": "MV-F",
           "state": "closed"
         },
         {
-          "t": 6.8,
+          "t": 11,
+          "action": "bangbang",
+          "target": "bb-ox",
+          "enabled": false
+        },
+        {
+          "t": 11,
+          "action": "bangbang",
+          "target": "bb-fuel",
+          "enabled": false
+        },
+        {
+          "t": 11.8,
           "action": "log",
           "message": "Combined Waterflow Ended"
         }
       ],
       "timeMode": "relative",
       "hidden": false,
-      "duration": 6.8
+      "duration": 11.8
+    },
+    {
+      "id": "seq-custom-8",
+      "name": "GOX Purge",
+      "abbrev": "NEW",
+      "description": "",
+      "style": "normal",
+      "requiresArm": true,
+      "confirm": true,
+      "abortConditions": [],
+      "steps": [
+        {
+          "t": 0,
+          "action": "log",
+          "message": "GOX Purge Start"
+        },
+        {
+          "t": 0,
+          "action": "valve",
+          "target": "SV-GOX-PURGE",
+          "state": "open"
+        },
+        {
+          "t": 1,
+          "action": "valve",
+          "target": "SV-GOX-PURGE",
+          "state": "closed"
+        }
+      ],
+      "timeMode": "relative",
+      "hidden": false,
+      "duration": 1
+    },
+    {
+      "id": "seq-custom-12",
+      "name": "PB2",
+      "abbrev": "NEW",
+      "description": "",
+      "style": "normal",
+      "requiresArm": true,
+      "confirm": true,
+      "abortConditions": [],
+      "steps": [
+        {
+          "t": 0,
+          "action": "log",
+          "message": "Sequence start"
+        },
+        {
+          "t": 5,
+          "action": "valve",
+          "target": "MV-LOX",
+          "state": "open"
+        },
+        {
+          "t": 10,
+          "action": "valve",
+          "target": "MV-LOX",
+          "state": "closed"
+        }
+      ],
+      "timeMode": "relative",
+      "hidden": false,
+      "duration": 10
     }
   ],
   "recording": {
@@ -1413,12 +1490,19 @@
     "rateHz": 50,
     "includeValveStates": true,
     "includeSetpoints": true,
-    "autoStartOnSequence": [
-      "seq-coldflow",
-      "seq-hotfire"
-    ],
-    "autoStopSecondsAfterSequence": 10,
-    "flushIntervalMs": 500
+    "flushIntervalMs": 500,
+    "derived": [
+      {
+        "header": "Thrust Combined",
+        "units": "lbf",
+        "sum": [
+          "LC1",
+          "LC2",
+          "LC3"
+        ],
+        "decimals": 3
+      }
+    ]
   },
   "pid": {
     "width": 1340,

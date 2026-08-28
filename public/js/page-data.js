@@ -5,8 +5,8 @@
  *   every card so the longest column exactly fills the viewport. Nothing
  *   scrolls: during a test an operator reads this page at a glance, and a
  *   channel that is one flick of a scroll wheel away is a channel nobody is
- *   watching. Cards are compact for the same reason — window min/max moved to
- *   each card's tooltip and stays exact in the Table view.
+ *   watching. That constraint is what every cramped decision below is paying
+ *   for — window min/max sits in the tag row for exactly this reason.
  *
  *   Groups come from `sensorGroups` in the config, so LOX and Fuel are
  *   columns with their own outline colour rather than one undifferentiated
@@ -164,9 +164,20 @@ function sensorCard(sensor) {
       el('span.s-name', { text: sensor.name, title: sensor.name }),
       el('span.s-status')
     ),
+    // Window min/max on the face of the card rather than in its tooltip:
+    // "how high did it peak" is asked during the run, and an answer that
+    // needs a mouse hover is an answer nobody gets while working the valves.
+    //
+    // It rides in the tag row rather than taking one of its own. A row of its
+    // own is what it deserves on merit, and it cost 13px a card — six cards
+    // to a column, which put the longest column 47px past the bottom of a
+    // 1280x720 screen. This page's whole premise is that nothing scrolls, so
+    // the extremes go where there was already room.
     el('div.s-sub', {},
       el('span.s-id', { text: sensor.id }),
       el('span.s-ch', { text: `ch ${sensor.channel}` }),
+      el('span.s-stat', {}, el('i', { text: 'MIN' }), el('span', { id: `smin-${sensor.id}`, text: '––' })),
+      el('span.s-stat', {}, el('i', { text: 'MAX' }), el('span', { id: `smax-${sensor.id}`, text: '––' })),
       ...tareControls(sensor)
     ),
     el('div.s-value', {},
@@ -292,8 +303,9 @@ function update() {
       rateEl.textContent = rate.text;
       rateEl.dataset.dir = rate.dir;
 
-      // Window min/max lost its own row when the cards had to fit one screen.
-      // It is still exact in the Table view; here it rides on the tooltip.
+      $(`#smin-${sensor.id}`).textContent = fmtValue(stats.min, sensor.decimals);
+      $(`#smax-${sensor.id}`).textContent = fmtValue(stats.max, sensor.decimals);
+
       card.title = `${sensor.id} — ${sensor.name}\n`
         + `min ${fmtValue(stats.min, sensor.decimals)} · max ${fmtValue(stats.max, sensor.decimals)} `
         + `${sensor.units} over ${windowSeconds}s`;

@@ -458,3 +458,189 @@ test('armHardware can be disabled for boards without an arm latch', () => {
   off.setArmed(true);
   assert.deepEqual(off.sent, []);
 });
+
+// ------------------------------------------------------ GC link heartbeat ---
+
+test('the heartbeat goes out before the board has said anything', () => {
+  // This is what arms the board's watchdog in the first place. With lastRxAt
+  // still 0, a naive staleness check reads as infinitely stale and would
+  // suppress the very first beat, leaving the watchdog dormant forever.
+  const d = makeDriver();
+  d.sendGcHeartbeat();
+  assert.deepEqual(d.sent, ['h']);
+});
+
+test('the heartbeat keeps going while the board is talking', () => {
+  const d = makeDriver();
+  d.onLine('LINK:1:0:0');
+  d.sent.length = 0;
+  d.sendGcHeartbeat();
+  d.sendGcHeartbeat();
+  assert.deepEqual(d.sent, ['h', 'h']);
+});
+
+test('the heartbeat is WITHHELD once the board goes quiet', () => {
+  // A one-way failure: our RX is dead, the port is still writable. Beating on
+  // would hold the board's watchdog open on a stand we can no longer see.
+  const d = makeDriver();
+  d.onLine('LINK:1:0:0');
+  d.lastRxAt = Date.now() - 5000;
+  d.sent.length = 0;
+
+  const events = [];
+  d.onEvent = (message, level) => events.push({ message, level });
+  d.sendGcHeartbeat();
+
+  assert.deepEqual(d.sent, [], 'must not beat while deaf to the board');
+  assert.equal(events.length, 1);
+  assert.equal(events[0].level, 'error');
+  assert.match(events[0].message, /withheld/);
+});
+
+test('withholding warns once, not once per beat', () => {
+  const d = makeDriver();
+  d.onLine('LINK:1:0:0');
+  d.lastRxAt = Date.now() - 5000;
+  const events = [];
+  d.onEvent = (message, level) => events.push({ message, level });
+  for (let i = 0; i < 20; i++) d.sendGcHeartbeat();
+  assert.equal(events.length, 1);
+});
+
+test('the heartbeat resumes when the board comes back', () => {
+  const d = makeDriver();
+  d.onLine('LINK:1:0:0');
+  d.lastRxAt = Date.now() - 5000;
+  d.sendGcHeartbeat();
+  d.sent.length = 0;
+
+  d.onLine('LINK:1:0:0');          // board is talking again
+  d.sendGcHeartbeat();
+  assert.deepEqual(d.sent, ['h']);
+});
+
+test('a heartbeat is never sent to an unwritable port', () => {
+  const d = makeDriver();
+  d.port.writable = false;
+  d.sendGcHeartbeat();
+  assert.deepEqual(d.sent, []);
+});
+
+// -------------------------------------------------- link watchdog mirror ---
+
+test('an unarmed board watchdog is reported as an error, not a note', () => {
+  const d = makeDriver();
+  const events = [];
+  d.onEvent = (message, level) => events.push({ message, level });
+
+  // Held back at first: at startup armed=0 only means our first beat has not
+  // been processed yet.
+  for (let i = 0; i < 50; i++) d.onLine('LINK:0:0:0');
+  assert.equal(events.filter((e) => /NOT ARMED/.test(e.message)).length, 0);
+
+  for (let i = 0; i < 80; i++) d.onLine('LINK:0:0:0');
+  const alarm = events.filter((e) => /NOT ARMED/.test(e.message));
+  assert.equal(alarm.length, 1, 'exactly one alarm, not one per line');
+  assert.equal(alarm[0].level, 'error');
+});
+
+test('the watchdog arming is reported, and re-arms the alarm', () => {
+  const d = makeDriver();
+  const events = [];
+  d.onEvent = (message, level) => events.push({ message, level });
+
+  for (let i = 0; i < 130; i++) d.onLine('LINK:0:0:0');
+  d.onLine('LINK:1:0:100');
+  assert.ok(events.some((e) => /watchdog armed/.test(e.message)));
+  assert.equal(d.link.armed, true);
+});
+
+test('board-reported link loss surfaces once per outage', () => {
+  const d = makeDriver();
+  const events = [];
+  d.onEvent = (message, level) => events.push({ message, level });
+
+  d.onLine('LINK:1:0:100');
+  d.onLine('LINK:1:1:700');
+  d.onLine('LINK:1:1:900');
+  let loss = events.filter((e) => /link loss/.test(e.message));
+  assert.equal(loss.length, 1);
+  assert.equal(loss[0].level, 'error');
+
+  d.onLine('LINK:1:0:100');       // recovered
+  d.onLine('LINK:1:1:700');       // and lost again
+  loss = events.filter((e) => /link loss/.test(e.message));
+  assert.equal(loss.length, 2);
+});
+
+test('a malformed LINK line never reports the watchdog as armed', () => {
+  const d = makeDriver();
+  d.onLine('LINK:1:0:100');
+  assert.equal(d.link.armed, true);
+  d.onLine('LINK:x:0:0');          // garbage
+  assert.equal(d.link.armed, true, 'garbage must not flip state either way');
+  assert.match(d.status.detail, /watchdog armed/);
+});
+
+test('status surfaces the watchdog state, so an unarmed one is visible', () => {
+  const d = makeDriver();
+  d.detail = 'COM5 @ 460800';
+  assert.match(d.status.detail, /NO LINK/);
+
+  d.onLine('LINK:0:0:0');
+  assert.match(d.status.detail, /WATCHDOG UNARMED/);
+  assert.equal(d.status.link.armed, false);
+
+  d.onLine('LINK:1:0:0');
+  assert.match(d.status.detail, /watchdog armed/);
+
+  d.onLine('LINK:1:1:800');
+  assert.match(d.status.detail, /BOARD SEES LINK LOSS/);
+});
+
+test('firmware with no watchdog at all is called out, not left silent', () => {
+  // The absence of a LINK: line cannot raise its own alarm, so this is the
+  // one unprotected case that would otherwise pass unnoticed.
+  const d = makeDriver();
+  const events = [];
+  d.onEvent = (message, level) => events.push({ message, level });
+
+  d.onLine('p0.188');
+  d.checkWatchdogPresence();
+  assert.equal(events.length, 0, 'not before the grace period');
+
+  d.firstRxAt = Date.now() - 15000;
+  d.checkWatchdogPresence();
+  d.checkWatchdogPresence();
+
+  assert.equal(events.length, 1, 'exactly one warning');
+  assert.equal(events[0].level, 'error');
+  assert.match(events[0].message, /no comms watchdog/);
+  assert.match(d.status.detail, /NO WATCHDOG IN FIRMWARE/);
+});
+
+test('a board that does send LINK: never trips the no-watchdog warning', () => {
+  const d = makeDriver();
+  const events = [];
+  d.onEvent = (message, level) => events.push({ message, level });
+
+  d.onLine('LINK:1:0:0');
+  d.firstRxAt = Date.now() - 60000;
+  d.checkWatchdogPresence();
+  assert.equal(events.filter((e) => /no comms watchdog/.test(e.message)).length, 0);
+});
+
+test('a silent board does not trip the no-watchdog warning', () => {
+  // Nothing arriving is a link fault, already reported as NO LINK. Blaming the
+  // firmware for it would send someone to reflash a board that is fine.
+  const d = makeDriver();
+  const events = [];
+  d.onEvent = (message, level) => events.push({ message, level });
+
+  d.onLine('p0.188');
+  d.firstRxAt = Date.now() - 60000;
+  d.connected = false;
+  d.checkWatchdogPresence();
+  assert.equal(events.length, 0);
+});
+

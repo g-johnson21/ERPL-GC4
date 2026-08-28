@@ -387,6 +387,40 @@
   text-align: right;
   flex: none;
 }
+/* Window min/max, in the tag row beside the channel. Deliberately quiet — it
+   is reference, not the live value — but on the face of the card, because
+   reading a peak off a tooltip is not something anyone does with one hand on
+   the abort button.
+
+   Shrinks and clips before the tare chip does: on a stand with enough sensor
+   groups to make the columns narrow, losing a digit of MAX is survivable and
+   losing the button that zeroes the channel is not. */
+.sensor-card .s-stat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 9.5px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+.sensor-card .s-stat:first-of-type { margin-left: 2px; }
+.sensor-card .s-stat i {
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: .06em;
+  opacity: .62;
+  flex: none;
+}
+/* Narrower than this page is built for, the cards are too tight to hold them
+   and they clip down to "MI MA", which is noise wearing a label's clothes.
+   The Table view and the card's tooltip both still carry the exact figures. */
+@media (max-width: 1200px) {
+  .sensor-card .s-stat { display: none; }
+}
 .stat-slot {
   display: inline-block;
   text-align: left;
@@ -698,6 +732,36 @@
 .toggle input:checked + .track::after { transform: translateX(15px); background: #fff; }
 .toggle input:disabled + .track { opacity: .4; }
 
+/* The large variant, for the one control on a bang-bang card that hands a
+   tank to a regulator. It was a 34px switch sitting under four number boxes
+   and an auto-vent checkbox, and it looked like the least important thing
+   there instead of the most. Full width, boxed, and large enough to hit
+   without aiming. */
+.toggle.lg {
+  width: 100%;
+  gap: 11px;
+  padding: 9px 11px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  font-size: 12.5px;
+  font-weight: 750;
+  letter-spacing: .05em;
+}
+.toggle.lg:hover { border-color: var(--border-strong); background: var(--surface-3); }
+.toggle.lg .track { width: 50px; height: 27px; }
+.toggle.lg .track::after { top: 3px; left: 3px; width: 19px; height: 19px; }
+.toggle.lg input:checked + .track::after { transform: translateX(23px); }
+.toggle.lg:has(input:disabled) { opacity: .5; cursor: not-allowed; }
+
+/* Live, it is the loudest thing on the card — a tank is under closed-loop
+   control and nothing else on screen says so as plainly. */
+.toggle.lg:has(input:checked) {
+  border-color: var(--ok);
+  background: var(--ok-bg);
+  color: var(--ok);
+}
+
 .bb-fault {
   margin-top: 6px;
   font-size: 11px;
@@ -783,54 +847,11 @@
   transition: width .1s linear;
 }
 
-/* --------------------------------------------------- sidebar: recording */
+/* ----------------------------------------------------- recorded file list */
 
-.rec-status {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  border-radius: var(--radius-sm);
-  background: var(--bg);
-  border: 1px solid var(--border);
-  margin-bottom: 8px;
-  font-size: 12px;
-}
-.rec-status .rec-dot {
-  width: 9px; height: 9px;
-  border-radius: 50%;
-  background: var(--idle);
-  flex: none;
-}
-.rec-status[data-active="true"] {
-  border-color: var(--danger);
-  background: color-mix(in srgb, var(--danger) 8%, var(--bg));
-}
-.rec-status[data-active="true"] .rec-dot {
-  background: var(--danger);
-  animation: pulse 1.1s ease-in-out infinite;
-}
-.rec-status .rec-file {
-  font-family: var(--mono);
-  font-size: 10.5px;
-  color: var(--text-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
-  min-width: 0;
-}
-.rec-stats {
-  display: flex;
-  gap: 10px;
-  font-family: var(--mono);
-  font-size: 10.5px;
-  color: var(--text-faint);
-  margin-top: 6px;
-}
-
+/* Lives in the header popover now — see .rec-files in base.css. */
 .file-list {
-  max-height: 148px;
+  max-height: 46vh;
   overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -1237,3 +1258,25 @@
 }
 .mini-btn:hover { background: var(--surface-3); color: var(--text); }
 .mini-btn.danger:hover { background: var(--danger-bg); color: var(--danger); border-color: var(--danger); }
+
+/* ------------------------------------------------------- SHIFT-to-actuate */
+
+/* Every control that drives the stand AWAY from its safe state needs SHIFT
+   held. While it is, those controls — and only those — light up, so the
+   guard is something an operator can see before clicking rather than
+   something they discover from a toast after nothing happened.
+
+   `needsShift` is recomputed with the state it belongs to, so a vent shows
+   the outline when the next click would open it and drops it once open. */
+body.shift-armed [data-needs-shift="true"]:not(:disabled) {
+  outline: 2px solid var(--warn);
+  outline-offset: 1px;
+}
+body.shift-armed .valve-btn[data-needs-shift="true"]:not(:disabled) { outline-offset: -1px; }
+body.shift-armed .toggle.lg[data-needs-shift="true"] {
+  border-color: var(--warn);
+  outline-offset: -1px;
+}
+/* The schematic's own hint is in pid.css: an `outline` on an SVG group does
+   nothing useful, so the symbol lights its hit area instead. */
+body.shift-armed .pid-valve[data-needs-shift="true"] { outline: none; }

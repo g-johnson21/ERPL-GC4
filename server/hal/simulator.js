@@ -580,6 +580,19 @@ export class SimulatorDriver {
    * reason this row exists, so deriving it from the command would make the
    * indicator agree with itself and never with the hardware.
    */
+  /**
+   * The same channel names dcStatus() fabricates, available before any have
+   * been measured — so a simulator trace carries the same column headers as a
+   * stand trace and a plotting script written against one reads the other.
+   */
+  dcLabels() {
+    const out = {};
+    for (const valve of this.config?.valves || []) {
+      if (Number.isInteger(valve.channel)) out[valve.id] = `DC${valve.channel}`;
+    }
+    return out;
+  }
+
   dcStatus() {
     const out = {};
     for (const valve of this.config?.valves || []) {

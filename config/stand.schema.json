@@ -708,20 +708,40 @@
         "includeSetpoints": {
           "type": "boolean"
         },
-        "autoStartOnSequence": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "Sequence ids that start recording automatically."
-        },
-        "autoStopSecondsAfterSequence": {
-          "type": "number",
-          "minimum": 0
-        },
         "flushIntervalMs": {
           "type": "number",
           "minimum": 50
+        },
+        "derived": {
+          "type": "array",
+          "description": "Extra CSV columns computed from other channels. Recording only — these are not sensors and do not appear in the UI.",
+          "items": {
+            "type": "object",
+            "required": [
+              "header",
+              "sum"
+            ],
+            "properties": {
+              "header": {
+                "type": "string",
+                "description": "Column name, without the units suffix."
+              },
+              "units": {
+                "type": "string"
+              },
+              "sum": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Sensor ids added together. A row where any of them is missing is left blank rather than partially summed."
+              },
+              "decimals": {
+                "type": "number",
+                "minimum": 0
+              }
+            }
+          }
         }
       }
     },

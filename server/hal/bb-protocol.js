@@ -172,6 +172,7 @@ export function encodeCfgPush(ms, side, fields) {
  *   event      {ms, category, side, detail, config?}
  *   error      {message}
  *   ack        {message}
+ *   link       {armed, lost, silentMs}
  *   telemetry  {id, line}
  *   unknown    {line}
  */
@@ -185,6 +186,12 @@ export function parseLine(raw) {
   }
 
   if (line.startsWith('EVT:')) return parseEvent(line);
+
+  if (line.startsWith('LINK:')) {
+    const parsed = parseLinkStatus(line);
+    if (parsed) return parsed;
+    return { kind: 'unknown', line, reason: 'malformed LINK: status' };
+  }
 
   if (ERROR_PREFIXES.some((p) => line.startsWith(p))) {
     return { kind: 'error', message: line };
@@ -200,6 +207,37 @@ export function parseLine(raw) {
   }
 
   return { kind: 'unknown', line };
+}
+
+/**
+ * `LINK:<armed01>:<lost01>:<silentMs>` — the board's GC-link watchdog.
+ *
+ * The board cannot tell a quiet hold from a severed cable, because GC only
+ * talks to it when the operator acts. So it watches for the `h` heartbeat:
+ * 600 ms of silence forces its bang-bang controllers safe, 10 s disarms the
+ * stand outright. This line is how it reports that watchdog's own state.
+ *
+ * `armed` is the field that matters. The watchdog is heartbeat-GATED — dormant
+ * until it sees its first `h` — so `armed: false` means nothing is guarding the
+ * link, which is the pre-watchdog firmware behaviour.
+ *
+ * Every field is validated and a malformed line is rejected outright rather
+ * than partially parsed. Same reasoning as the BB state field: a garbled value
+ * here must never read as "protected" downstream, because that is the one
+ * direction this field must not fail in.
+ */
+export function parseLinkStatus(line) {
+  const parts = line.split(':');
+  if (parts.length < 4) return null;
+
+  const [, armed, lost, silent] = parts;
+  if (armed !== '0' && armed !== '1') return null;
+  if (lost !== '0' && lost !== '1') return null;
+
+  const silentMs = Number(silent);
+  if (!Number.isFinite(silentMs) || silentMs < 0) return null;
+
+  return { kind: 'link', armed: armed === '1', lost: lost === '1', silentMs };
 }
 
 /**

@@ -1,7 +1,7 @@
 /* page-grid.js — Control Grid: every actuator as a button, grouped by system. */
 import { bus } from './bus.js';
 import { bootPage } from './chrome.js';
-import { $, el, clear, icon, fmtValue, fmtRate, fmtCurrent, valueWidthCh } from './util.js';
+import { $, el, clear, icon, fmtValue, fmtRate, fmtCurrent, shiftGate, valueWidthCh } from './util.js';
 
 const content = await bootPage('grid');
 
@@ -144,7 +144,7 @@ function valveButton(valve, group) {
     dataset: { state: 'closed', valveId: valve.id, hazard: String(hazard) },
     style: { '--group-color': group.color },
     title: `${valve.id} — ${valve.name}\nchannel ${valve.channel} · ${valve.normallyOpen ? 'normally open' : 'normally closed'}\nsafe state: ${valve.safeState}`,
-    onclick: () => onValveClick(valve),
+    onclick: (e) => onValveClick(valve, e),
   },
     // The NAME leads, on a line of its own, and the tag sits under it beside
     // the type chip. An operator scanning a wall of eleven cards is looking
@@ -176,13 +176,21 @@ function valveButton(valve, group) {
  * operator is working the valves, and a modal between the click and the coil
  * costs time exactly when it is most expensive. The interlocks in bus and on
  * the server are what actually keep an unsafe command from landing.
+ *
+ * What a command away from the safe state does cost is a held SHIFT. That is
+ * not a confirmation — there is nothing to read and nothing to dismiss, and
+ * the click still lands in one motion — it is a guard against the mis-click,
+ * which on a wall of eleven identical buttons is the failure that actually
+ * happens. Driving a valve TOWARD its safe state never needs it.
  */
-function onValveClick(valve) {
+function onValveClick(valve, event) {
   const current = bus.valveState(valve.id);
   const next = current === 'open' ? 'closed' : 'open';
 
   const gate = bus.canCommand(valve.id, next);
   if (!gate.ok) return;
+
+  if (next !== valve.safeState && !shiftGate(event, `${next === 'open' ? 'open' : 'close'} ${valve.name}`)) return;
 
   bus.commandValve(valve.id, next);
 }
@@ -218,13 +226,23 @@ function updateValves() {
     const toOpen = bus.canCommand(valve.id, 'open');
     const toClosed = bus.canCommand(valve.id, 'closed');
     const locked = !toOpen.ok && !toClosed.ok;
-    const nextGate = bus.canCommand(valve.id, state === 'open' ? 'closed' : 'open');
+    const next = state === 'open' ? 'closed' : 'open';
+    const nextGate = bus.canCommand(valve.id, next);
 
     btn.disabled = !nextGate.ok;
+    // Whether the NEXT click needs SHIFT held. Set here rather than at build
+    // time because it flips with the valve: the click that opens a vent needs
+    // the modifier, the one that closes it does not.
+    btn.dataset.needsShift = String(nextGate.ok && next !== valve.safeState);
     const lock = $(`#vl-${valve.id}`);
     lock.classList.toggle('hidden', nextGate.ok);
     if (!nextGate.ok) btn.title = `${valve.name}\n🔒 ${nextGate.reason}`;
-    else btn.title = `${valve.name}\nchannel ${valve.channel} · safe state: ${valve.safeState}`;
+    else if (next !== valve.safeState) {
+      btn.title = `${valve.name}\nchannel ${valve.channel} · safe state: ${valve.safeState}\n`
+                + `Hold SHIFT and click to ${next === 'open' ? 'OPEN' : 'CLOSE'}.`;
+    } else {
+      btn.title = `${valve.name}\nchannel ${valve.channel} · safe state: ${valve.safeState}`;
+    }
     void locked;
   }
 }

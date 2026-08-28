@@ -28,6 +28,7 @@ export class ConfigStore extends EventEmitter {
       throw new Error(`Invalid config ${this.path}:\n  - ${errors.join('\n  - ')}`);
     }
     this.config = normalizeConfig(parsed);
+    warnRetiredKeys(parsed);
     return this.config;
   }
 
@@ -140,8 +141,7 @@ function normalizeConfig(c) {
   cfg.recording.rateHz ??= 50;
   cfg.recording.includeValveStates ??= true;
   cfg.recording.includeSetpoints ??= true;
-  cfg.recording.autoStartOnSequence ??= [];
-  cfg.recording.autoStopSecondsAfterSequence ??= 10;
+  cfg.recording.derived ??= [];
   cfg.recording.flushIntervalMs ??= 500;
 
   cfg.pid ??= { width: 1600, height: 900, fluids: {}, components: [], pipes: [] };
@@ -215,6 +215,28 @@ function normalizeConfig(c) {
   }
 
   return cfg;
+}
+
+/**
+ * Settings that no longer do anything, called out rather than dropped.
+ *
+ * Recording is an operator decision now, so a config that still asks a sequence
+ * to open or close a file gets nothing — and the failure mode is a test that
+ * quietly was not recorded. A warning at startup costs one line and is the only
+ * chance anyone has to notice before the run.
+ *
+ * Loud, not fatal: refusing to boot at the pad over a dead key would be worse
+ * than the key.
+ */
+function warnRetiredKeys(raw) {
+  const retired = ['autoStartOnSequence', 'autoStopSecondsAfterSequence']
+    .filter((k) => raw?.recording?.[k] !== undefined);
+  if (!retired.length) return;
+  console.warn(
+    `[config] recording.${retired.join(' and recording.')} ` +
+    `${retired.length > 1 ? 'are' : 'is'} no longer supported and will be ignored — ` +
+    'sequences cannot start or stop log files. Use Start New Log File in the header.'
+  );
 }
 
 export function validateConfig(c) {

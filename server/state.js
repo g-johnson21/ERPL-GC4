@@ -59,15 +59,13 @@ export class StandController extends EventEmitter {
       this.emit('config-reload', this.config);
     });
 
-    this.on('sequence-start', (cfg) => {
-      if (this.config.recording.autoStartOnSequence?.includes(cfg.id) && !this.recorder.active) {
-        this.recorder.start(cfg.id.replace(/^seq-/, ''), `seq:${cfg.id}`);
-      }
-    });
-    this.on('sequence-end', () => {
-      const secs = this.config.recording.autoStopSecondsAfterSequence;
-      if (this.recorder.active && secs > 0) this.recorder.scheduleAutoStop(secs);
-    });
+    // Recording is an OPERATOR decision, start to finish. Sequences used to
+    // open and close files on their own, and both halves of that hurt: a
+    // sequence that opened a file split one test across two traces, and one
+    // that closed a file ended the recording seconds after cutoff, while the
+    // stand was still pressurized and still the interesting part. A sequence
+    // may write notes into whatever file is open — see `noteEvent` — and
+    // that is the whole of its authority over recording.
   }
 
   get config() { return this.configStore.get(); }
