@@ -33,11 +33,11 @@
         "channels": 16,
         "channelMeta": {
           "0": {
-            "maxPsi": 1500.0,
+            "maxPsi": 1000,
             "zeroMa": 4.0
           },
           "1": {
-            "maxPsi": 1000,
+            "maxPsi": 1500.0,
             "zeroMa": 4.0
           },
           "2": {
@@ -196,7 +196,7 @@
       }
     },
     "channelMap": {
-      "pt0": "PT0",
+      "pt1": "PT0",
       "pt2": "PT1",
       "pt3": "PT2",
       "pt4": "PT4",

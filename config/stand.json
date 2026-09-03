@@ -376,7 +376,7 @@
       "kind": "pressure",
       "group": "misc",
       "units": "psi",
-      "channel": 0,
+      "channel": 1,
       "decimals": 1,
       "min": 0,
       "max": 1500,
