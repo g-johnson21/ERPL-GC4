@@ -117,6 +117,20 @@ const SYMBOLS = {
     svgEl('line', { x1: -16, y1: 3, x2: 8, y2: -13, class: 'sym-line-thin' })
   ),
 
+  /** Cavitating venturi: converging-diverging throat in the run line. */
+  venturi: () => svgEl('g', {},
+    svgEl('path', {
+      d: 'M-22,-14 L-6,-4 L-6,4 L-22,14 Z',
+      class: 'sym-fill',
+    }),
+    svgEl('path', {
+      d: 'M22,-14 L6,-4 L6,4 L22,14 Z',
+      class: 'sym-fill',
+    }),
+    svgEl('line', { x1: -6, y1: -4, x2: 6, y2: -4, class: 'sym-line' }),
+    svgEl('line', { x1: -6, y1: 4, x2: 6, y2: 4, class: 'sym-line' })
+  ),
+
   /** Rupture / burst disk: bowed disk between two plates. */
   'burst-disk': () => svgEl('g', {},
     svgEl('line', { x1: -11, y1: -13, x2: -11, y2: 13, class: 'sym-line' }),
@@ -339,19 +353,56 @@ export function renderValve(valve, groupColor) {
   body.append(draw(valve));
   g.append(body);
 
-  g.append(svgEl('title', {}, document.createTextNode(`${valve.id} — ${valve.name}`)));
-  g.append(svgText(valve.id, { x: 0, y: 42, class: 'pid-label strong', 'text-anchor': 'middle' }));
+  g.append(svgEl('title', {}, document.createTextNode(
+    p.tag ? `${p.tag} · ${valve.id} — ${valve.name}` : `${valve.id} — ${valve.name}`,
+  )));
+
+  // The tag stencilled on the hardware (S1, PB2...) IS the label. It is what
+  // an operator at the stand reads off the panel, so a symbol on the drawing
+  // matches a valve in front of them with no translation step in between.
+  // Falls back to the GC-4 id rather than going blank if a valve has no tag;
+  // the id stays reachable on hover either way.
+  g.append(svgText(p.tag || valve.id, { x: 0, y: 42, class: 'pid-label strong', 'text-anchor': 'middle' }));
   g.append(svgText('', { x: 0, y: 53, class: 'pid-valve-state', id: `pvs-${valve.id}`, 'text-anchor': 'middle' }));
+
+  // Coil state as MEASURED, not as commanded.
+  //
+  // Every other mark on this symbol shows what the stand was told to do. This
+  // one shows what the current sense says actually happened, which is the only
+  // thing on the drawing that can disagree with the operator. Deliberately
+  // outside `body`, so it does not rotate with the symbol — an annotation
+  // about the valve rather than part of it.
+  const coil = svgEl('circle', {
+    class: 'pid-coil',
+    id: `pvc-${valve.id}`,
+    cx: 22, cy: -26, r: 4.5,
+    dataset: { coil: 'unknown' },
+  });
+  coil.append(svgEl('title', {}, document.createTextNode('')));
+  g.append(coil);
 
   return g;
 }
 
 /** ISA instrument bubble with live value, plus its lead line to the tap. */
-export function renderInstrument(sensor) {
+/**
+ * ISA instrument bubble.
+ *
+ * `group` carries the colour, so a glance at the drawing separates the LOX
+ * side from the fuel side and both from the thermocouples and load cells,
+ * without reading a single tag. Alarm state still repaints the bubble on top
+ * of it — knowing a channel is a TC matters less than knowing it is in danger.
+ */
+export function renderInstrument(sensor, group) {
   const p = sensor.pid;
   if (!p) return null;
 
-  const g = svgEl('g', { class: 'pid-instrument', id: `pi-${sensor.id}`, dataset: { status: 'stale' } });
+  const g = svgEl('g', {
+    class: 'pid-instrument',
+    id: `pi-${sensor.id}`,
+    dataset: { status: 'stale' },
+    style: group?.color ? `--group-color: ${group.color}` : '',
+  });
 
   if (p.lead) {
     g.append(svgEl('line', {
@@ -366,7 +417,8 @@ export function renderInstrument(sensor) {
     svgEl('text', { x: p.x, y: p.y - 7, class: 'pid-tag', 'text-anchor': 'middle' }, document.createTextNode(sensor.id)),
     svgEl('text', { x: p.x, y: p.y + 13, class: 'pid-reading', id: `pir-${sensor.id}`, 'text-anchor': 'middle' },
       document.createTextNode('––––')),
-    svgEl('title', {}, document.createTextNode(`${sensor.id} — ${sensor.name} (${sensor.units})`))
+    svgEl('title', {}, document.createTextNode(
+      `${sensor.id} — ${sensor.name} (${sensor.units})${group ? ` · ${group.label}` : ''}`))
   );
 
   return g;

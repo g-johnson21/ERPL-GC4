@@ -143,10 +143,16 @@ body.theme-ready * { transition: background-color .15s, border-color .15s, color
   flex: none;
 }
 
+/* Never shrinks. `overflow: hidden` used to let the page links be squeezed
+   away one character at a time when something else in the header grew — a
+   nav that silently loses its last entry is worse than a header that has to
+   find the room elsewhere. */
 .nav {
   display: flex;
   gap: 2px;
   margin-left: 6px;
+  flex: none;
+  overflow: hidden;
 }
 .nav a {
   display: flex;
@@ -167,11 +173,132 @@ body.theme-ready * { transition: background-color .15s, border-color .15s, color
 
 .header-spacer { flex: 1; }
 
-.header-status {
+/* ------------------------------------------------- header: log recording */
+
+/* Sits in the header's free space, left of the status chips, on every page —
+   including Data, which has no sidebar and therefore had no way to start a
+   recording at all. Anchored to the left of the spacer so it does not shuffle
+   sideways as link chips appear and disappear. */
+/* Shrinkable, and the first thing in the header to give way. The nav links
+   and the status chips both have to survive a 1280-wide laptop; a log file
+   name does not, because it ellipsises to a green dot that still answers the
+   only urgent question this control asks. */
+.rec-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 1 auto;
+  min-width: 0;
+  position: relative;
+  margin-left: 8px;
+}
+
+/* The button and the stop square keep their size — a truncated verb is worse
+   than a truncated filename. */
+.rec-control .rec-new {
+  flex: none;
+  gap: 7px;
+  padding: 6px 12px;
+  font-size: 12.5px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.rec-control .rec-halt { flex: none; padding: 6px 9px; }
+.rec-control .rec-halt svg { color: var(--danger); }
+
+/* Green dot and the file name, or grey and "Not Currently Logging". It is a
+   button because it opens the recorded-file list, but it must read as a
+   status light first — no border, no hover lift, nothing that suggests
+   clicking it changes what is being recorded. */
+.rec-indicator {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex: 0 1 auto;
+  min-width: 0;
+  padding: 4px 10px;
+  border-radius: 100px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
 }
+.rec-indicator:hover { border-color: var(--border-strong); color: var(--text); }
+.rec-indicator .rec-dot {
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  background: var(--idle);
+  flex: none;
+}
+/* Clipped from the LEFT. Every filename here starts with the same stand name
+   and date — `Draco_20260828_131627_` — and ends with the part that tells one
+   run from another, so trimming the tail would cut exactly the characters
+   worth showing. `rtl` puts the ellipsis at the start; the isolate keeps the
+   name itself rendering left to right inside it. */
+.rec-indicator .rec-name {
+  font-family: var(--mono);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  direction: rtl;
+  unicode-bidi: isolate;
+  text-align: left;
+}
+/* Rows and bytes: proof the file is filling, not just open. First thing
+   dropped when the header runs out of room — the tooltip still carries it. */
+.rec-indicator .rec-meta {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  flex: none;
+}
+@media (max-width: 1500px) {
+  .rec-indicator .rec-meta { display: none; }
+}
+.rec-indicator[data-active="true"] {
+  border-color: var(--ok);
+  background: var(--ok-bg);
+  color: var(--ok);
+}
+.rec-indicator[data-active="true"] .rec-dot {
+  background: var(--ok);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+.rec-indicator[data-active="true"] .rec-name { color: var(--ok); }
+
+/* The recorded-file list, hung off the indicator instead of taking permanent
+   room in the sidebar. Nobody downloads yesterday's trace mid-test. */
+.rec-files {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 340px;
+  max-height: 60vh;
+  overflow: auto;
+  padding: 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: 0 14px 34px -12px rgb(0 0 0 / 55%);
+  z-index: 60;
+}
+.rec-files .section-title { margin-bottom: 7px; }
+
+/* Link indicators plus stand state. ARMED, ABORT and a dead DAQ are the last
+   things that may ever be squeezed off a narrow screen, so this row never
+   shrinks — the nav above gives way first. */
+.header-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+.header-status .chip { flex: none; }
 
 .chip {
   display: inline-flex;
@@ -258,12 +385,28 @@ body.theme-ready * { transition: background-color .15s, border-color .15s, color
 }
 .sidebar-section:last-child { border-bottom: none; }
 
+/* ARM / DISARM / ABORT hold the top of the sidebar and do not scroll with it.
+   The sidebar is the scroll container, so `top: 0` is its top edge. Opaque
+   and raised, or the bang-bang cards read through it on the way past. */
+.sidebar-section.pinned {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  background: var(--surface);
+  box-shadow: 0 6px 12px -8px rgb(0 0 0 / 45%);
+}
+
 /* The event log absorbs leftover height. It must be able to shrink (min-height:0
    breaks the default `min-height:auto` of a flex item) and must clip, or its
-   list overflows the section and paints over the recording controls below. */
+   list overflows the section.
+
+   300px, twice what it was: the log is the running account of the test, and
+   at 150px an autosequence firing its steps pushed everything before it out
+   of view faster than anyone could read it. The recording panel that used to
+   sit under it has moved to the header, which is where the height came from. */
 .sidebar-section.grow {
   flex: 1 1 auto;
-  min-height: 150px;
+  min-height: 300px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -288,7 +431,8 @@ body.theme-ready * { transition: background-color .15s, border-color .15s, color
   display: flex;
   align-items: center;
   gap: 12px;
-  margin: 0 0 14px;
+  margin: 0 0 10px;
+  flex: none;
   flex-wrap: wrap;
 }
 .page-head h1 {
@@ -463,6 +607,15 @@ textarea { font-family: var(--mono); font-size: 12px; line-height: 1.5; resize: 
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 5px; border: 2px solid var(--bg); }
 ::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
+
+/* The log control took the header's slack, so the decorations give it back
+   before anything load-bearing does. The stand badge duplicates the browser
+   tab title; the nav's padding is generous. Both go first, and the log
+   indicator absorbs whatever is still missing by clipping its filename. */
+@media (max-width: 1440px) {
+  .brand .brand-stand { display: none; }
+  .nav a { padding: 7px 9px; }
+}
 
 @media (max-width: 1100px) {
   .nav a span { display: none; }

@@ -6,7 +6,7 @@
  */
 import { bus } from './bus.js';
 import { bootPage } from './chrome.js';
-import { $, el, icon, fmtValue, confirmAction } from './util.js';
+import { $, el, icon, fmtValue, fmtCurrent, coilState, shiftGate } from './util.js';
 import { svgEl, renderComponent, renderValve, renderInstrument, renderPipe, renderJunction } from './pid-symbols.js';
 
 const content = await bootPage('pid');
@@ -91,15 +91,15 @@ for (const valve of bus.config.valves) {
   if (!valve.pid) continue;
   const group = bus.group(valve.group);
   const node = renderValve(valve, group?.color || '#64748b');
-  node.addEventListener('click', () => onValveActivate(valve));
+  node.addEventListener('click', (e) => onValveActivate(valve, e));
   node.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onValveActivate(valve); }
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onValveActivate(valve, e); }
   });
   layerValves.append(node);
 }
 
 for (const sensor of bus.config.sensors) {
-  const node = renderInstrument(sensor);
+  const node = renderInstrument(sensor, bus.sensorGroup(sensor.id));
   if (node) layerInstruments.append(node);
 }
 
@@ -108,23 +108,15 @@ for (const sensor of bus.config.sensors) {
 
 // ------------------------------------------------------------ interaction --
 
-async function onValveActivate(valve) {
+/** Commands fire immediately, and away from safe needs SHIFT — see page-grid.js. */
+function onValveActivate(valve, event) {
   const current = bus.valveState(valve.id);
   const next = current === 'open' ? 'closed' : 'open';
   const gate = bus.canCommand(valve.id, next);
   if (!gate.ok) return;
 
-  if (valve.confirm && next === 'open') {
-    const ok = await confirmAction({
-      title: `${valve.id} → ${valve.openLabel}`,
-      message: valve.momentary
-        ? `${valve.name} will fire for ${(valve.momentaryMs / 1000).toFixed(1)} s and then return to ${valve.safeState}.`
-        : `Command ${valve.name} to ${next.toUpperCase()}?`,
-      confirmLabel: valve.openLabel,
-      danger: true,
-    });
-    if (!ok) return;
-  }
+  if (next !== valve.safeState && !shiftGate(event, `${next === 'open' ? 'open' : 'close'} ${valve.name}`)) return;
+
   bus.commandValve(valve.id, next);
 }
 
@@ -233,7 +225,10 @@ function setLocked(locked) {
 }
 
 document.addEventListener('keydown', (e) => {
-  if (e.target.matches('input, textarea, select')) return;
+  // `instanceof Element` because a key event can be targeted at the document
+  // itself, which has no `matches` — and an exception thrown here takes the
+  // rest of the view hotkeys down with it.
+  if (e.target instanceof Element && e.target.matches('input, textarea, select')) return;
   if (e.key === '0') resetView();
   if (e.key === '+' || e.key === '=') zoomByButton(1.2);
   if (e.key === '-') zoomByButton(1 / 1.2);
@@ -301,10 +296,56 @@ function update() {
     const label = document.getElementById(`pvs-${valve.id}`);
     if (label) label.textContent = state === 'open' ? valve.openLabel : valve.closedLabel;
 
-    const gate = bus.canCommand(valve.id, state === 'open' ? 'closed' : 'open');
+    const next = state === 'open' ? 'closed' : 'open';
+    const gate = bus.canCommand(valve.id, next);
     node.dataset.locked = String(!gate.ok);
+    // Lights up while SHIFT is held — the same guard the Control Grid uses.
+    node.dataset.needsShift = String(gate.ok && next !== valve.safeState);
+
+    updateCoil(valve, state);
   }
 
+  updateInstruments();
+}
+
+/**
+ * Paint one valve's coil indicator from the current sense.
+ *
+ * The comparison is against COIL state, not flow state. A normally-open valve
+ * is energized to CLOSE, so a NO vent sitting open should read de-energized
+ * and one commanded shut should read energized. Comparing against flow state
+ * instead would mark every normally-open valve on the stand as faulted,
+ * permanently — the fastest way to teach an operator to ignore the indicator.
+ *
+ *   off      de-energized, as commanded
+ *   on       energized, as commanded
+ *   fault    the coil is not doing what it was told
+ *   unknown  no current sense on this channel, so nothing is claimed
+ */
+function updateCoil(valve, state) {
+  const dot = document.getElementById(`pvc-${valve.id}`);
+  if (!dot) return;
+
+  const dc = bus.state.valves?.[valve.id]?.dc;
+  const coil = coilState(valve, state, dc);
+  dot.dataset.coil = coil;
+
+  if (coil === 'unknown') {
+    // Hidden, not grey. Grey is a measurement meaning "de-energized"; a valve
+    // nobody is measuring must not borrow that claim.
+    dot.firstChild.textContent = '';
+    return;
+  }
+
+  const shouldEnergize = valve.normallyOpen ? state === 'closed' : state === 'open';
+  const agrees = coil !== 'fault';
+  dot.firstChild.textContent =
+    `${dc.id}: coil ${dc.energized ? 'ENERGIZED' : 'de-energized'} · ${fmtCurrent(dc.amps)}\n` +
+    `commanded ${state.toUpperCase()}, expects ${shouldEnergize ? 'energized' : 'de-energized'}` +
+    (agrees ? '' : '\n*** MISMATCH — the coil is not doing what it was told ***');
+}
+
+function updateInstruments() {
   // --- instruments ---
   for (const sensor of bus.config.sensors) {
     const node = document.getElementById(`pi-${sensor.id}`);

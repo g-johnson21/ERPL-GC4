@@ -2,11 +2,19 @@
  * recorder.js — CSV data recording.
  *
  * One row per sample at `recording.rateHz`. Columns:
- *   iso_time, epoch_ms, elapsed_s
- *   one column per sensor, header "ID (units)"
+ *   timestamp, elapsed_s
+ *   one column per sensor, header "TAG Name (units)"
+ *   one column per `recording.derived` channel, header "Name (units)"
  *   one column per valve  (1 = open, 0 = closed)      [includeValveStates]
  *   setpoint / enabled columns per controller          [includeSetpoints]
  *   armed, sequence, event
+ *
+ * HEADERS CARRY THE NAME, NOT JUST THE TAG
+ *   "PT21 LOX Venturi Inlet (psi)", not "PT21 (psi)". The club's analysis
+ *   scripts select columns by that string, and a bare tag makes every plot
+ *   script a lookup table against a config file it does not have. This is the
+ *   format of the combined traces the team already works from, so a GC-4
+ *   recording drops straight into the same notebooks.
  *
  * The `event` column carries any log lines emitted since the previous row,
  * so a single file contains the full test story.
@@ -14,6 +22,11 @@
  * Alongside each CSV a `.meta.json` sidecar stores the exact config used for
  * the run — calibrations, setpoints, sequences — so a trace can always be
  * reinterpreted months later.
+ *
+ * NOTHING BUT AN OPERATOR STARTS OR STOPS A FILE. Sequences write notes into
+ * the `event` column of whatever file is open, and that is all they may do:
+ * a sequence that opened its own file split a test across two traces, and one
+ * that closed a file ended the recording while the stand was still pressurized.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -31,7 +44,6 @@ export class Recorder {
     this.pending = [];
     this.pendingEvents = [];
     this.lastSampleAt = 0;
-    this.autoStopAt = 0;
   }
 
   get cfg() { return this.stand.config.recording; }
@@ -72,7 +84,6 @@ export class Recorder {
     this.rows = 0;
     this.startedAt = Date.now();
     this.lastSampleAt = 0;
-    this.autoStopAt = 0;
     this.file = filename;
     this.filePath = filePath;
     this.pending = [];
@@ -101,14 +112,13 @@ export class Recorder {
   buildColumns() {
     const cfg = this.cfg;
     const cols = [
-      { header: 'iso_time', get: (s) => s.iso },
-      { header: 'epoch_ms', get: (s) => s.now },
+      { header: 'timestamp', get: (s) => s.iso },
       { header: 'elapsed_s', get: (s) => ((s.now - this.startedAt) / 1000).toFixed(4) },
     ];
 
     for (const sensor of this.stand.config.sensors) {
       cols.push({
-        header: csvEscape(`${sensor.id} (${sensor.units})`),
+        header: csvEscape(`${sensor.id} ${sensor.name} (${csvUnits(sensor.units)})`),
         get: (s) => {
           const v = s.readings[sensor.id];
           return Number.isFinite(v) ? v.toFixed(Math.max(sensor.decimals, 3)) : '';
@@ -116,10 +126,38 @@ export class Recorder {
       });
     }
 
+    // Channels that are arithmetic on other channels — a three-cell thrust
+    // stack summed into one trace, say. Computed here rather than left to the
+    // reader so the file answers the question the test was run to ask, and
+    // declared in config rather than inferred: which load cells add up is a
+    // property of the stand, and guessing it wrong corrupts a thrust curve
+    // silently.
+    for (const d of cfg.derived || []) {
+      const parts = d.sum || [];
+      const decimals = d.decimals ?? 3;
+      cols.push({
+        header: csvEscape(`${d.header} (${csvUnits(d.units || '')})`),
+        get: (s) => {
+          let total = 0;
+          for (const id of parts) {
+            const v = s.readings[id];
+            if (!Number.isFinite(v)) return '';    // partial sums are worse than a gap
+            total += v;
+          }
+          return parts.length ? total.toFixed(decimals) : '';
+        },
+      });
+    }
+
     if (cfg.includeValveStates) {
+      // The board's own channel number leads where the hardware declares one
+      // (DC1, DC2, ...), because that is what the wiring diagram, the
+      // firmware log and every previous trace call this actuator.
+      const dcLabels = this.stand.driver.dcLabels?.() || {};
       for (const valve of this.stand.config.valves) {
+        const tag = dcLabels[valve.id] || valve.id;
         cols.push({
-          header: csvEscape(`${valve.id} (state)`),
+          header: csvEscape(`${tag} ${valve.name} (state)`),
           get: (s) => (s.valves[valve.id] === 'open' ? '1' : '0'),
         });
       }
@@ -129,6 +167,20 @@ export class Recorder {
       for (const c of this.stand.config.bangbang) {
         cols.push({ header: csvEscape(`${c.id} setpoint`), get: (s) => s.controllers[c.id]?.setpoint ?? '' });
         cols.push({ header: csvEscape(`${c.id} enabled`), get: (s) => (s.controllers[c.id]?.enabled ? '1' : '0') });
+        // What the BOARD reported, alongside what we asked it for. A trace
+        // read back months later has to be able to answer "was the loop
+        // actually running, and on what pressure" — and the answer to both is
+        // the board's, not ours. `enabled` above is only our request.
+        cols.push({ header: csvEscape(`${c.id} board state`), get: (s) => s.controllers[c.id]?.board?.state ?? '' });
+        cols.push({ header: csvEscape(`${c.id} board press`), get: (s) => (s.controllers[c.id]?.board?.press ? '1' : '0') });
+        cols.push({ header: csvEscape(`${c.id} board vent`), get: (s) => (s.controllers[c.id]?.board?.vent ? '1' : '0') });
+        cols.push({
+          header: csvEscape(`${c.id} board psi`),
+          get: (s) => {
+            const p = s.controllers[c.id]?.board?.pressure;
+            return Number.isFinite(p) ? p.toFixed(2) : '';
+          },
+        });
       }
     }
 
@@ -141,11 +193,6 @@ export class Recorder {
   /** Called every control tick; decimates to recording.rateHz. */
   sample(now, readings) {
     if (!this.active) return;
-
-    if (this.autoStopAt && now >= this.autoStopAt) {
-      this.stop('auto-stop after sequence');
-      return;
-    }
 
     const period = 1000 / Math.max(1, this.cfg.rateHz);
     if (now - this.lastSampleAt < period - 0.5) return;
@@ -180,10 +227,6 @@ export class Recorder {
     this.stream.write(chunk);
   }
 
-  scheduleAutoStop(seconds) {
-    if (this.active && seconds > 0) this.autoStopAt = Date.now() + seconds * 1000;
-  }
-
   stop(reason = 'stopped by operator', source = 'operator') {
     if (!this.active) return { ok: false, error: 'Not recording' };
     this.flush();
@@ -194,7 +237,6 @@ export class Recorder {
     this.stream.end();
     this.active = false;
     this.stream = null;
-    this.autoStopAt = 0;
     this.stand.log('record', `RECORDING STOP -> ${file} (${rows} rows, ${secs}s) — ${reason}`, source);
     return { ok: true, file, rows };
   }
@@ -240,4 +282,16 @@ function localTime(d) { return `${pad(d.getHours())}${pad(d.getMinutes())}${pad(
 function csvEscape(v) {
   const s = String(v ?? '');
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+/**
+ * Units as they go in a column header: `°F` becomes `degF`.
+ *
+ * The degree sign is correct on screen and a liability in a file that gets
+ * opened by Excel on one laptop, pandas on another, and MATLAB on a third —
+ * one of them will mis-decode it, and a column nobody can select by name is a
+ * column nobody plots.
+ */
+function csvUnits(units) {
+  return String(units ?? '').replace(/°/g, 'deg');
 }

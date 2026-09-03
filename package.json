@@ -7,10 +7,15 @@
   "scripts": {
     "start": "node server/index.js",
     "sim": "node server/index.js --driver=simulator",
-    "dev": "node --watch server/index.js"
+    "stand": "node server/index.js --driver=stand",
+    "dev": "node --watch server/index.js",
+    "test": "node --test \"server/**/*.test.js\" \"public/js/**/*.test.js\""
   },
   "engines": {
     "node": ">=18"
   },
-  "private": true
+  "private": true,
+  "dependencies": {
+    "serialport": "^13.0.0"
+  }
 }

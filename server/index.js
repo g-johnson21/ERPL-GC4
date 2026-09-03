@@ -18,6 +18,7 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 
 import { ConfigStore, validateConfig } from './config-store.js';
+import { TapHub } from './tools/tap-hub.js';
 import { createDriver, driverNames } from './hal/index.js';
 import { StandController } from './state.js';
 
@@ -30,6 +31,15 @@ const PORT = Number(args.port ?? process.env.GC_PORT ?? 8080);
 const BIND = args.bind ?? process.env.GC_BIND ?? '0.0.0.0';
 const CONFIG_PATH = path.resolve(ROOT, args.config ?? 'config/stand.json');
 const DRIVER_NAME = args.driver ?? process.env.GC_DRIVER ?? 'simulator';
+
+/**
+ * Config sections a save may touch while the stand is ARMED.
+ *
+ * `$schema` is editor metadata with no runtime meaning, so it rides along.
+ * Everything else — valves, sensors, calibrations, safety policy, the P&ID —
+ * is locked until the stand is disarmed.
+ */
+const ARMED_EDITABLE = new Set(['autosequences', '$schema']);
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -54,6 +64,40 @@ try {
   process.exit(1);
 }
 
+let standRef = null;
+function emitDriverEvent(message, level = 'error') {
+  if (standRef) standRef.log(level, message, 'driver');
+  else console.error(`[driver] ${message}`);
+}
+
+/**
+ * --panda-tap opens a second terminal printing the raw PANDA serial traffic.
+ *
+ * Started BEFORE the driver, so the window is already attached when the board
+ * sends its boot banner — the first few lines after a reset are usually the
+ * ones worth seeing, and a tap that attaches late misses exactly those.
+ */
+let tapHub = null;
+if (args['panda-tap']) {
+  // Only two drivers own a serial link to the board. On any other the flag
+  // would open a window that stays empty forever, which reads as "the board
+  // is silent" rather than "you asked the wrong driver for this".
+  if (DRIVER_NAME !== 'stand' && DRIVER_NAME !== 'panda') {
+    console.error(
+      `
+  --panda-tap needs a driver with a PANDA serial link.
+` +
+      `  Got --driver=${DRIVER_NAME}; use --driver=stand (or --driver=panda).
+`
+    );
+    process.exit(1);
+  }
+  tapHub = new TapHub();
+  const tapPort = await tapHub.start();
+  tapHub.openViewer();
+  console.error(`[tap] raw PANDA serial on 127.0.0.1:${tapPort}`);
+}
+
 let driver;
 try {
   driver = createDriver(DRIVER_NAME, {
@@ -63,6 +107,16 @@ try {
     port_: undefined,
     // serial
     ...(DRIVER_NAME === 'serial' ? { port: args['port-name'] ?? args.com, baud: args.baud } : {}),
+    // stand (nidaq + panda)
+    root: ROOT,
+    hardwareConfig: args['hardware-config'],
+    pandaPort: args['port-name'] ?? args.com,
+    // Driver-level faults reach the operator through the same event log as
+    // everything else, rather than only the server console. A device can fault
+    // while StandController is still being constructed, so this resolves the
+    // controller lazily instead of closing over a binding that may not exist.
+    onEvent: (message, level) => emitDriverEvent(message, level),
+    onRaw: tapHub ? (direction, bytes) => tapHub.write(direction, bytes) : undefined,
   });
 } catch (err) {
   console.error(`\n  DRIVER ERROR\n  ${err.message}\n  Available drivers: ${driverNames().join(', ')}\n`);
@@ -70,6 +124,7 @@ try {
 }
 
 const stand = new StandController(configStore, driver, ROOT);
+standRef = stand;
 
 try {
   await stand.start();
@@ -210,6 +265,13 @@ async function handleApi(req, res, pathname, url) {
       stand.safeAll(who);
       return sendJson(res, 200, withState({ ok: true }));
 
+    // Zero instrumentation against its current reading:
+    //   { sensors: ['PT1','PT4'] } | { kind: 'pressure' }  [, clear: true ]
+    case 'POST /api/tare': {
+      const result = stand.tare(body, who);
+      return sendJson(res, result.ok ? 200 : 409, withState(result));
+    }
+
     case 'POST /api/controller': {
       const result = stand.bangbang.set(body.id, body, who);
       return sendJson(res, result.ok ? 200 : 409, withState(result));
@@ -241,13 +303,28 @@ async function handleApi(req, res, pathname, url) {
     }
 
     case 'PUT /api/config': {
+      const next = body.config ?? body;
       if (stand.sequencer.running) {
         return sendJson(res, 409, { ok: false, errors: ['Cannot change config while a sequence is running'] });
       }
+      // Retiming a countdown between attempts is normal test-day work, and
+      // making an operator disarm to do it costs more than it buys. Wiring is
+      // a different matter: channels, calibrations, interlocks and the P&ID
+      // describe the hardware, and swapping those under a live stand would
+      // move the meaning of every command already on screen.
       if (stand.armed) {
-        return sendJson(res, 409, { ok: false, errors: ['DISARM the stand before changing the configuration'] });
+        const changed = configStore.changedSections(next).filter((k) => !ARMED_EDITABLE.has(k));
+        if (changed.length) {
+          return sendJson(res, 409, {
+            ok: false,
+            errors: [
+              `DISARM the stand to change ${changed.join(', ')} — ` +
+              `only autosequences can be edited while armed`,
+            ],
+          });
+        }
       }
-      const result = configStore.save(body.config ?? body);
+      const result = configStore.save(next);
       return sendJson(res, result.ok ? 200 : 400, result);
     }
 

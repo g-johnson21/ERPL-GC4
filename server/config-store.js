@@ -28,6 +28,7 @@ export class ConfigStore extends EventEmitter {
       throw new Error(`Invalid config ${this.path}:\n  - ${errors.join('\n  - ')}`);
     }
     this.config = normalizeConfig(parsed);
+    warnRetiredKeys(parsed);
     return this.config;
   }
 
@@ -59,11 +60,41 @@ export class ConfigStore extends EventEmitter {
     return this.config;
   }
 
+  /**
+   * Which top-level sections `next` would change, compared to what is running.
+   *
+   * Used to decide whether a save is safe while the stand is armed: retiming a
+   * countdown is, rewiring a valve channel is not. Both sides are normalized
+   * first, so the defaults this store fills in are never mistaken for edits,
+   * and key order is ignored, so a re-serialized file is not a "change".
+   */
+  changedSections(next) {
+    const before = this.config;
+    const after = normalizeConfig(next);
+    const changed = [];
+    for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
+      if (canonical(before[key]) !== canonical(after[key])) changed.push(key);
+    }
+    return changed;
+  }
+
   get() { return this.config; }
   valve(id) { return this.config.valves.find((v) => v.id === id); }
   sensor(id) { return this.config.sensors.find((s) => s.id === id); }
   controller(id) { return this.config.bangbang.find((c) => c.id === id); }
   sequence(id) { return this.config.autosequences.find((s) => s.id === id); }
+}
+
+/**
+ * JSON with object keys sorted, so two configs that differ only in key order
+ * compare equal. Arrays keep their order — the order of steps in a sequence,
+ * or of valves in a group, is meaningful.
+ */
+function canonical(value) {
+  return JSON.stringify(value, (_key, v) => {
+    if (v === null || typeof v !== 'object' || Array.isArray(v)) return v;
+    return Object.fromEntries(Object.keys(v).sort().map((k) => [k, v[k]]));
+  });
 }
 
 function pruneBackups(dir, keep) {
@@ -83,7 +114,6 @@ function normalizeConfig(c) {
   cfg.ui.accent ??= '#ff7a1a';
   cfg.ui.defaultTheme ??= 'dark';
   cfg.ui.gridColumns ??= 4;
-  cfg.ui.sensorGridColumns ??= 4;
   cfg.ui.sparklineSeconds ??= 60;
   cfg.ui.confirmDangerousActions ??= true;
   cfg.ui.pages ??= [];
@@ -98,6 +128,7 @@ function normalizeConfig(c) {
   cfg.safety.autoDisarmAfterSeconds ??= 0;
 
   cfg.valveGroups ??= [];
+  cfg.sensorGroups ??= [];
   cfg.valves ??= [];
   cfg.sensors ??= [];
   cfg.bangbang ??= [];
@@ -110,8 +141,7 @@ function normalizeConfig(c) {
   cfg.recording.rateHz ??= 50;
   cfg.recording.includeValveStates ??= true;
   cfg.recording.includeSetpoints ??= true;
-  cfg.recording.autoStartOnSequence ??= [];
-  cfg.recording.autoStopSecondsAfterSequence ??= 10;
+  cfg.recording.derived ??= [];
   cfg.recording.flushIntervalMs ??= 500;
 
   cfg.pid ??= { width: 1600, height: 900, fluids: {}, components: [], pipes: [] };
@@ -124,7 +154,6 @@ function normalizeConfig(c) {
     v.group ??= 'aux';
     v.normallyOpen ??= false;
     v.requiresArm ??= true;
-    v.confirm ??= false;
     v.momentary ??= false;
     v.momentaryMs ??= 1000;
     v.openLabel ??= 'OPEN';
@@ -136,6 +165,10 @@ function normalizeConfig(c) {
 
   for (const s of cfg.sensors) {
     s.kind ??= 'other';
+    // Grouping drives the Data page layout and the P&ID instrument colour.
+    // Falling back to `kind` means a config that never heard of sensorGroups
+    // still groups the way it always did — pressure, temperature, force.
+    s.group ??= s.kind;
     s.units ??= '';
     s.decimals ??= 1;
     s.min ??= 0;
@@ -156,7 +189,17 @@ function normalizeConfig(c) {
     b.deadbandMax ??= 100;
     b.requiresArm ??= true;
     b.maxOpenSeconds ??= 0;
+    // Duty-cycle limits, both disregarded when 0. maxOpenMs is the board's
+    // max_open_ms; minIntervalMs is its wait_ms.
+    b.maxOpenMs ??= 0;
+    b.minIntervalMs ??= 0;
+    // Auto-vent defaults OFF even when a trigger is configured. Venting a
+    // tank is not a thing to start doing because a field was left unset.
+    b.ventAuto ??= false;
     b.abbrev ??= b.name || b.id;
+    // Normalised so nothing downstream has to care about case. The board's
+    // commands take uppercase; its heartbeat reports lowercase.
+    if (typeof b.side === 'string') b.side = b.side.toUpperCase();
   }
 
   for (const s of cfg.autosequences) {
@@ -172,6 +215,28 @@ function normalizeConfig(c) {
   }
 
   return cfg;
+}
+
+/**
+ * Settings that no longer do anything, called out rather than dropped.
+ *
+ * Recording is an operator decision now, so a config that still asks a sequence
+ * to open or close a file gets nothing — and the failure mode is a test that
+ * quietly was not recorded. A warning at startup costs one line and is the only
+ * chance anyone has to notice before the run.
+ *
+ * Loud, not fatal: refusing to boot at the pad over a dead key would be worse
+ * than the key.
+ */
+function warnRetiredKeys(raw) {
+  const retired = ['autoStartOnSequence', 'autoStopSecondsAfterSequence']
+    .filter((k) => raw?.recording?.[k] !== undefined);
+  if (!retired.length) return;
+  console.warn(
+    `[config] recording.${retired.join(' and recording.')} ` +
+    `${retired.length > 1 ? 'are' : 'is'} no longer supported and will be ignored — ` +
+    'sequences cannot start or stop log files. Use Start New Log File in the header.'
+  );
 }
 
 export function validateConfig(c) {
@@ -202,6 +267,16 @@ export function validateConfig(c) {
     }
   }
 
+  const groupIds = new Set();
+  for (const [i, g] of (c.sensorGroups || []).entries()) {
+    if (!g.id) { err(`sensorGroups[${i}]: missing id`); continue; }
+    if (groupIds.has(g.id)) err(`sensorGroups[${i}]: duplicate group id "${g.id}"`);
+    groupIds.add(g.id);
+    if (g.color && !/^#[0-9a-fA-F]{6}$/.test(g.color)) {
+      err(`sensorGroups[${i}] (${g.id}): color must be a #rrggbb hex string`);
+    }
+  }
+
   const sensorIds = new Set();
   const usedSensorChannels = new Map();
   for (const [i, s] of c.sensors.entries()) {
@@ -218,13 +293,47 @@ export function validateConfig(c) {
     if (s.min != null && s.max != null && Number(s.min) >= Number(s.max)) err(`${where} (${s.id}): min must be < max`);
   }
 
+  const usedSides = new Map();
   for (const [i, b] of (c.bangbang || []).entries()) {
     const where = `bangbang[${i}]`;
     if (!b.id) { err(`${where}: missing id`); continue; }
+    // The board has exactly two bang-bang buses. A controller with no side
+    // cannot be pushed to it at all, and two controllers on one side would
+    // fight over the same setpoint — the board keeps one config per side.
+    const side = String(b.side || '').toUpperCase();
+    if (side !== 'L' && side !== 'F') {
+      err(`${where} (${b.id}): side must be "L" (LOX) or "F" (Fuel) — the board bus this controller runs on`);
+    } else if (usedSides.has(side)) {
+      err(`${where} (${b.id}): board side ${side} is already used by ${usedSides.get(side)} — the board holds one config per side`);
+    } else {
+      usedSides.set(side, b.id);
+    }
     if (!sensorIds.has(b.sensor)) err(`${where} (${b.id}): sensor "${b.sensor}" is not a defined sensor`);
     if (!valveIds.has(b.valve)) err(`${where} (${b.id}): valve "${b.valve}" is not a defined valve`);
+    if (b.ventValve != null && !valveIds.has(b.ventValve)) {
+      err(`${where} (${b.id}): ventValve "${b.ventValve}" is not a defined valve`);
+    }
     if (typeof b.setpoint !== 'number') err(`${where} (${b.id}): setpoint must be a number`);
     if (b.deadband != null && Number(b.deadband) <= 0) err(`${where} (${b.id}): deadband must be > 0`);
+    if (b.ventTrigger != null && (!Number.isFinite(Number(b.ventTrigger)) || Number(b.ventTrigger) < 0)) {
+      err(`${where} (${b.id}): ventTrigger must be a number >= 0`);
+    }
+    if (b.ventAuto && b.ventTrigger == null) {
+      err(`${where} (${b.id}): ventAuto needs a ventTrigger pressure to vent at`);
+    }
+    for (const k of ['maxOpenMs', 'minIntervalMs']) {
+      if (b[k] != null && (!Number.isFinite(Number(b[k])) || Number(b[k]) < 0)) {
+        err(`${where} (${b.id}): ${k} must be a number >= 0 (0 disables it)`);
+      }
+    }
+    // A pulse longer than the hard trip can never fire: the trip would cut in
+    // first, disabling the controller instead of limiting the pulse.
+    if (Number(b.maxOpenMs) > 0 && Number(b.maxOpenSeconds) > 0 &&
+        Number(b.maxOpenMs) >= Number(b.maxOpenSeconds) * 1000) {
+      err(`${where} (${b.id}): maxOpenMs (${b.maxOpenMs}) must be less than ` +
+          `maxOpenSeconds (${b.maxOpenSeconds}s = ${b.maxOpenSeconds * 1000}ms), ` +
+          `or the leak trip fires before the pulse limit`);
+    }
   }
 
   const seqIds = new Set();

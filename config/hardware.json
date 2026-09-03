@@ -1,0 +1,348 @@
+{
+  "_comment": [
+    "Hardware wiring for the --driver=stand composite driver.",
+    "THIS IS DRACO'S ACTUAL WIRING, and it is tracked in git: the repo",
+    "serves exactly one stand, so the numbers below belong with the code",
+    "that reads them. hardware.example.json stays as the template for a",
+    "different stand -- do not assume the two agree.",
+    "",
+    "This is deliberately NOT part of stand.json: that file is edited through",
+    "the Config page in the browser and rewritten on every save. Wiring should",
+    "not be reachable from a browser, and should not churn when someone",
+    "retimes an autosequence.",
+    "",
+    "Channel inventory: 16 PT (NI-9208), 4 LC (NI-9237),",
+    "8 TC (two NI-9211s), 11 PANDA DC current-sense channels.",
+    "",
+    "channelMap ties a hardware channel to a sensor id in stand.json.",
+    "DAQ channel indices RESTART AT 0 on every card, so the key carries the",
+    "card: pt0 is NI-9208 ai0, lc0 is NI-9237 ai0, tc0 is the first 9211 ai0.",
+    "TC channels run across both 9211 modules: tc0-tc3 are slot 3, tc4-tc7",
+    "are slot 4. A channel with metadata but no channelMap entry is acquired",
+    "and logged, but never becomes a sensor reading."
+  ],
+  "nidaq": {
+    "required": true,
+    "python": "python",
+    "chassis": "cDAQ9189-2462EFD",
+    "sampleClockHz": 100,
+    "samplesPerRead": 10,
+    "cards": {
+      "pt": {
+        "slot": 2,
+        "channels": 16,
+        "channelMeta": {
+          "0": {
+            "maxPsi": 1500.0,
+            "zeroMa": 4.0
+          },
+          "1": {
+            "maxPsi": 1000,
+            "zeroMa": 4.0
+          },
+          "2": {
+            "maxPsi": 10000.0,
+            "zeroMa": 4.0
+          },
+          "3": {
+            "maxPsi": 1500.0,
+            "zeroMa": 4.0
+          },
+          "4": {
+            "maxPsi": 1500.0,
+            "zeroMa": 4.0
+          },
+          "5": {
+            "maxPsi": 1500.0,
+            "zeroMa": 4.0
+          },
+          "6": {
+            "maxPsi": 10000.0,
+            "zeroMa": 4.0
+          },
+          "7": {
+            "maxPsi": 1500.0,
+            "zeroMa": 4.0
+          },
+          "8": {
+            "maxPsi": 1500.0,
+            "zeroMa": 4.0
+          },
+          "9": {
+            "maxPsi": 1500.0,
+            "zeroMa": 4.0
+          },
+          "10": {
+            "maxPsi": 500.0,
+            "zeroMa": 4.0
+          },
+          "11": {
+            "maxPsi": 500.0,
+            "zeroMa": 4.0,
+            "maxPsiAlt": 2000.0
+          },
+          "12": {
+            "maxPsi": 1500.0,
+            "zeroMa": 4.0
+          },
+          "13": {
+            "maxPsi": 1500.0,
+            "zeroMa": 4.0
+          },
+          "14": {
+            "maxPsi": 1500.0,
+            "zeroMa": 4.0
+          },
+          "15": {
+            "maxPsi": 1500.0,
+            "zeroMa": 4.0
+          }
+        }
+      },
+      "lc": {
+        "_channelMeta": [
+          "Bridge output (V/V) -> lbf, as slope * x + offset.",
+          "",
+          "Channels 0-2 (the TLCA/TLCB/TLCC thrust stack) were calibrated",
+          "2026-08-31 by dead-weight test: 50 lb and 5 lb placed on each cell,",
+          "tared, and the reported value compared against the real weight. Both",
+          "points agreed exactly on the gain error, and all three cells land",
+          "within 0.22% of each other afterwards -- they are the same part, and",
+          "the three different numbers that were here before were all wrong.",
+          "",
+          "The slopes are NEGATIVE because the bridges read inverted: a downward",
+          "load produced a negative reading on every channel. That sign lives",
+          "here rather than in the wiring, so if a cell is ever re-terminated,",
+          "check the sign before trusting the trace.",
+          "",
+          "Channel 3 (LOX tank weight) is scaled by hand, not dead-weight",
+          "tested. Its slope and offset were both multiplied by 2.5 on",
+          "2026-09-03 to make the reported weight match reality; BOTH terms",
+          "scale, because multiplying the reading by 2.5 means scaling the",
+          "whole line and not just its gain. The factor came from comparing",
+          "the reading against a known quantity, so it is a correction rather",
+          "than a calibration -- this channel still wants the same 50/5 lb",
+          "dead-weight test the thrust pucks got before it is trusted to a",
+          "propellant load."
+        ],
+        "slot": 1,
+        "channels": 4,
+        "excitationV": 10.0,
+        "bridgeOhms": 350.0,
+        "channelMeta": {
+          "0": {
+            "slope": -988633.33,
+            "offset": 0.0
+          },
+          "1": {
+            "slope": -990783.33,
+            "offset": 0.0
+          },
+          "2": {
+            "slope": -990798.33,
+            "offset": 0.0
+          },
+          "3": {
+            "slope": 148617.5,
+            "offset": -7.275
+          }
+        }
+      },
+      "tc": {
+        "modules": [
+          {
+            "slot": 3,
+            "channels": 4
+          },
+          {
+            "slot": 4,
+            "channels": 4
+          }
+        ],
+        "channelMeta": {
+          "0": {
+            "type": "K",
+            "offset": 0.0
+          },
+          "1": {
+            "type": "K",
+            "offset": 0.0
+          },
+          "2": {
+            "type": "K",
+            "offset": 0.0
+          },
+          "3": {
+            "type": "K",
+            "offset": 0.0
+          },
+          "4": {
+            "type": "K",
+            "offset": 0.0
+          },
+          "5": {
+            "type": "K",
+            "offset": 0.0
+          },
+          "6": {
+            "type": "K",
+            "offset": 0.0
+          },
+          "7": {
+            "type": "K",
+            "offset": 0.0
+          }
+        }
+      }
+    },
+    "channelMap": {
+      "pt0": "PT0",
+      "pt2": "PT1",
+      "pt3": "PT2",
+      "pt4": "PT4",
+      "pt5": "PT5",
+      "pt6": "PT11",
+      "pt7": "PT12",
+      "pt8": "PT14",
+      "pt9": "PT15",
+      "pt10": "PT31",
+      "pt11": "PT32",
+      "pt12": "PT21",
+      "pt13": "PT22",
+      "pt14": "PT23",
+      "pt15": "PT24",
+      "lc0": "LC1",
+      "lc1": "LC2",
+      "lc2": "LC3",
+      "lc3": "LC4",
+      "tc0": "TC1",
+      "tc1": "TC2",
+      "tc2": "TC3",
+      "tc3": "TC4",
+      "tc4": "TC5",
+      "tc5": "TC6",
+      "tc6": "TC7",
+      "tc7": "TC8"
+    }
+  },
+  "panda": {
+    "required": true,
+    "port": "COM5",
+    "baud": 460800,
+    "_ptInputMode": "Current firmware sends VOLTS across the shunt on 'p' lines, not mA. Set to 'ma' only if your firmware pre-converts.",
+    "ptInputMode": "volts",
+    "defaultShuntOhms": 47,
+    "shuntOhms": {},
+    "_dcThresholdA": "A solenoid channel counts as energized above this current, in amps.",
+    "dcThresholdA": 0.1,
+    "_armHardware": "Mirror GC-4's ARM state to the board's own arm latch ('a'/'r').",
+    "armHardware": true,
+    "_channelMap": "The PANDA reports its own sensors too. Map any you want to surface; these overwrite the DAQ's value for the same sensor id, so leave it empty unless the PANDA is the authority for that channel.",
+    "channelMap": {},
+    "_dcChannels": [
+      "Solenoid / pushbutton current sense from the board's 's' lines, in",
+      "AMPS. Diagnostics, not process values: they confirm a coil actually",
+      "drew current, so they render as small text on the actuator they watch.",
+      "",
+      "  key      position in the 's' line (0-based)",
+      "  id       the PANDA channel the board ACTUATES (S<n>) -- NOT the same",
+      "           as the key. The board reports TWO BANKS, each one reversed:",
+      "",
+      "             s-line pos  0 1 2 3 4 5 6 7 | 8  9 10 11",
+      "             channel     8 7 6 5 4 3 2 1 | -- 11 10  9",
+      "",
+      "           Bank A is DC8..DC1, bank B is DC12..DC9. DC12 does not exist,",
+      "           which is why position 8 reads nothing -- it is the empty head",
+      "           of the second reversed bank, not a random gap. A DC12 added",
+      "           later would land there.",
+      "  pidTag   the tag on Draco V4.00 (S1..S5, PB1..PB6)",
+      "  valve    the stand.json valve this channel senses",
+      "  sensed   OPTIONAL. false = this position has no working current sense",
+      "           (unpopulated input, or one pinned at a fixed offset).",
+      "           The valve then shows NO current row at all, instead of a",
+      "           number that is not a measurement. Above dcThresholdA such",
+      "           a number reads as an ENERGIZED valve that is not, which is",
+      "           worse than showing nothing.",
+      "           Set this only after confirming with a meter: if the",
+      "           current is real, suppressing it hides a live coil.",
+      "",
+      "MEASURED 2026-08-31, by actuating each valve from GC and recording",
+      "which channel drew current. This supersedes the order read off",
+      "sensor_config.xlsx, which had all eleven channels wrong but for the",
+      "muscle bus vent. Do not re-derive it from the workbook."
+    ],
+    "_dcOrder": "Wire position -> logical index, for firmware whose 's' line order does not match channel order. This board reports in order, so it is null. Re-verify against the harness before setting it.",
+    "dcOrder": null,
+    "dcChannels": {
+      "0": {
+        "id": "DC8",
+        "name": "LOX Purge",
+        "pidTag": "S4",
+        "valve": "SV-LOXPURGE"
+      },
+      "1": {
+        "id": "DC7",
+        "name": "Fuel Purge",
+        "pidTag": "S5",
+        "valve": "SV-FPURGE"
+      },
+      "2": {
+        "id": "DC6",
+        "name": "Fuel Runline",
+        "pidTag": "PB4",
+        "valve": "MV-F"
+      },
+      "3": {
+        "id": "DC5",
+        "name": "LOX Runline",
+        "pidTag": "PB2",
+        "valve": "MV-LOX"
+      },
+      "4": {
+        "id": "DC4",
+        "name": "Fuel GN2 Vent",
+        "pidTag": "PB3",
+        "valve": "SV-FV"
+      },
+      "5": {
+        "id": "DC3",
+        "name": "Lox GN2 Vent",
+        "pidTag": "PB1",
+        "valve": "SV-LOXV"
+      },
+      "6": {
+        "id": "DC2",
+        "name": "Fuel BB",
+        "pidTag": "S2",
+        "valve": "SV-FBB",
+        "_note": "workbook short_name says s1 for both BB rows; Draco V4.00 shows S2 on the fuel leg"
+      },
+      "7": {
+        "id": "DC1",
+        "name": "LOX BB",
+        "pidTag": "S1",
+        "valve": "SV-LOXBB"
+      },
+      "9": {
+        "id": "DC11",
+        "name": "GOX Purge",
+        "pidTag": "PB6",
+        "valve": "SV-GOX-PURGE"
+      },
+      "10": {
+        "id": "DC10",
+        "name": "Muscle Bus Vent",
+        "pidTag": "S3",
+        "valve": "SV-MBV"
+      },
+      "11": {
+        "id": "DC9",
+        "name": "LOX Fill",
+        "pidTag": "PB5",
+        "valve": "SV-LOX-FILL"
+      }
+    }
+  },
+  "_valveDevice": "Optional per-valve routing, valveId -> device key. Defaults to the first actuation-capable device (the PANDA).",
+  "valveDevice": {}
+}

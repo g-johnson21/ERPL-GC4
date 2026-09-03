@@ -1,0 +1,445 @@
+/**
+ * bb-firmware.js — an emulation of the PANDA board's bang-bang regulator.
+ *
+ * WHY THIS EXISTS
+ *   The regulator runs on the board, so the ground station has no loop to
+ *   test. Without a stand-in, every line of the §5 protocol — the command
+ *   grammar, the heartbeat, the CFG_PUSH echo, the enable handshake — would be
+ *   untestable until someone is standing at the pad with the hardware. This
+ *   emulation lets the simulator answer in the board's own words, so what runs
+ *   in `npm run sim` is the same server code path that runs on the stand.
+ *
+ *   It is a stand-in for the PROTOCOL, not a model of the firmware. The
+ *   control law here is a plain hysteresis band with a dwell timer, which is
+ *   what §5 describes; the real firmware's mass-flow scheduling and its exact
+ *   abort behaviour are not visible from the host, and the places where this
+ *   file had to guess are marked GUESS below.
+ *
+ * STATE MACHINE (per side, independent)
+ *   OFF  press closed, loop idle. `b<side>1` -> SUS
+ *   SUS  regulating: press opens below (sp - db/2), closes above (sp + db/2)
+ *   AV   auto-vent: pressure exceeded ventTrigger with ventAuto on
+ *   ABT  latched abort. Nothing in the protocol clears it (§5.4)
+ *
+ * PREDICTIVE SHUTOFF (`e<side><0|1>`)
+ *   Stored and reported, not modelled. The real board closes the press valve
+ *   early on a predicted overshoot; reproducing that here would mean inventing
+ *   its prediction horizon, and a simulator that regulated better than the
+ *   hardware would be worse than one that admits it does not know. What this
+ *   DOES emulate is the part the host has to get right: the arm gate on
+ *   enabling it, and the fact that disabling is accepted in any state.
+ */
+import {
+  encodeHeartbeat,
+  encodeCfgPush,
+  parseCommand,
+} from './bb-protocol.js';
+
+const SIDES = ['l', 'f'];
+
+/** How often the board narrates its state, even when nothing has changed. */
+const HEARTBEAT_MS = 200;
+
+/**
+ * How far below the vent trigger the pressure must fall before auto-vent
+ * releases back to SUS.
+ *
+ * GUESS. The protocol carries a vent trigger but no vent release, and a bare
+ * threshold with no hysteresis chatters the vent solenoid at exactly the
+ * pressure an operator is most likely to be sitting at. 2% of the trigger is
+ * a plausible firmware choice; confirm it before reading anything into the
+ * simulator's vent cycling.
+ */
+const VENT_RELEASE_FRACTION = 0.98;
+
+export class BangBangFirmware {
+  constructor(options = {}) {
+    this.onLine = options.onLine || (() => {});
+    this.heartbeatMs = Number(options.heartbeatMs ?? HEARTBEAT_MS);
+    this.bootedAt = options.now ?? Date.now();
+    // One clock. `update()` advances it and `command()` defaults to it, so a
+    // command and the tick that follows cannot disagree about what time it is
+    // — a dwell timer comparing two different clocks silently refuses to open
+    // a valve, or opens one it should have held.
+    this.clock = this.bootedAt;
+    this.sides = {};
+    for (const side of SIDES) this.sides[side] = freshSide();
+    // The board's own arm latch, driven by 'a'/'r'. Only one command consults
+    // it — enabling predictive shutoff — but that command is refused without
+    // it, so the emulation needs to know.
+    this.armed = false;
+  }
+
+  /** Mirror the board's arm latch ('a' / 'r'). */
+  setArmed(armed) {
+    this.armed = Boolean(armed);
+    // Disarming returns predictive shutoff to its default. The board will not
+    // accept `e<side>1` again until it is re-armed, so leaving the flag set
+    // would have the emulation claim a setting the host could not restore.
+    if (!this.armed) for (const side of SIDES) this.sides[side].predictive = false;
+  }
+
+  /**
+   * Offer one host->board line to the regulator.
+   *
+   * Returns true if this was a bang-bang command and was consumed. A false
+   * return means "not mine" — the caller goes on to try solenoid commands,
+   * arm, and the rest of the board's vocabulary.
+   */
+  command(line, now = this.clock) {
+    const cmd = parseCommand(line);
+    if (!cmd) return false;
+
+    // Handled before `cmd.side` is touched: `Tz` addresses both channels and
+    // carries no side at all.
+    if (cmd.kind === 'ptTareClear' || cmd.kind === 'ptTare' || cmd.kind === 'ptOffset') {
+      return this.ptCommand(cmd, now);
+    }
+
+    const side = cmd.side.toLowerCase();
+    const st = this.sides[side];
+
+    switch (cmd.kind) {
+      case 'config':
+        if (!(cmd.deadbandFull > 0)) {
+          this.emit(`BB_ERROR: ${cmd.side} deadband must be > 0`);
+          return true;
+        }
+        st.cfg.setpoint = cmd.setpoint;
+        st.cfg.deadbandFull = cmd.deadbandFull;
+        st.cfg.waitMs = cmd.waitMs;
+        st.cfg.maxOpenMs = cmd.maxOpenMs;
+        this.echoConfig(side, now, 'config');
+        return true;
+
+      case 'vent':
+        st.cfg.ventTrigger = cmd.trigger;
+        st.cfg.ventAuto = cmd.auto;
+        this.echoConfig(side, now, 'vent');
+        return true;
+
+      case 'mdot':
+        st.cfg.mdotTarget = cmd.target;
+        st.cfg.spMin = cmd.spMin;
+        st.cfg.spMax = cmd.spMax;
+        st.cfg.mdotGain = cmd.gain;
+        st.cfg.rho = cmd.rho;          // stored, never echoed — see CFG_PUSH_KEYS
+        st.cfg.mdotOn = cmd.enabled;
+        this.echoConfig(side, now, 'mdot');
+        return true;
+
+      case 'enable':
+        // An aborted side is latched: it refuses to re-enter SUS. This is the
+        // behaviour §5.4 describes ("nothing in the host code clears it"), and
+        // the rejection is what tells an operator the latch is still set.
+        if (cmd.on && st.state === 'ABT') {
+          this.emit(`BB_ERROR: ${cmd.side} is in ABORT — cannot enable`);
+          return true;
+        }
+        if (cmd.on) {
+          this.transition(side, 'SUS', now);
+        } else {
+          st.press = false;
+          this.transition(side, 'OFF', now);
+        }
+        return true;
+
+      case 'manualVent':
+        // Independent of ventAuto, and permitted in every state including
+        // ABT: opening a vent always makes a pressurised tank safer.
+        st.manualVent = cmd.open;
+        this.beat(side, now, true);
+        return true;
+
+      case 'abort':
+        st.press = false;
+        this.transition(side, 'ABT', now);
+        return true;
+
+      case 'predictive':
+        // The arm gate gets tested here, in the ON direction only, because
+        // that is the asymmetry the host must not get wrong: a stand that
+        // cannot turn a feature OFF while disarmed is a stand that cannot be
+        // put back to a known state.
+        if (cmd.on && !this.armed) {
+          this.emit(`BB_ERROR: ${cmd.side} predictive cutoff requires ARM`);
+          return true;
+        }
+        st.predictive = cmd.on;
+        return true;
+
+      default:
+        return false;
+    }
+  }
+
+  /**
+   * The `T` family: zero the board's own transducers.
+   *
+   * `TL`/`TF` need a reading to zero against, so a side that has never been
+   * given one answers `PT_ERROR:no_data` — the same refusal the real firmware
+   * makes when its V2 frame is stale. That refusal is worth emulating: it is
+   * the failure an operator hits by taring before the board has warmed up,
+   * and a simulator that always succeeded would never show it.
+   */
+  ptCommand(cmd, now) {
+    if (cmd.kind === 'ptTareClear') {
+      for (const side of SIDES) {
+        const st = this.sides[side];
+        st.ptOffset = 0;
+        if (Number.isFinite(st.rawPressure)) st.pressure = st.rawPressure;
+      }
+      this.emitPtTare(now, '', '0.0,0.0');
+      return true;
+    }
+
+    const side = cmd.side.toLowerCase();
+    const st = this.sides[side];
+
+    if (cmd.kind === 'ptOffset') {
+      st.ptOffset = cmd.offset;
+    } else {
+      if (!Number.isFinite(st.rawPressure)) {
+        this.emit('PT_ERROR:no_data');
+        return true;
+      }
+      st.ptOffset = st.rawPressure;
+    }
+    if (Number.isFinite(st.rawPressure)) st.pressure = st.rawPressure - st.ptOffset;
+    this.emitPtTare(now, side, st.ptOffset.toFixed(1));
+    return true;
+  }
+
+  emitPtTare(now, side, detail) {
+    this.emit(`EVT:${Math.round(this.uptime(now))}:PT_TARE:${side}:${detail}`);
+  }
+
+  /**
+   * Run the loop. `pressures` is `{l, f}` in psi — the board's OWN PT
+   * channels, which is the whole point: the ground station's DAQ reading of
+   * the same tank is a different sensor and may not agree.
+   */
+  update(pressures = {}, now = Date.now()) {
+    this.clock = now;
+    for (const side of SIDES) {
+      const st = this.sides[side];
+      const p = Number(pressures[side]);
+      // The offset is applied HERE, on the way in, so every consumer -- the
+      // hysteresis band, the auto-vent trigger and the heartbeat -- sees the
+      // same tared number. A board that regulated on raw and reported tared
+      // would be the worst of both.
+      if (Number.isFinite(p)) {
+        st.rawPressure = p;
+        st.pressure = p - st.ptOffset;
+      }
+
+      switch (st.state) {
+        case 'SUS':
+          this.sustain(side, now);
+          break;
+        case 'AV':
+          st.press = false;
+          if (st.pressure < st.cfg.ventTrigger * VENT_RELEASE_FRACTION) {
+            this.transition(side, 'SUS', now);
+          }
+          break;
+        case 'OFF':
+        case 'ABT':
+        default:
+          st.press = false;
+          break;
+      }
+
+      // Auto-vent pre-empts regulation from any live state.
+      if (st.cfg.ventAuto && st.state === 'SUS' && st.pressure > st.cfg.ventTrigger) {
+        st.press = false;
+        this.transition(side, 'AV', now);
+      }
+
+      if (now - st.lastBeatAt >= this.heartbeatMs) this.beat(side, now);
+    }
+  }
+
+  /** The hysteresis band, plus the dwell and pulse-length timers. */
+  sustain(side, now) {
+    const st = this.sides[side];
+    const half = st.cfg.deadbandFull / 2;
+    const lo = st.cfg.setpoint - half;
+    const hi = st.cfg.setpoint + half;
+
+    let want = st.press;
+    if (st.pressure < lo) want = true;
+    else if (st.pressure > hi) want = false;
+
+    // Pulse limit: cut a continuous open at maxOpenMs. The loop keeps
+    // running; the dwell timer governs when it may reopen.
+    if (want && st.press && st.cfg.maxOpenMs > 0 && st.openedAt != null &&
+        now - st.openedAt >= st.cfg.maxOpenMs) {
+      want = false;
+    }
+
+    // Anti-chatter dwell. It may delay an OPEN but never a CLOSE — a
+    // regulator that cannot stop pressurising on demand is not a safety
+    // device, it is the hazard.
+    if (want && !st.press && st.cfg.waitMs > 0 && st.switchedAt != null &&
+        now - st.switchedAt < st.cfg.waitMs) {
+      want = false;
+    }
+
+    if (want !== st.press) {
+      st.press = want;
+      st.switchedAt = now;
+      st.openedAt = want ? now : null;
+      this.beat(side, now, true);
+    }
+  }
+
+  transition(side, next, now) {
+    const st = this.sides[side];
+    if (st.state === next) return;
+    const prev = st.state;
+    st.state = next;
+    // `switchedAt` times VALVE transitions, not state transitions, and the
+    // dwell is measured from it. Stamping it here would make entering SUS owe
+    // a full wait_ms before the first actuation — so a 1 s dwell would leave a
+    // tank unpressurised for a second after the operator enabled the loop,
+    // for no reason anyone could see from the outside.
+    st.switchedAt = null;
+    if (next !== 'SUS') st.openedAt = null;
+    this.emit(`EVT:${this.uptime(now)}:BB_STATE:${side}:${prev}->${next}`);
+    this.beat(side, now, true);
+  }
+
+  /**
+   * The board's `forceSafe()`, reached by the global disarm `r`. Drops both
+   * sides to OFF with everything closed (§5.4).
+   */
+  forceSafe(now = Date.now()) {
+    this.clock = now;
+    for (const side of SIDES) {
+      const st = this.sides[side];
+      st.press = false;
+      st.manualVent = false;
+      st.predictive = false;
+      if (st.state !== 'OFF') this.transition(side, 'OFF', now);
+      else this.beat(side, now, true);
+    }
+  }
+
+  /**
+   * Is this side's vent solenoid energised?
+   *
+   * DERIVED, never stored. Storing it meant a state change beat out a
+   * heartbeat before the stored copy caught up, so the board announced
+   * "auto-venting, vent closed" for one beat — a frame in which the UI shows
+   * a tank venting through a shut valve.
+   */
+  ventOpen(side) {
+    const st = this.sides[side];
+    return st.manualVent || st.state === 'AV';
+  }
+
+  /** Current solenoid demand, for the physics model to act on. */
+  outputs() {
+    const out = {};
+    for (const side of SIDES) {
+      out[side] = { press: this.sides[side].press, vent: this.ventOpen(side) };
+    }
+    return out;
+  }
+
+  // --------------------------------------------------------------- output ---
+
+  beat(side, now, force = false) {
+    const st = this.sides[side];
+    if (!force && now - st.lastBeatAt < this.heartbeatMs) return;
+    st.lastBeatAt = now;
+    this.emit(encodeHeartbeat(side, {
+      state: st.state,
+      press: st.press,
+      vent: this.ventOpen(side),
+      pressure: st.pressure,
+    }));
+  }
+
+  /**
+   * The board confirming what it actually stored. Everything it holds is
+   * echoed, not just the fields the last command carried — that is what makes
+   * the echo usable as the authority on the board's configuration.
+   */
+  /**
+   * Echo back what one command stored — that command's fields only.
+   *
+   * PER COMMAND, not the whole configuration. Observed on hardware
+   * 2026-08-27: a `B` followed by a `V` produced two separate CFG_PUSH lines,
+   * `sp=…,db=…,wait=…,maxOpen=…` and then `avTrig=…,avAuto=…`. An earlier
+   * version of this emulation echoed everything the board held in one line,
+   * which meant the simulator rehearsed a handshake the hardware does not
+   * have: the host has to ACCUMULATE echoes to know the board's full config,
+   * and a stand-in that hands it over in one message never exercises that.
+   *
+   * Key spellings follow the board, not §5.5 of the handover doc — see
+   * CFG_PUSH_KEYS.
+   */
+  echoConfig(side, now, kind) {
+    const c = this.sides[side].cfg;
+    const fields = {
+      config: () => ({
+        sp: c.setpoint.toFixed(1),
+        db: c.deadbandFull.toFixed(1),
+        wait: Math.round(c.waitMs),
+        maxOpen: Math.round(c.maxOpenMs),
+      }),
+      vent: () => ({
+        avTrig: c.ventTrigger.toFixed(1),
+        avAuto: c.ventAuto,
+      }),
+      // Unverified: no `M` has ever been sent to real hardware, so these
+      // spellings are the doc's and may be wrong the same way the vent ones
+      // were. `rho` is deliberately absent — the board has no echo key for it.
+      mdot: () => ({
+        mdot: c.mdotTarget.toFixed(3),
+        spMin: c.spMin.toFixed(3),
+        spMax: c.spMax.toFixed(3),
+        gain: c.mdotGain.toFixed(5),
+        mdotOn: c.mdotOn,
+      }),
+    }[kind];
+    if (fields) this.emit(encodeCfgPush(this.uptime(now), side, fields()));
+  }
+
+  uptime(now) { return Math.max(0, Math.round(now - this.bootedAt)); }
+
+  emit(line) { this.onLine(line); }
+}
+
+function freshSide() {
+  return {
+    state: 'OFF',
+    press: false,
+    manualVent: false,
+    predictive: false,
+    pressure: 0,
+    // What the transducer reads before the stored offset, and the offset
+    // itself. The board regulates on `pressure` = raw - ptOffset.
+    rawPressure: null,
+    ptOffset: 0,
+    switchedAt: null,
+    openedAt: null,
+    lastBeatAt: -Infinity,
+    cfg: {
+      setpoint: 0,
+      deadbandFull: 0,
+      waitMs: 0,
+      maxOpenMs: 0,
+      ventTrigger: 0,
+      ventAuto: false,
+      mdotTarget: 0,
+      spMin: 0,
+      spMax: 0,
+      mdotGain: 0,
+      rho: 0,
+      mdotOn: false,
+    },
+  };
+}

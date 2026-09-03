@@ -40,6 +40,12 @@ class Bus {
     } catch { this.events = []; }
 
     this.state = await fetch('/api/state').then((r) => r.json());
+    // That fetch returning is proof the server is reachable, so start
+    // connected rather than waiting for the EventSource to open. Otherwise
+    // every page load flashes LINK LOST beside the hardware link indicators
+    // for a frame or two, which is exactly how an operator learns to ignore a
+    // red chip that means something.
+    this.connected = true;
     this.applyAccent();
     this.connect();
     this.emit('config', this.config);
@@ -87,6 +93,18 @@ class Bus {
       this.config = await fetch('/api/config').then((r) => r.json());
       this.applyAccent();
       this.emit('config', this.config);
+      // A full reload is the honest way to pick up new valves, sensors or a
+      // redrawn P&ID: every page builds its DOM from config exactly once.
+      //
+      // Not while the stand is armed, though. The server only accepts
+      // autosequence edits in that state, so nothing structural can have
+      // changed, and the listeners above have already taken the new sequence
+      // list. Reloading a control screen during a live test would be all cost
+      // and no benefit.
+      if (this.state?.armed) {
+        toast('Autosequences updated', 'info', 2500);
+        return;
+      }
       toast('Configuration reloaded — reloading page', 'info', 2000);
       setTimeout(() => location.reload(), 1200);
     });
@@ -157,6 +175,9 @@ class Bus {
   commandValve(id, state) { return this.post('/api/valve', { id, state }); }
   toggleValve(id) { return this.post('/api/valve', { id, toggle: true }); }
   safeAll() { return this.post('/api/safe-all'); }
+  /** Zero sensors against their current reading; `clear` restores them. */
+  tareSensors(sensors, { clear = false } = {}) { return this.post('/api/tare', { sensors, clear }); }
+  tareKind(kind, { clear = false } = {}) { return this.post('/api/tare', { kind, clear }); }
   setController(id, patch) { return this.post('/api/controller', { id, ...patch }); }
   startSequence(id) { return this.post('/api/sequence/start', { id }); }
   stopSequence() { return this.post('/api/sequence/stop'); }
@@ -171,9 +192,85 @@ class Bus {
   controller(id) { return this.config.bangbang.find((c) => c.id === id); }
   group(id) { return this.config.valveGroups.find((g) => g.id === id); }
 
+  /**
+   * Sensor groups in display order, each with its members.
+   *
+   * A group a sensor names but the config never defined is synthesized rather
+   * than dropped — the same forgiveness the Control Grid gives valve groups.
+   * Since `group` defaults to `kind`, a config that predates sensorGroups
+   * still comes back grouped by type.
+   */
+  sensorGroups() {
+    const defined = this.config.sensorGroups || [];
+    const groups = defined.map((g) => ({ ...g, sensors: [] }));
+    const byId = new Map(groups.map((g) => [g.id, g]));
+
+    for (const sensor of this.config.sensors) {
+      let group = byId.get(sensor.group);
+      if (!group) {
+        group = { id: sensor.group, label: sensor.group || 'Other', color: '#64748b', sensors: [] };
+        byId.set(group.id, group);
+        groups.push(group);
+      }
+      group.sensors.push(sensor);
+    }
+    return groups.filter((g) => g.sensors.length);
+  }
+
+  /** The group one sensor belongs to, colour included. */
+  sensorGroup(id) {
+    const sensor = this.sensor(id);
+    if (!sensor) return null;
+    return (this.config.sensorGroups || []).find((g) => g.id === sensor.group)
+      || { id: sensor.group, label: sensor.group || 'Other', color: '#64748b' };
+  }
+
+  /**
+   * Rate of change in units per second, or null when there is not enough
+   * history to say.
+   *
+   * A least-squares slope over the window rather than (last − first) / dt: a
+   * two-point difference on a noisy transducer is mostly noise, and on a PT
+   * with a 10 000 psi span the noise is tens of psi. The fit uses every sample
+   * in the window, so it reports the trend instead of the last two jitters.
+   */
+  rate(id, seconds = 3) {
+    const series = this.history.get(id);
+    if (!series || series.t.length < 4) return null;
+
+    const cutoff = Date.now() - seconds * 1000;
+    let n = 0, sx = 0, sy = 0, sxx = 0, sxy = 0;
+    for (let i = series.t.length - 1; i >= 0; i--) {
+      const t = series.t[i];
+      if (t < cutoff) break;
+      // Seconds relative to the window start: small numbers keep the sums
+      // well conditioned, which epoch milliseconds squared would not.
+      const x = (t - cutoff) / 1000;
+      const y = series.v[i];
+      n++; sx += x; sy += y; sxx += x * x; sxy += x * y;
+    }
+    if (n < 4) return null;
+
+    const denom = n * sxx - sx * sx;
+    if (Math.abs(denom) < 1e-9) return null;   // every sample at one instant
+    return (n * sxy - sx * sy) / denom;
+  }
+
   valveState(id) { return this.state?.valves?.[id]?.state ?? 'closed'; }
   reading(id) { return this.state?.sensors?.[id]?.v ?? null; }
   sensorStatus(id) { return this.state?.sensors?.[id]?.status ?? 'stale'; }
+
+  /**
+   * Current tare offset, or null when no device can zero this sensor.
+   *
+   * The distinction matters: null means "no Tare button belongs here", 0
+   * means "tareable, currently untared".
+   */
+  tare(id) {
+    const t = this.state?.sensors?.[id]?.tare;
+    return Number.isFinite(t) ? t : null;
+  }
+  canTare(id) { return this.tare(id) !== null; }
 
   /** Is this valve currently commandable? Mirrors the server's interlocks. */
   canCommand(valveId, toState) {

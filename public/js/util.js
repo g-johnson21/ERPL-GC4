@@ -61,6 +61,101 @@ export function fmtValue(v, decimals = 1) {
   return v.toFixed(decimals);
 }
 
+/**
+ * Rate of change, as it appears beside a reading: `▲ 12.4 psi/s`.
+ *
+ * Returns { text, dir } where dir is 'up' | 'down' | 'flat'. "Flat" is not
+ * zero — it is anything inside a small band of the sensor's own span, because
+ * a least-squares slope on a noisy transducer never sits exactly at zero and
+ * an arrow that flickers between ▲ and ▼ on a still tank is worse than none.
+ *
+ * `compact` drops the unit name and leaves `▲ 12.4/s`, for places where the
+ * units are already printed on the same line and repeating them would push
+ * the number out of the box.
+ */
+/**
+ * Solenoid coil current, in whatever unit makes the number legible.
+ *
+ * These span four orders of magnitude on a real board: an idle channel sits
+ * around 0.4 mA of sense-resistor leakage, an energized coil pulls several
+ * hundred. Formatted as amps to two decimals -- which is what this used to do
+ * -- every idle channel renders as a frozen "0.00 A", so a live board looks
+ * identical to a dead one and nothing ever appears to update.
+ *
+ *   0.00049 A -> "0.49 mA"     idle, and visibly jittering
+ *   0.62 A    -> "620 mA"      coil pulled in
+ *   1.2 A     -> "1.20 A"      inrush
+ */
+/**
+ * Compare a valve's MEASURED coil current against what was commanded.
+ *
+ *   'off'      de-energized, as commanded
+ *   'on'       energized, as commanded
+ *   'fault'    the coil is not doing what it was told
+ *   'unknown'  no current sense on this channel, so nothing is claimed
+ *
+ * The comparison is against COIL state, not flow state, and that distinction
+ * is the whole correctness of this function. A normally-open valve is
+ * energized to CLOSE, so a NO vent sitting open is correctly de-energized.
+ * Comparing against flow state would mark every normally-open valve on the
+ * stand as faulted, permanently — which is the fastest possible way to teach
+ * an operator to ignore the indicator.
+ *
+ * 'unknown' is distinct from 'off' on purpose: "measured, de-energized" and
+ * "not measured" are different claims, and only one of them is evidence.
+ */
+export function coilState(valve, commandedState, dc) {
+  if (!dc || typeof dc.energized !== 'boolean') return 'unknown';
+  const shouldEnergize = valve.normallyOpen
+    ? commandedState === 'closed'
+    : commandedState === 'open';
+  if (dc.energized !== shouldEnergize) return 'fault';
+  return dc.energized ? 'on' : 'off';
+}
+
+export function fmtCurrent(amps) {
+  if (!Number.isFinite(amps)) return '--';
+  const a = Math.abs(amps);
+  if (a >= 1) return `${amps.toFixed(2)} A`;
+  // Below 10 mA the reading is leakage, and its last digits are the only sign
+  // the channel is alive at all -- so that is exactly where precision goes.
+  if (a >= 0.01) return `${(amps * 1000).toFixed(0)} mA`;
+  return `${(amps * 1000).toFixed(2)} mA`;
+}
+
+/**
+ * The time base a channel's rate is quoted in.
+ *
+ * Pressure is per MINUTE. What an operator actually reads a PT's slope for is
+ * tank decay during a leak check, and psi/s renders a 30 psi/min leak as
+ * "0.5" — a number that looks like noise sitting next to a reading in the
+ * hundreds. Everything else stays per second: thrust and chamber temperature
+ * are read during a burn, where a per-minute figure would be nonsense.
+ */
+export function rateBasis(sensor) {
+  return sensor?.kind === 'pressure'
+    ? { factor: 60, per: '/min' }
+    : { factor: 1, per: '/s' };
+}
+
+export function fmtRate(rate, sensor, { compact = false } = {}) {
+  const basis = rateBasis(sensor);
+  const per = compact ? basis.per : ` ${sensor.units}${basis.per}`;
+  if (rate === null || rate === undefined || !Number.isFinite(rate)) {
+    return { text: `––${per}`, dir: 'flat' };
+  }
+  // The flat band stays a PHYSICAL threshold — 0.05 % of full scale per
+  // second — and is judged on the unscaled slope. Only the printed magnitude
+  // changes with the time base, so switching a channel to psi/min does not
+  // start it flickering between ▲ and ▼ on a still tank.
+  const span = Math.abs((sensor.max ?? 1) - (sensor.min ?? 0)) || 1;
+  const deadband = span * 0.0005;
+  const dir = rate > deadband ? 'up' : rate < -deadband ? 'down' : 'flat';
+  const arrow = dir === 'up' ? '▲' : dir === 'down' ? '▼' : '–';
+  const magnitude = Math.abs(rate * basis.factor).toFixed(sensor.decimals ?? 1);
+  return { text: `${arrow} ${magnitude}${per}`, dir };
+}
+
 export function fmtDuration(seconds) {
   if (!Number.isFinite(seconds)) return '0:00';
   const s = Math.max(0, Math.floor(seconds));
@@ -158,6 +253,65 @@ export function confirmAction({ title, message, confirmLabel = 'Confirm', danger
     document.addEventListener('keydown', onKey);
     confirmBtn.focus();
   });
+}
+
+/**
+ * One text field in a modal. Returns Promise<string|null>; null is a cancel.
+ *
+ * Enter submits, so naming a log file between attempts is a click and a
+ * keystroke rather than a trip to a form.
+ */
+export function promptAction({ title, message, label, value = '', confirmLabel = 'OK', placeholder = '' }) {
+  return new Promise((resolve) => {
+    const done = (v) => { backdrop.remove(); document.removeEventListener('keydown', onKey, true); resolve(v); };
+    const submit = () => done(input.value.trim() || null);
+    const onKey = (e) => {
+      // Captured, and stopped: Escape is the ABORT hotkey everywhere else on
+      // the page, and a dialog asking for a filename must not be a way to
+      // trip the stand.
+      if (e.key === 'Escape') { e.stopPropagation(); done(null); }
+      if (e.key === 'Enter') { e.stopPropagation(); submit(); }
+    };
+
+    const input = el('input', { type: 'text', value, placeholder, style: { width: '100%' } });
+    const backdrop = el('div.modal-backdrop', { onclick: (e) => { if (e.target === backdrop) done(null); } },
+      el('div.modal', {},
+        el('h2', { text: title }),
+        message ? el('p', { text: message }) : null,
+        label ? el('label.field', { text: label }) : null,
+        input,
+        el('div.modal-actions', {},
+          el('button.btn.ghost', { text: 'Cancel', onclick: () => done(null) }),
+          el('button.btn.accent', { text: confirmLabel, onclick: submit })
+        )
+      )
+    );
+
+    document.body.append(backdrop);
+    document.addEventListener('keydown', onKey, true);
+    input.focus();
+    input.select();
+  });
+}
+
+// ------------------------------------------------------------ shift gate --
+
+/**
+ * Guard for every command that makes the stand LESS safe.
+ *
+ * Opening a valve, arming a bang-bang loop and starting an autosequence all
+ * take a held SHIFT; closing, disabling and stopping take a bare click. The
+ * asymmetry is the point — a stray click can only ever move the stand toward
+ * its safe state, and the one command an operator makes under pressure
+ * (make it stop) never costs a modifier.
+ *
+ * This is a slip guard, not an interlock. The real rules live on the server,
+ * which cannot see a keyboard.
+ */
+export function shiftGate(event, action) {
+  if (event?.shiftKey) return true;
+  toast(`Hold SHIFT and click to ${action}`, 'warn', 2400);
+  return false;
 }
 
 // ------------------------------------------------------------------ misc --

@@ -4,8 +4,10 @@ Local webserver ground control software for a collegiate liquid rocket test stan
 Valve and solenoid actuation, live instrumentation, bang-bang pressure control,
 preset autosequences, and CSV data recording — all driven from one config file.
 
-**Zero npm dependencies.** Node built-ins only, so it runs on a laptop at the pad
-with no internet and no install step.
+**Zero npm dependencies** for the simulator and the UDP driver — Node built-ins
+only, so it runs on a laptop at the pad with no internet and no install step.
+The serial-attached drivers (`serial`, `stand`) add `serialport`, and NI-DAQ
+acquisition needs Python with `nidaqmx`.
 
 ```
 node server/index.js
@@ -21,7 +23,8 @@ sequence and interlock before you ever touch hardware.
 
 - [Quick start](#quick-start)
 - [The four pages](#the-four-pages)
-- [Safety model](#safety-model)
+- [The control sidebar](#the-control-sidebar)
+- [Safety model](#safety-model) · [Shift to actuate](#shift-to-actuate)
 - [Customizing for your stand](#customizing-for-your-stand)
 - [Connecting real hardware](#connecting-real-hardware)
 - [Data recording](#data-recording)
@@ -48,13 +51,19 @@ state; the server is the single authority.
 
 Try this to see the whole system work:
 
-1. **Pneumatics On** in the sidebar — charges the actuator supply.
-2. **ARM** (top of the sidebar), confirm.
-3. Enable both bang-bang controllers — watch the tanks come up to setpoint.
-4. **HOT FIRE** — 10 s countdown, igniter, ox lead, 5 s burn, cutoff and purge.
-   Recording starts automatically; the CSV appears in the sidebar when it stops.
+1. **Shift-click Pneumatics On** in the sidebar — charges the actuator supply.
+   Anything that moves the stand away from safe wants SHIFT held; hold it for a
+   moment first and watch which controls light up.
+2. **ARM** (pinned to the top of the sidebar), confirm.
+3. **Start New Log File** in the header, name it, Enter. The indicator turns
+   green and names the file.
+4. Shift-enable both bang-bang controllers — the emulated board takes over and
+   the tanks come up to setpoint. Watch the board's PT and the DAQ's disagree
+   slightly on the card; that divergence is modelled on purpose.
+5. **Shift-click HOT FIRE** — 10 s countdown, igniter, ox lead, 5 s burn, cutoff
+   and purge. Stop the log when you have seen enough of the tail.
 
-Press **ABORT** at any point to see everything drive safe.
+Press **ABORT** — or just **Escape** — at any point to see everything drive safe.
 
 ---
 
@@ -66,10 +75,22 @@ across separate monitors — grid on one screen, P&ID on another.
 ### Control Grid (`/`)
 
 Every actuator as a button, grouped by system (Pressurization, Vent & Relief,
-Main Propellant, Fill & Drain, Auxiliary). Each button shows its tag, description,
-type, and live state. Interlocked valves are dimmed with a padlock and a tooltip
-saying why. A compact readout strip across the top keeps every sensor visible
-while you work the valves; toggle it off if you want the buttons full-screen.
+Runlines, Fill & Drain, Purge & Auxiliary). Each button shows its tag,
+description, type, and live state. Interlocked valves are dimmed with a padlock
+and a tooltip saying why. A compact readout strip across the top keeps every
+sensor visible while you work the valves; toggle it off if you want the buttons
+full-screen. The strip is ordered by sensor group and carries each group's
+colour on the card edge, so the LOX channels read as a block and the fuel
+channels as another. Every readout shows its rate of change.
+
+**A valve click commands the valve. There is no confirmation dialog.** ARM is
+the gate that makes actuators live, and once the stand is armed the operator is
+working the valves — a modal between the click and the coil costs time exactly
+when it is most expensive. The interlocks below still apply to every command;
+what is gone is the second click, not the rule.
+
+**Opening a valve takes a held SHIFT.** Closing it does not. See
+[Shift to actuate](#shift-to-actuate).
 
 ### P&ID (`/pid.html`)
 
@@ -78,10 +99,22 @@ with ISA symbols — bowtie valve bodies, solenoid coil boxes, pneumatic ball va
 actuators, regulator diaphragms, check valves, rupture disks, filters, vent
 stacks, quick disconnects. Click any valve symbol to command it.
 
-Instruments render as ISA bubbles showing live values, colour-coded by alarm
-state, with dashed lead lines to their tap points. Tanks show liquid level from
-their load cells. Lines animate when propellant is actually flowing through them.
-The engine grows an exhaust plume scaled to chamber pressure.
+**Valves are labelled with their panel tag** — `S1`, `PB4` — not with the
+GC-4 id. That is the number stencilled on the hardware and printed on the
+control panel, so a symbol on the drawing matches a valve in front of you with
+no translation step in between. The tag comes from `pid.tag` in `stand.json`;
+the GC-4 id is one hover away, and it is still what the config, the CSV headers
+and every error message use. A valve with no `pid.tag` falls back to its id
+rather than going unlabelled.
+
+Instruments render as ISA bubbles with dashed lead lines to their tap points.
+**Each bubble takes its sensor group's colour** — LOX blue, fuel red,
+thermocouples yellow, load cells purple — so the instrument types separate at a
+glance without reading a single tag. Alarm state still repaints the bubble on
+top of that: knowing a channel is a thermocouple matters less than knowing it
+is in danger. Tanks show liquid level from their load cells. Lines animate when
+propellant is actually flowing through them. The engine grows an exhaust plume
+scaled to chamber pressure.
 
 Scroll to zoom, drag to pan, `0` to reset. The **padlock** button in the toolbar
 freezes the view so a stray scroll or drag during a test cannot move the
@@ -89,11 +122,83 @@ diagram out from under you; the setting sticks across reloads.
 
 ### Data (`/data.html`)
 
-All instrumentation in a grid, grouped by type — pressure transducers,
-thermocouples, load cells. Each card carries the live value, a sparkline over a
-selectable window (15/30/60/120 s), min and max across that window, a range bar,
-and the hardware channel. Switch to **Table** for a dense sortable view of every
-channel at once.
+**Every channel on one screen, with nothing to scroll.** Each sensor group gets
+a full-height column, and the cards are sized so the longest column fills the
+viewport exactly. During a test an operator reads this page at a glance, and a
+channel one flick of a scroll wheel away is a channel nobody is watching.
+
+That holds until a group has more channels than the screen has room for at a
+readable card size — Draco's eight thermocouples need about 830 px of height,
+so on a 1280x720 laptop this page now scrolls by roughly 160 px. It scrolls
+rather than clipping: a channel you have to reach for is bad, and a channel
+silently off the bottom edge of the screen that claims to show every channel is
+much worse. Widen the window, or use the Table view, and it fits again.
+
+Groups come from `sensorGroups` in the config, so the Draco stand reads as
+**LOX**, **Fuel**, **Misc**, **Load Cells** and **Thermocouples** rather than
+one undifferentiated wall of pressure transducers. **Misc** is the channels
+that belong to no propellant leg — the muscle and purge buses, and chamber
+pressure. Each column's colour runs down the left edge of its cards — blue for
+LOX, red for fuel — and the venturi channels sit with the propellant run they
+measure rather than in a category of their own. Alarm state repaints the rest of
+the card's border but never that stripe: which system a channel belongs to does
+not change because it went out of range.
+
+Each card carries, in this order:
+
+- the **sensor's name**, the largest and boldest thing on it — that is what you
+  scan for on a wall of twenty-seven cards;
+- the **tag** and hardware channel below it, in monospace, to confirm what you
+  found — and beside them the **window min and max**, so the peak a channel hit
+  during the last ramp is on the face of the card rather than in a tooltip;
+- the live value and its **rate of change** (`▲ 12.4 psi/min`), a least-squares
+  slope over the last 3 s rather than a two-point difference, so a noisy
+  transducer reports its trend instead of its jitter. Direction is carried by
+  an arrow as well as a colour, and a slope inside 0.05 % of full scale per
+  second reads as flat rather than flickering between ▲ and ▼ on a still tank;
+- a sparkline over the selectable window (15/30/60/120 s) and a range bar.
+
+**Pressure rates are quoted per minute, everything else per second.** What a PT's
+slope is actually read for is tank decay during a leak check, and psi/s renders a
+30 psi/min leak as `0.5` — a number that looks like noise beside a reading in the
+hundreds. Thrust and chamber temperature are read during a burn, where a
+per-minute figure would be meaningless, so they stay in units/s.
+
+Switch to **Table** for the dense view — same groups, same order, plus Rate, Min
+and Max columns. Below 1200 px the cards drop min/max rather than clip it to
+nonsense; the Table view and the card tooltip still carry the exact figures.
+
+#### Taring
+
+Zeroing happens here, in both views:
+
+- **TARE** on any channel zeroes it against its current reading.
+- **TARE ALL** in a group header does the whole group at once — one button for
+  every pressure transducer.
+- A tared channel's button shows the offset it is applying (`−12.4`) instead of
+  the word TARE, and grows a **✕** that clears it. Clicking TARE again re-zeroes
+  at the current reading rather than stacking a second offset.
+
+The buttons appear only on channels the hardware can actually zero, so a card
+that has gone quiet offers none. On the Draco stand that is the NI cDAQ: the
+zero is applied inside the acquisition sidecar, before the reading is converted,
+which is why it survives on the raw trace and not just on screen. See
+[The Draco stand](#the-draco-stand---driverstand).
+
+Every tare is written to the event log and therefore into the CSV. It has to
+be: every row after that line means something different from the rows before
+it, and a trace read back months later has to show where that happened.
+
+While any offset is applied, a **TARE _n_** chip sits in the shared header on
+every page, listing the affected channels in its tooltip. Zeroing is done here,
+but it changes what the readings mean on the Control Grid and the P&ID too, and
+an operator on those screens is entitled to know.
+
+There is deliberately no confirmation dialog. A tare is visible for as long as
+it is applied, reversible in one click, and recorded — which is a better safety
+property than a modal, and it does not cost a click every time a channel is
+zeroed before a test. What a tare *is* refused for is covered in the
+[safety model](#safety-model).
 
 ### Config (`/config.html`)
 
@@ -129,8 +234,260 @@ anything, and leaving the page warns you. The action bar stays pinned to the top
 of the page, so **Validate** and **Save & Apply** (`Ctrl+S`) stay reachable no
 matter how far down a long step list you have scrolled. Saving validates
 server-side, writes a timestamped backup of the old file, then hot-reloads every
-connected browser. Saving is refused while the stand is armed or a sequence is
-running.
+connected browser.
+
+**Autosequences can be edited and saved while the stand is ARMED.** Retiming a
+countdown between attempts is ordinary test-day work, and requiring a disarm to
+do it costs more than it buys. The save is compared against the running config
+section by section: if anything outside `autosequences` differs, it is refused
+until you disarm. An armed save also skips the browser reload — the sequence
+list on every station updates in place rather than reloading a control screen
+mid-test.
+
+Wiring is a different matter. Channels, calibrations, safety policy and the
+P&ID describe the hardware, and swapping those under a live stand would change
+the meaning of every command already on screen — so those still require a
+disarm. Saving of any kind is refused while a sequence is running.
+
+---
+
+## The control sidebar
+
+The same sidebar mounts on both actuation pages, so switching views never means
+re-learning a layout. Everything in it is generated from `stand.json`.
+
+**ARM, DISARM and ABORT are pinned to the top and do not scroll.** Under a stand
+with two bang-bang cards and a list of sequences they used to scroll off, which
+made the ABORT button's position depend on where someone had last left the
+scrollbar. Below them the panels scroll as usual, ending in the event log — which
+takes twice the height it used to, now that the recording panel has moved to the
+header.
+
+### Link indicators
+
+The header carries one chip per hardware device — `NIDAQ`, `PANDA`, or whatever
+single device a simpler driver presents. Each reads **LIVE** while data is
+arriving, and switches to **the time since the last frame** the moment it stops:
+`PANDA 4.2s`, `NIDAQ 3m 08s`. A device that has never sent anything reads
+`NO LINK`.
+
+An age is the number that matters during a fault. "NO LINK" alone cannot tell a
+cable knocked out two seconds ago from a board that never came up, and those
+are different problems in different racks. The age keeps counting between
+telemetry frames, and keeps counting after they stop.
+
+`LINK LOST` is separate, and means the *browser* lost its stream from the
+server. The device chips beside it are then a snapshot of what was true when
+the stream died.
+
+### Bang-bang pressure control
+
+**The regulator runs on the PANDA board, not here.** GC-4 pushes configuration,
+asks the board to start and stop, issues vent and abort overrides, and displays
+what the board reports. It never commands the press valve.
+
+That split is deliberate and safety-relevant: if the serial link, this server,
+or the browser dies, the board keeps regulating with the last configuration it
+accepted. A ground station that closed the loop itself would drop the press
+valve on a disconnect — mid-fill, with a tank at setpoint and nobody watching.
+It is also why a second loop in the browser is a hazard rather than a feature:
+two controllers on one solenoid, reading two different transducers, with no
+arbitration between them.
+
+The wire protocol is documented in `HANDOVER_COMMS.md` §5 and implemented in
+[bb-protocol.js](server/hal/bb-protocol.js).
+
+#### Which half owns what
+
+| Board (authoritative) | Ground station |
+|---|---|
+| The hysteresis loop | What setpoint and band to use |
+| Setpoint, deadband | The `requiresArm` interlock |
+| `wait_ms` dwell | The leak trip |
+| `max_open_ms` pulse limit | The abort threshold |
+| Auto-vent trigger | Display, logging, the enable handshake |
+| **The actual valve state** | |
+
+The three ground-station trips exist because the protocol has no equivalent for
+them. They are **supervisory**: each can send `b<side>0` or `x<side>` — stop
+regulating, or abort — and nothing else. They cannot open a valve, they cannot
+hold one open, and if the link drops they simply stop being able to intervene
+while the board carries on. That is the cost of putting the loop on the board,
+and it is the right trade: a watchdog that fails silent beats a control loop
+that fails open.
+
+#### The panel
+
+| Setting | Runs on | What it does |
+|---|---|---|
+| **Setpoint** | board | Target pressure |
+| **Deadband ±** | board | Board opens below `setpoint − deadband`, closes above `setpoint + deadband`. Sent to the board as the **full** band width, i.e. twice this |
+| **Max pulse** (ms) | board | `max_open_ms`. One actuation holds the press valve open at most this long. `0` = no limit |
+| **Dwell** (ms) | board | `wait_ms`, the board's minimum dwell between valve transitions. `0` = none |
+| **Auto-vent at** | board | The `V` command's trigger. Pressure at which the board enters `AV` and vents. Empty = no vent config pushed |
+| **Board may auto-vent** | board | Arms that trigger. Off by default — venting a tank is not something to start doing because a field was left unset |
+| **Predictive valve shutoff** | board | `e<side><0/1>`. The board closes the press valve on the predicted overshoot rather than at the band edge. Off by default; **requires ARM** — see below |
+| **Leak trip** (s) | ground | The board reporting its press valve open this long without reaching setpoint tells the board to stop. `0` = no trip |
+| **Abort above** | ground | *Either* transducer above this latches a stand-wide ABORT and aborts the side. Empty = no threshold |
+
+`VENT` is a manual override (`v<side>`), independent of auto-vent and accepted
+by the board in any state. `ABORT SIDE` (`x<side>`) is **latched on the board**:
+nothing in the protocol clears it, so recovery needs a disarm/rearm or a power
+cycle. The card says so before you click it.
+
+The values in `stand.json` are the *starting* values: once the server is
+running these are runtime settings, and an edit survives a config hot-reload
+rather than being overwritten by the file. Every change is written to the event
+log and the CSV. Rules enforced server-side, which refuse an edit rather than
+half-apply it:
+
+- **Max pulse must be shorter than the leak trip.** Otherwise the trip fires
+  first and drops the controller instead of limiting the pulse.
+- **Auto-vent needs a trigger pressure.** Arming it with nowhere to vent at is
+  refused.
+- **A pulse or dwell may never delay a CLOSE.** Enforced in the emulated
+  firmware; on real hardware it is a **property to verify** — see *Unverified
+  against hardware* below.
+
+#### What the card shows
+
+The big number is **the board's own transducer** — the one the loop is actually
+regulating against. The line beneath it is the DAQ's reading of the same tank
+and the gap between them. Two sensors on one tank can legitimately disagree,
+and a quiet disagreement is worth seeing before it matters rather than after.
+
+The badge reports the board's state machine: `OFF`, `SUSTAIN`, `AUTO-VENT`,
+`ABORT`, plus `FILLING` whenever the board says its press valve is open. Three
+badges mean *the screen is not current*, which reads very differently from a
+loop that is off:
+
+- **CONFIRMING** — config pushed, waiting for the board's `CFG_PUSH` echo. The
+  enable is not sent until it arrives: enabling on a setpoint the board has not
+  confirmed regulates to the wrong pressure.
+- **STARTING** — confirmed, waiting for the board to report `SUS`.
+- **NO LINK** — no heartbeat. The board is probably still regulating, because
+  the loop lives there; we have merely stopped being told about it.
+
+While a side is live, **manual commands to its valves are refused**, with the
+controller named in the error. Taring its sensor is refused too.
+
+Autosequence `bangbang` steps can set the same fields, plus `vent` and `abort`.
+They deliberately **cannot** tare the board's transducer — see below.
+
+#### Zeroing the board's own transducer
+
+The **TARE** chip on the line that reads `board PT → SV-LOXBB` zeroes the
+transducer *the regulator runs on*. That is a different sensor from the DAQ
+channel shown under it, and from everything the [Data page tares](#taring): the
+board owns it, the board's loop acts on it, and the board keeps the offset in
+its own EEPROM — so it survives a board reset and a GC restart, and GC never
+re-asserts one at startup. Once an offset is applied the chip carries it
+(`−12.4`) and grows a **✕** that clears just that side.
+
+> **A live side refuses to be zeroed.** Telling the loop its tank is at ambient
+> when it is at 450 psi makes the board press to setpoint on top of the 450
+> already in there — it has no other way to know. The control is unavailable
+> while that side is regulating, and the server refuses it regardless of what
+> the browser thinks. A running sequence blocks it too, for the same reason a
+> DAQ tare is blocked then.
+
+On the wire (`bb-protocol.js`):
+
+| Command | Effect |
+|---|---|
+| `TL` / `TF` | Zero that side against its current reading |
+| `Tz` | Clear **both** channels |
+| `T0,<psi>` / `T1,<psi>` | Set one channel's offset explicitly |
+
+Two spellings for the same two channels — `L`/`F` by side, `0`/`1` by number —
+so the decoder reaches the `T` family *before* the side lookup every other
+command starts with, or `Tz` and `T0,` are rejected on their `z` and `0`.
+
+The per-side ✕ sends `T0,0` rather than `Tz`: clearing the fuel side's zero
+because someone re-did the LOX side is not what that button says it does.
+
+The board answers `EVT:…:PT_TARE:…` on success and `PT_ERROR:no_data` /
+`PT_ERROR:parse` on failure. `PT_ERROR` is routed away from the bang-bang
+error path — a refused tare is not a rejected regulator command, and painting
+it onto whichever controller was mid-handshake sends the operator to the wrong
+panel.
+
+#### Predictive valve shutoff
+
+The switch at the bottom of *Limits & trips* asks the board to close the press
+valve early, on where the pressure is **headed** rather than where it is, so the
+rise after the valve shuts lands inside the band instead of above it. It runs
+entirely on the board; GC only turns it on and off.
+
+> **Enabling it requires the stand ARMED.** The board refuses `e<side>1`
+> otherwise, and the refusal would arrive as a `BB_ERROR` line seconds later —
+> after the operator had already watched the switch move. So the server refuses
+> it first, and the control is unavailable while disarmed. **Turning it off is
+> never gated**: not on ARM, not on the loop being live, not on a running
+> sequence. The safe direction never is.
+
+A disarm turns it off explicitly rather than assuming the board did. The
+firmware almost certainly clears it with the arm latch, but "almost certainly"
+would leave GC displaying a setting it can neither verify nor restore —
+`e<side>1` is refused once disarmed, so that is the last moment the board can be
+put into a state the ground station knows. Re-arming does **not** bring it back:
+a regulation change that reappeared as a side effect of arming is exactly the
+kind of surprise this panel exists to avoid.
+
+**It is write-only.** There is no `B` field for it and no `CFG_PUSH` echo key,
+so unlike the setpoint and the deadband the board's actual setting cannot be
+read back. What the card shows is what GC last commanded, and nothing stronger.
+
+`predictive: true` in a `stand.json` controller is a power-on *preference*, not
+a guarantee — it seeds the switch, and the command still goes out only when the
+operator flips it with the stand armed.
+
+#### Unverified against hardware
+
+These could not be resolved from `HANDOVER_COMMS.md` alone, and are called out
+in the code where they bite. **Check them against firmware before a hot fire.**
+
+- **`wait_ms` may delay a CLOSE.** GC-4's old limit never could. The board's is
+  documented as a dwell between *any* valve transitions. A dwell that can hold
+  a press valve open past setpoint is a materially different safety property.
+- **The vent solenoid mapping.** `ventValve` ships unset. Two things are open:
+  whether the board's BB vent is the GN2 vent at all (`hardware.json` marks
+  DC3/DC4 as pushbutton channels while the BB press valves are solenoids), and
+  whether the heartbeat's `vent01` bit reports coil state or flow state. These
+  vents are normally-open, so the two readings are opposites — setting it now
+  makes the board's "not venting" reopen a vent the operator just closed.
+- **`rho`** is sent in the `M` command but has no `CFG_PUSH` echo key, so the
+  density the board is using cannot be verified from the ground.
+- **Abort recovery.** Assumed to need a power cycle or a disarm/rearm.
+- **The `PT_TARE` detail format.** The firmware confirms a tare with
+  `EVT:…:PT_TARE:…` but the payload's shape is not documented. The parser
+  accepts `k=v` pairs and bare comma-separated numbers in channel order, and
+  returns nothing rather than guessing when it recognises neither. Nothing
+  depends on it succeeding — the offset GC shows is the one it commanded, and
+  a parsed confirmation only upgrades that to what the board reported. Check a
+  real line against `parsePtTare` before trusting the confirmed values.
+- **Every `mdot*` echo key.** GC-4 never sends the `M` command — nothing in
+  `stand.json` configures mass-flow scheduling — so no echo for it has been
+  seen. Given the vent keys turned out wrong (below), expect these to be too,
+  and watch the log for an "unrecognised key" warning the first time one is
+  pushed.
+
+#### Verified against hardware, 2026-08-27
+
+Two corrections the board itself supplied, both now in the code and noted in
+`HANDOVER_COMMS.md` §5.5:
+
+- **The vent echo keys are `avTrig`/`avAuto`**, not the `ventTrig`/`ventAuto`
+  the handover doc documents. The documented spellings are kept as aliases.
+- **The echo is per command, not a full config dump.** A `B` followed by a `V`
+  produces two `CFG_PUSH` lines, each carrying only its own fields, so no
+  single line is the board's complete configuration and the host accumulates
+  them. The emulated firmware does the same, so the simulator exercises the
+  accumulation rather than skipping it.
+
+Both surfaced because unrecognised `CFG_PUSH` keys are logged rather than
+dropped. Without that warning, auto-vent would simply never have shown as
+confirmed and nothing would have said why.
 
 ---
 
@@ -142,7 +499,7 @@ cannot bypass a rule.
 
 | State | Behaviour |
 |---|---|
-| **DISARMED** | Valves marked `requiresArm` cannot be opened. Bang-bang controllers are forced off. |
+| **DISARMED** | Valves marked `requiresArm` cannot be opened. Bang-bang sides marked `requiresArm` are told to stop (`b<side>0`). |
 | **ARMED** | Full manual and sequence control. |
 | **ABORT** | Latched. Every actuator is driven to its `abortState`. Only safe-direction commands are accepted until cleared; clearing leaves the stand DISARMED. |
 
@@ -156,18 +513,67 @@ So a normally-open vent (`safeState: "open"`) can always be opened, even during
 an abort, while a drain valve (`safeState: "closed"`) cannot be opened until the
 abort is cleared.
 
+### Shift to actuate
+
+The same asymmetry, one layer up, in the browser:
+
+> **Every command that moves the stand away from safe takes a held SHIFT.**
+> Every command toward safe takes a bare click.
+
+That covers opening a valve (on the Control Grid *and* the P&ID), starting an
+autosequence, and enabling a bang-bang controller. Closing a valve, stopping a
+sequence, disabling a controller, SAFE ALL, DISARM and ABORT all take one click,
+with nothing held.
+
+Hold SHIFT and every control that needs it outlines itself in amber, so which
+buttons just went live is visible before anything is clicked rather than
+discovered from a toast afterwards. The outline follows the valve, not the
+button: a vent shows it when the next click would open it, and drops it once
+open.
+
+This is a **slip guard, not an interlock**. It is not a confirmation either —
+there is nothing to read and nothing to dismiss, and the click still lands in a
+single motion. It exists because on a wall of eleven near-identical buttons the
+failure that actually happens is the mis-click. The rules that matter still live
+on the server, which cannot see a keyboard.
+
 Other protections, all per-item configurable:
 
 - **Momentary actuators** — igniters auto-revert after `momentaryMs` even if the
   operator walks away or the browser closes.
-- **Controller watchdog** — `maxOpenSeconds` trips a bang-bang controller off if
-  its valve stays open without reaching setpoint. That is a leak or a dead
-  transducer, and it stops the controller from dumping the whole pressurant
-  bottle into the atmosphere.
+- **Controller watchdog** — `maxOpenSeconds` tells the board to stop if it
+  reports its press valve open that long without reaching setpoint. That is a
+  leak or a dead transducer, and it stops the board from dumping the whole
+  pressurant bottle into the atmosphere. Supervisory: it needs the heartbeat,
+  so a dead link disables it while the board carries on regulating.
 - **Abort thresholds** — `abortAbove` on a controller and `abortConditions` on a
-  sequence are evaluated every control tick.
-- **Config is locked while armed** — you cannot save a new configuration with the
-  stand armed or a sequence running.
+  sequence are evaluated every control tick. A controller's threshold watches
+  *both* the board's transducer and the DAQ's, because they are two different
+  sensors on the same tank.
+- **One controller per valve** — while a board bang-bang side is live, manual
+  and sequence commands to its valves are refused. Two command sources on one
+  solenoid with no arbitration is the failure mode this replaced.
+- **Taring is interlocked against closed-loop control** — a tare changes what
+  every subsequent reading *means*. Zeroing a tank transducer sitting at 450 psi
+  tells the stand it is at ambient, and anything acting on that number will then
+  try to put 450 psi on top of the pressure already there. So a tare is refused
+  while a sequence is running, and refused for any sensor an **enabled**
+  bang-bang controller is steering on. ARM alone is not a reason to refuse:
+  finding a drifted zero after arming is exactly when an operator needs this,
+  and with no controller enabled and no sequence running, a tare moves a number
+  on a screen and in the CSV, not a valve.
+- **Wiring is locked while armed** — valves, sensors, calibrations, safety policy
+  and the P&ID cannot be saved with the stand armed. Autosequences can be:
+  retiming a countdown does not change what any command on screen means.
+  Nothing at all can be saved while a sequence is running.
+
+Two things are deliberately *not* protected by a dialog:
+
+- **Valve commands are never confirmed.** ARM is the gate; see
+  [Control Grid](#control-grid-).
+- **`requiresArm` is not editable from the control screen.** It is a policy for
+  the stand, not a knob for the test, and a policy an operator can switch off
+  mid-test is not a policy. It lives in the config file, behind the disarm.
 - **Safe on exit** — Ctrl+C, an uncaught exception, or a SIGTERM all drive every
   actuator to its safe state before the process dies.
 
@@ -175,6 +581,39 @@ Other protections, all per-item configurable:
 > It cannot help if the laptop loses power or the link drops. Your stand
 > controller must implement its own watchdog and drive outputs safe on loss of
 > comms. The `udp`/`serial` drivers send a heartbeat to support this.
+
+### Comms loss (PANDA)
+
+The board only ever hears from GC when the operator acts, so silence is not
+evidence of a dead link — during a hold it is the normal case. It therefore
+watches for an `h` heartbeat, which this driver sends at 5 Hz:
+
+| Silence at the board | What the board does on its own |
+|---|---|
+| 600 ms | Both bang-bang controllers forced safe — press *and* vent closed |
+| 10 s | Full self-disarm: arm relay dropped, sequence cancelled, all channels off |
+
+Two rules on the ground-station side make this work, and both are load-bearing:
+
+1. **Beat unconditionally** — never gated on ARM state or operator activity.
+2. **Stop beating the moment the driver stops *hearing* the board**, even though
+   the serial port is still writable. A one-way failure (our RX dead, TX fine)
+   would otherwise hold the watchdog open on a stand nobody can see. Going quiet
+   hands the board back to its own watchdog — the only thing still in a position
+   to make the stand safe.
+
+The board's watchdog is heartbeat-**gated**: dormant until it sees its first
+`h`, so firmware flashed ahead of a heartbeat-capable ground station cannot
+nuisance-disarm. It reports its own state once a second as
+`LINK:<armed>:<lost>:<silentMs>`, and the driver raises an **error** in two
+cases that both mean *the stand is unprotected*:
+
+- `armed: 0` — the board has a watchdog but has never seen a heartbeat.
+- **no `LINK:` line at all** within 10 s of a board that is otherwise talking —
+  it is running firmware from before the watchdog existed. The absence of a line
+  cannot raise its own alarm, so it is checked for explicitly. Reflash the board.
+
+Both show in the link detail as `WATCHDOG UNARMED` / `NO WATCHDOG IN FIRMWARE`.
 
 ---
 
@@ -195,7 +634,6 @@ gives you autocomplete and inline validation in VS Code and most editors.
   "channel": 13,
   "normallyOpen": false,
   "requiresArm": true,
-  "confirm": false,
   "safeState": "closed",
   "abortState": "closed",
   "pid": { "x": 340, "y": 260, "rot": 90 }
@@ -219,10 +657,46 @@ target for autosequences immediately. `rot` is `0` for a horizontal pipe run and
 }
 ```
 
-`kind` decides which group it lands in on the Data page. `calibration` converts
-raw ADC counts to engineering units: `value = raw * slope + offset`. The `lead`
-is the point on the drawing the instrument taps; a dashed line is drawn from the
-bubble to it.
+`calibration` converts raw ADC counts to engineering units:
+`value = raw * slope + offset`. The `lead` is the point on the drawing the
+instrument taps; a dashed line is drawn from the bubble to it.
+
+**`pid` is optional, and omitting it is the right answer for a spare.** A
+channel that is wired to the DAQ but not yet connected to anything has no tap
+point, and inventing one puts a bubble on the drawing pointing at nothing. Such
+a sensor still reads, still records, and still appears on the Data page and the
+Control Grid strip — it is simply absent from the schematic until it has a
+physical home. Draco's `TC5`–`TC8` are exactly this.
+
+**Array order is display order** — within its group, a sensor appears on the Data
+page, the Control Grid's readout strip and in the CSV in the order it sits in
+`sensors`. On Draco that means each propellant leg reads in flow order: GN2,
+tank upstream, tank downstream, venturi inlet, venturi throat, manifold. `kind`
+also decides how the rate of change is quoted: `pressure` is per minute,
+everything else per second.
+
+### Grouping sensors
+
+`group` names an entry in `sensorGroups`, which decides the column a sensor
+lands in on the Data page, the outline colour of its card, and the colour of
+its bubble on the P&ID:
+
+```json
+"sensorGroups": [
+  { "id": "lox",  "label": "LOX",           "color": "#3b82f6" },
+  { "id": "fuel", "label": "Fuel",          "color": "#ef4444" },
+  { "id": "temp", "label": "Thermocouples", "color": "#eab308" }
+]
+```
+
+Group by the **system**, not by the instrument type: a venturi belongs with the
+propellant run it measures. Where the type *is* the useful grouping — the
+thermocouples, the load cells — a group per type says exactly that.
+
+`group` defaults to `kind`, so a config that predates `sensorGroups` still
+groups by type the way it always did. A group a sensor names but the file never
+defines is synthesized with a neutral colour rather than dropped: losing a
+channel to a typo is the one outcome not worth risking.
 
 ### Writing an autosequence
 
@@ -272,9 +746,9 @@ and a legend entry automatically.
 
 `ui.accent` retints the whole interface (text colour on the accent is chosen
 automatically for contrast). `ui.defaultTheme` sets light or dark for operators
-who have not picked one on their machine. `ui.gridColumns` and
-`ui.sensorGridColumns` control grid density. Remove an entry from `ui.pages` to
-hide that page from the header.
+who have not picked one on their machine. `ui.gridColumns` controls the valve
+grid's density; the Data page takes its columns from `sensorGroups` instead.
+Remove an entry from `ui.pages` to hide that page from the header.
 
 ### Branding
 
@@ -302,12 +776,171 @@ Drivers live in [`server/hal/`](server/hal/). Pick one at startup:
 
 ```bash
 node server/index.js --driver=simulator                              # default
+node server/index.js --driver=stand                                  # the Draco stand
 node server/index.js --driver=udp --host=192.168.1.50 --driver-port=5000
 node server/index.js --driver=serial --port-name=COM4 --baud=921600
 ```
 
-`udp` is dependency-free. `serial` needs `npm install serialport` — the only
-package this project will ever ask you for, and only if you use that driver.
+`udp` is dependency-free. `serial` and `stand` need `npm install serialport` —
+the only package this project will ever ask you for, and only for those drivers.
+
+### Watching the PANDA link
+
+```bash
+node server/index.js --driver=stand --panda-tap
+```
+
+Opens a second terminal printing every line the board sends and every command
+sent to it, byte for byte:
+
+```
+14:22:07.184 <   16B  s0.00,0.00,0.38\r
+14:22:07.190 >   20B  BF450.0,30.0,250,500
+14:22:07.203 <   25B  EVT:184320:CFG_PUSH:f:sp=450.0
+```
+
+`<` is board→host, `>` is host→board. Control and high bytes are escaped, and
+a line containing anything more surprising than CR or TAB also gets a hex dump
+— a stray NUL or a set high bit is usually the answer when a line is being
+parsed as something nobody expected.
+
+A serial port has exactly one owner, so this cannot open the port itself: the
+server relays. The window attaches over loopback (never the pad network — it
+carries every command the board is given) and is **read-only**, deliberately.
+A debug window that can actuate is one somebody actuates by accident.
+
+If the terminal does not open — spawning one depends on the desktop, not just
+the OS — the server prints the command to run in a window of your own. The
+flag is refused outright on drivers with no serial link, rather than opening a
+window that stays empty and reads as a silent board.
+
+For the current-sense channels specifically, `GC_DEBUG_DC=1` is narrower and
+usually more useful: it prints the `s` line broken out by wire position with
+each position's running range, so actuating one valve shows which index moves.
+
+### The Draco stand (`--driver=stand`)
+
+The stand splits reading from actuating across two boxes, so this driver
+composes two devices behind the single HAL interface:
+
+| Device | Hardware | Role |
+|---|---|---|
+| `nidaq` | NI cDAQ-9189 — 9237 (load cells), 9208 (4–20 mA PTs), 9211 ×2 (thermocouples) | Instrumentation |
+| `panda` | Custom Teensy board, USB serial 460800 8N1 | Valves, igniter, arm latch |
+
+Wiring lives in [`config/hardware.json`](config/hardware.json) — chassis name,
+card slots, serial port, and the channel maps that tie hardware channels to
+sensor ids. **Draco's is tracked in this repo**, so a fresh clone runs against
+the stand as wired:
+
+```bash
+npm run stand
+```
+
+That is a deliberate change from how this kind of file is usually handled. The
+repo serves exactly one stand, and the numbers in it — the DC channel order,
+the load-cell slopes, the PT full scales — were measured, argued about, and
+corrected against hardware. Keeping them out of version control meant every
+correction lived on one laptop, and the calibration that matters most had no
+history at all. [`config/hardware.example.json`](config/hardware.example.json)
+remains as the template for a *different* stand; do not assume the two agree.
+
+It is still deliberately a **separate file from `stand.json`**. That one is
+edited through the Config page and rewritten wholesale on save; wiring should
+not be reachable from a browser, nor churn when someone retimes a sequence.
+
+**Channel maps are the thing to get right.** DAQ channel indices restart at 0
+on every card, so a bare channel number is ambiguous. Keys carry the card:
+
+```json
+"channelMap": { "pt2": "PT1", "lc0": "LC1", "tc3": "TC4" }
+```
+
+`pt0` is NI-9208 `ai0`; `tc0`–`tc3` are the slot-3 9211 and `tc4`–`tc7` the
+slot-4 one. A channel not in the map is still acquired and logged, but never
+becomes a sensor reading.
+
+### Where the names come from
+
+`sensor_config.xlsx` at the repo root is the master naming source, and
+`Draco V4.00.pdf` is the drawing those names appear on. Sensor ids in
+`stand.json` are the **P&ID tag** (`PT4`, `TC1`, `LC4`), because that is what
+the diagram labels and what an operator reads off the stand.
+
+Two traps the workbook sets, both of which will silently mis-wire a channel:
+
+- **The `id` column is not the P&ID tag.** `id` is the DAQ-side label
+  (`PT5E`), while the tag the drawing shows is the leading token of the
+  `name` column (`PT4 LOX Tank Downstream` → `PT4`). They are offset from
+  each other by the wiring.
+- **A DC channel's report position is not its actuation channel.** The
+  workbook's `channel` is where the board *reports* current on its `s` line;
+  the numeric part of `id` is the channel it *actuates* (`S5`).
+  `hardware.json` keys `dcChannels` by report position and carries the
+  actuation channel in `id`, so both stay explicit.
+
+  **The workbook's report order is wrong, and was measured instead.** The
+  board reports two banks, each one reversed:
+
+  | `s` position | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 |
+  |---|---|---|---|---|---|---|---|---|---|---|---|---|
+  | channel | DC8 | DC7 | DC6 | DC5 | DC4 | DC3 | DC2 | DC1 | — | DC11 | DC10 | DC9 |
+
+  Bank A is DC8…DC1, bank B is DC12…DC9. DC12 does not exist, which is why
+  position 8 reads nothing — it is the empty head of the second reversed
+  bank rather than a random gap, and a DC12 added later would land there.
+
+  Taken from the workbook instead, ten of the eleven channels landed on the
+  wrong valve — and plausibly so, because the wrong valve was always a real
+  one drawing real current at the time. Only the muscle bus vent, which sits
+  at its own mirror point, happened to be right. The order in `hardware.json`
+  now comes from actuating each valve from GC and recording which channel
+  drew current (2026-08-31). Re-derive it the same way if the harness
+  changes; do not read it back off the workbook.
+
+Valve `abbrev`s are prefixed with the drawing tag (`PB2 OX RUN`) so a button
+in the UI can be matched to a symbol on the P&ID without a lookup table.
+
+The tank-upstream transducers are **PT2** (LOX) and **PT12** (fuel). They were
+carried as PT3 and PT13 here for a while, which are the tags of the bang-bang
+board's *own* transducers — a different pair of sensors on the same tanks, read
+by the board rather than by the DAQ. The DAQ channel map still reads
+`"pt3": "PT2"` and `"pt7": "PT12"`: the key is the NI-9208 channel index, the
+value is the P&ID tag, and they were never meant to match.
+
+NI-DAQmx binds only to Python, so acquisition runs in
+[`server/hal/devices/daq_streamer.py`](server/hal/devices/daq_streamer.py),
+spawned as a child process speaking newline-JSON over stdio. You need the
+NI-DAQmx Runtime and `pip install nidaqmx`. Because stdin is a real
+back-channel, tare and calibration commands are ordinary messages rather than
+sentinel files dropped in a polled directory.
+
+Taring lives there rather than in the Node server on purpose: the sidecar
+zeroes against the last raw sample the card actually took, in the card's own
+units, *before* conversion to psi. A zero applied further up would only correct
+the display, leaving the raw trace and the conversion disagreeing with it. Each
+channel carries its current offset in every telemetry frame, so the host
+re-learns the truth after a sidecar restart instead of reporting a stale zero.
+
+A channel with no valid reading — an open transducer — keeps whatever tare it
+already had and is named in the reply, rather than being silently zeroed to
+nothing.
+
+Three hardware notes that cost real time to rediscover:
+
+- **The 9237 (DSUB) does not expose `ai_adc_timing_mode`** and rejects it with
+  `-200452`. Its rate then coerces to 12800/8 = 1612.9 Hz; the streamer sizes
+  the buffer to match and drains it each pass, which sustains that rate with
+  no overruns. Optional DAQmx properties are all set best-effort for this
+  reason — an unsupported one degrades the stream instead of killing the task.
+- **The 9211 has no sample clock.** It is read on demand (~350 ms per call)
+  from its own thread, so the control loop never blocks on it.
+- **PANDA `p` lines carry volts across the shunt, not milliamps,** on current
+  firmware. Getting this wrong yields plausible-looking garbage rather than an
+  obvious failure, so `ptInputMode` is explicit in the config.
+
+If the PANDA is marked `"required": false`, GC-4 will still come up on DAQ
+data alone and refuse valve commands — useful for instrumentation checkouts.
 
 Both speak the same ASCII line protocol, small enough to implement on a Teensy
 or ESP32 in an afternoon:
@@ -332,31 +965,97 @@ five methods and register the class in `server/hal/index.js`:
 async init(config)            // one-time setup
 setValve(valveCfg, state)     // state is 'open' | 'closed'
 read()                        // -> { sensorId: engineeringValue }
-get status()                  // -> { name, connected, detail }
+get status()                  // -> { name, connected, detail, lastRxAt }
 async close()
 ```
 
-`safeAll()` is optional but recommended.
+`safeAll()` is optional but recommended. So is the zeroing pair, which is what
+puts TARE buttons on the Data page:
+
+```js
+tareSensors(ids, { clear })   // -> { ok, tared: [], unsupported: [], error? }
+tareStatus()                  // -> { sensorId: offsetInSensorUnits }
+```
+
+`tareStatus()` must return an entry for every sensor the device *can* zero,
+`0` included — the presence of the key is what tells the UI to offer a button,
+and its value is what the button displays. A driver that implements neither
+simply shows no tare controls. `unsupported` is an ordinary answer, not a
+failure: a composite stand offers the same list of ids to each of its devices
+and lets them claim what they own.
+
+`lastRxAt` is when the driver last received data (`Date.now()`, or `0` if it
+never has). The header's link indicator turns it into **LIVE** or an age, so a
+driver that omits it reads as "never came up" the moment it disconnects. A
+driver that synthesizes its data — the simulator — reports the current clock.
+
+A driver that fronts several boxes reports `devices: [{ key, connected,
+required, lastRxAt, detail }, ...]` as well, and gets one indicator per entry;
+see `composite.js`. Everything else gets a single indicator automatically.
 
 ---
 
 ## Data recording
 
-Recording controls sit at the bottom of the sidebar on both actuation pages.
-Type a test name, hit **START**, and every sample lands in
-`data/{stand}_{date}_{time}_{name}.csv`. Sequences listed in
-`recording.autoStartOnSequence` start recording on their own.
+**The log control lives in the header, on every page.** A button that reads
+**Start New Log File**, a stop square that appears only while a file is open, and
+an indicator: a green dot and the file name while logging, a grey dot and
+*Not Currently Logging* when not. Clicking the indicator lists the recordings on
+this machine with download links, newest first.
+
+Starting asks for a test name, prefilled with the last one used and submitted on
+Enter, then opens `data/{stand}_{date}_{time}_{name}.csv`. Pressing **Start New
+Log File** while one is already open closes it and starts a fresh one, so a
+second attempt lands in its own trace rather than at the end of the first.
+
+It is in the header rather than the sidebar for two reasons: it is the same
+decision from every screen — the Data page has no sidebar and previously had no
+way to start a recording at all — and it belongs beside the ARMED and link chips,
+because *are we getting this on tape* is a status question of exactly that kind.
+
+> **Nothing but an operator starts or stops a file.** Not a sequence, not a
+> countdown, not an abort. A sequence that opened its own file split one test
+> across two traces; one that closed a file ended the recording seconds after
+> cutoff, while the stand was still pressurized and still the interesting part.
+> A sequence may write notes into whatever file is open — they land in the
+> `event` column — and that is the whole of its authority over recording.
 
 One row per sample at `recording.rateHz` (default 50 Hz):
 
 | Column | Notes |
 |---|---|
-| `iso_time`, `epoch_ms`, `elapsed_s` | Absolute and test-relative time |
-| `PT-101 (psi)`, `TC-201 (°F)`, … | One per sensor, tag and units in the header |
-| `MV-F (state)`, … | One per valve, `1` open / `0` closed |
-| `bb-fuel setpoint`, `bb-fuel enabled` | Controller settings as they change |
+| `timestamp`, `elapsed_s` | ISO wall clock, and seconds since the file opened |
+| `PT21 LOX Venturi Inlet (psi)`, … | One per sensor: tag, name and units |
+| `Thrust Combined (lbf)` | One per `recording.derived` entry — see below |
+| `DC1 LOx Tank BB (state)`, … | One per valve, `1` open / `0` closed |
+| `bb-fuel setpoint`, `bb-fuel enabled`, `bb-fuel board psi`, … | What we asked the board for, and what it reported back |
 | `armed`, `sequence` | Stand state and the running sequence id |
 | `event` | Log lines emitted since the previous row |
+
+**Headers carry the name, not just the tag** — `PT21 LOX Venturi Inlet (psi)`,
+not `PT21 (psi)`. Analysis scripts select columns by that string, and a bare tag
+makes every plot script a lookup table against a config file it does not have.
+This is the format the team's combined traces already use, so a GC-4 recording
+drops straight into the same notebooks. `°F` is written `degF`: the degree sign
+is correct on screen and a liability in a file opened by Excel on one laptop and
+pandas on another.
+
+Valve columns lead with the **board's own channel name** (`DC1`, `DC2`, …) where
+the hardware config declares one, because that is what the wiring diagram, the
+firmware log and every previous trace call that actuator. Where it does not, the
+valve's `stand.json` tag is used instead.
+
+`recording.derived` adds columns computed from other channels:
+
+```json
+"derived": [
+  { "header": "Thrust Combined", "units": "lbf", "sum": ["LC1", "LC2", "LC3"], "decimals": 3 }
+]
+```
+
+Declared rather than inferred — which load cells add up is a property of the
+stand, and guessing it wrong corrupts a thrust curve silently. A row where any
+input is missing is left blank rather than partially summed.
 
 Because commands, arm state, and sequence progress are all *in the same file* as
 the data, a single CSV tells the whole story of a test — you can see exactly what
@@ -366,24 +1065,31 @@ A `.meta.json` sidecar next to each CSV stores the complete config used for that
 run — calibrations, setpoints, sequences — so a trace can still be interpreted
 correctly months later, after the stand has been rebuilt twice.
 
-Files are listed in the sidebar with download links, newest first.
-
 ---
 
 ## Keyboard shortcuts
 
 | Key | Action |
 |---|---|
+| **`Esc`** | **ABORT, immediately** |
+| `Shift` (held) | Arms every control that moves the stand away from safe |
 | `T` | Toggle light / dark theme |
 | `\` | Show / hide the control sidebar |
 | `0` | Reset P&ID zoom and pan |
 | `+` / `-` | Zoom the P&ID |
 | `L` | Lock / unlock the P&ID view |
 | `Ctrl+S` | Save the configuration (Config page) |
-| `Esc` | Cancel a confirmation dialog |
 
-There is deliberately **no keyboard shortcut for ABORT or for valve actuation** —
-a mis-key during a test should never move hardware.
+**Escape aborts, from any page and from inside any text field.** A panic key that
+only works when focus happens to be in the right place is not a panic key. It
+fires without a confirmation, because that is the point.
+
+The single exception is an **open dialog**, which keeps Escape as its own cancel.
+Otherwise dismissing the ARM confirmation would trip the stand — the one moment
+Escape unambiguously means "not that".
+
+There is still **no keyboard shortcut for valve actuation**. Abort drives
+everything to a known safe state; a mis-keyed valve command does the opposite.
 
 ---
 
@@ -394,17 +1100,26 @@ server/
   index.js         HTTP, REST API, SSE telemetry stream, static files
   state.js         StandController — authoritative state, interlocks, tick loop
   config-store.js  load / validate / hot-reload, timestamped backups
-  bangbang.js      hysteresis controllers with leak and abort watchdogs
+  bangbang.js      pushes config to the board's regulator; supervisory trips
   sequencer.js     time-based autosequence engine + abort condition monitor
   recorder.js      CSV writer and metadata sidecars
   hal/
-    index.js       driver registry
+    index.js       driver registry + the composed `stand` driver
     simulator.js   lumped-parameter stand model
     udp.js         Ethernet controller (dependency-free)
     serial.js      USB serial controller (needs `serialport`)
+    nidaq.js       NI cDAQ instrumentation, via the Python sidecar
+    panda.js       PANDA board actuation over USB serial
+    bb-protocol.js the board's bang-bang wire format, both directions
+    bb-firmware.js an emulation of the board's regulator, for the simulator
+    composite.js   several devices behind one driver interface
+    devices/
+      daq_streamer.py   NI-DAQmx acquisition, newline-JSON over stdio
 config/
   stand.json       THE config — everything is generated from this
   stand.schema.json  JSON Schema for editor autocomplete
+  hardware.json    Draco's wiring for --driver=stand — tracked
+  hardware.example.json  the same, as a template for another stand
 public/
   *.html           one page per window
   js/bus.js        the only module that talks to the network
@@ -432,15 +1147,54 @@ rejected command can never leave a valve looking open when it is closed.
 | `GET` | `/api/state` `/api/config` `/api/history` `/api/events` | Snapshots |
 | `POST` | `/api/arm` `/api/abort` `/api/abort/clear` | Stand state |
 | `POST` | `/api/valve` `/api/safe-all` | Actuation |
-| `POST` | `/api/controller` | Bang-bang settings |
+| `POST` | `/api/tare` | Zero instrumentation: `{sensors:[…]}` or `{kind:"pressure"}`, plus `clear` to undo |
+| `POST` | `/api/controller` | Bang-bang: `enabled`, `setpoint`, `deadband`, `maxOpenMs`, `minIntervalMs`, `ventTrigger`, `ventAuto`, `maxOpenSeconds`, `abortAbove`, plus the overrides `vent` and `abort` |
 | `POST` | `/api/sequence/start` `/api/sequence/stop` | Autosequences |
 | `POST` | `/api/record/start` `/api/record/stop` | Recording |
 | `GET` | `/api/record/list` `/api/record/download/:name` | Recorded files |
-| `PUT` | `/api/config` | Validate, back up, save, hot-reload |
+| `PUT` | `/api/config` | Validate, back up, save, hot-reload. While armed, accepts autosequence changes only |
 
 ---
 
 ## Testing
+
+```bash
+npm test
+```
+
+Unit tests cover the logic whose mistakes are silent on real hardware:
+
+- **PANDA line parser** — volts→mA→psi, normally-open coil polarity, the
+  `1`–`9`,`A`–`C` solenoid tokens, partial-chunk reassembly.
+- **Composite driver** — routing, degraded-mode behaviour, the per-device link
+  state the header indicators read, and which device a tare is routed to.
+- **NI-DAQ addressing** — sensor id to card and channel. A tare that lands on
+  the wrong channel zeroes a transducer nobody was looking at and leaves the
+  intended one reading as before, with nothing on screen to say so.
+- **Client lookups** (`public/js/bus.test.js`) — the rate-of-change fit and
+  sensor grouping. "The tank is filling at 50 psi/s" is a number an operator
+  acts on, and a sign error or a botched window reads as a plausible number
+  rather than as a fault.
+- **The bang-bang wire format** (`server/hal/bb-protocol.test.js`) — encoding
+  byte for byte against `HANDOVER_COMMS.md` §5, and two decode properties that
+  fail silently when they are wrong: prefix checks must precede the comma test
+  (or every `CFG_PUSH` confirmation is filed as telemetry and never reaches the
+  operator), and the heartbeat's pressure field must stay optional (or a legal
+  5-field heartbeat reads a pressurised tank as 0 psi).
+- **The ground station's half of the loop** (`server/bangbang.test.js`) — that
+  the host never commands the valve, in a full run; that the deadband is
+  doubled on the wire; that nothing is enabled before the board's echo confirms
+  the config; and that nothing ever gates a *stop*. The fake board in these
+  tests is the real emulated firmware driven over the real wire format, so they
+  are end to end through the protocol rather than against a mock that agrees by
+  construction.
+- **The emulated board** (`server/hal/bb-firmware.test.js`) — the hysteresis
+  band, the pulse and dwell timers, auto-vent, and the latched abort. These
+  assert what the board is *believed* to do. A failure means the emulation
+  drifted from the spec; a disagreement with real hardware means the spec was
+  wrong.
+
+They need no hardware attached.
 
 The simulator exists so the software can be exercised end to end without
 hardware. It models pressurant blowdown, tank pressurization and venting, injector
