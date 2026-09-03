@@ -272,6 +272,14 @@ async function handleApi(req, res, pathname, url) {
       return sendJson(res, result.ok ? 200 : 409, withState(result));
     }
 
+    // Zero the DIFFERENCE behind a P&ID tank level, leaving both of the
+    // transducers behind it reporting exactly what they did before:
+    //   { tanks: ['TK-LOX'] } | {}  [, clear: true ]
+    case 'POST /api/tank-level/tare': {
+      const result = stand.tareTankLevels(body, who);
+      return sendJson(res, result.ok ? 200 : 409, withState(result));
+    }
+
     case 'POST /api/controller': {
       const result = stand.bangbang.set(body.id, body, who);
       return sendJson(res, result.ok ? 200 : 409, withState(result));

@@ -6,7 +6,7 @@
  * recording options all come from stand.json.
  */
 import { bus } from './bus.js';
-import { $, el, clear, icon, fmtDuration, fmtBytes, fmtValue, fmtClock, confirmAction, promptAction, shiftGate, toast, valueWidthCh } from './util.js';
+import { $, el, clear, icon, fmtDuration, fmtBytes, fmtValue, fmtClock, confirmAction, promptAction, shiftGate, setShiftRequired, toast, valueWidthCh } from './util.js';
 import { currentTheme, toggleTheme, applyConfigDefault } from './theme.js';
 
 // ============================================================== HEADER =====
@@ -218,12 +218,54 @@ function linkChip(dev, snapshot) {
   }
 
   const node = chip(text, kind, !dev.connected);
+
+  // The measured rate rides inside the same chip rather than beside it: "is
+  // the link up" and "is it keeping up" are one question, and an operator
+  // scanning the header should not have to correlate two indicators to answer
+  // it. Only while connected — a rate printed next to an age would be a
+  // number from before the link dropped.
+  const rate = dev.connected && Number.isFinite(dev.rxSampleHz) ? dev.rxSampleHz : null;
+  if (rate !== null) node.append(el('span.chip-rate', { text: fmtHz(rate) }));
+
   node.title = [
     dev.detail || label,
     dev.required ? 'required device' : 'optional device',
     age === null ? 'no data received since startup' : `last data ${fmtAge(age)} ago`,
+    ...rateTitle(dev, rate),
   ].join('\n');
   return node;
+}
+
+/**
+ * The receive-rate lines of a link chip's tooltip.
+ *
+ * Both numbers are here because they answer different questions. The sample
+ * rate is what the stand is actually logging and controlling on, and is the
+ * one comparable to the configured sample clock. The frame rate is what the
+ * link itself is doing — a sidecar sending ten samples per frame at 10
+ * frames/s and one sending twenty at 5 both deliver 100 Hz, and only the
+ * frame rate distinguishes them.
+ *
+ * The configured clock is labelled as configured, never printed bare. A
+ * shortfall is worth seeing, but only if it stays obvious which of the two
+ * numbers is the measurement.
+ */
+function rateTitle(dev, rate) {
+  if (rate === null) return [];
+  const lines = [`receiving ${fmtHz(rate)} — measured here, not reported by the device`];
+  if (Number.isFinite(dev.rxFrameHz)) lines.push(`${dev.rxFrameHz.toFixed(2)} frames/s`);
+  if (Number.isFinite(dev.sampleClockHz)) {
+    const short = dev.sampleClockHz - rate;
+    lines.push(`configured for ${fmtHz(dev.sampleClockHz)}`
+      + (short > dev.sampleClockHz * 0.05 ? ` — running ${fmtHz(short)} short` : ''));
+  }
+  return lines;
+}
+
+function fmtHz(hz) {
+  if (!Number.isFinite(hz)) return '–– Hz';
+  if (Math.abs(hz) >= 10000) return `${(hz / 1000).toFixed(1)} kHz`;
+  return `${hz.toFixed(1)} Hz`;
 }
 
 /** Age of a device's last frame in ms, or null if it has never sent one. */
@@ -1206,6 +1248,7 @@ function updateSidebar() {
 export async function bootPage(pageId, { sidebar = true } = {}) {
   await bus.init();
   applyConfigDefault(bus.config);
+  setShiftRequired(bus.config.ui?.requireShiftToActuate !== false);
   document.title = `${bus.config.ui.brand} · ${pageLabel(pageId)}`;
 
   mountHeader(pageId);

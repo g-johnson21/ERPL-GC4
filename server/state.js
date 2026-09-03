@@ -39,6 +39,11 @@ export class StandController extends EventEmitter {
     this.events = [];
     this.eventSeq = 0;
     this.momentaryTimers = new Map();
+    // Tank id -> psi subtracted from that tank's bottom-minus-ullage delta
+    // before it is turned into inches. Kept here rather than in the browser so
+    // every operator station shows one level, and separate from sensor tares
+    // because it corrects the PAIR, not either transducer.
+    this.tankLevelTares = {};
     this.tickCount = 0;
     this.lastBroadcast = 0;
 
@@ -50,6 +55,7 @@ export class StandController extends EventEmitter {
 
     configStore.on('reload', () => {
       this.initFromConfig(true);
+      this.pruneTankLevelTares();
       this.bangbang.sync();
       // Re-assert the bang-bang config on the board. A reload can change a
       // setpoint, and a board still holding the previous one is the exact
@@ -69,6 +75,14 @@ export class StandController extends EventEmitter {
   }
 
   get config() { return this.configStore.get(); }
+
+  /** Drop level tares for tanks the config no longer defines a level for. */
+  pruneTankLevelTares() {
+    const live = new Set(this.levelTanks().map((c) => c.id));
+    for (const id of Object.keys(this.tankLevelTares)) {
+      if (!live.has(id)) delete this.tankLevelTares[id];
+    }
+  }
 
   initFromConfig(isReload = false) {
     const cfg = this.config;
@@ -380,6 +394,96 @@ export class StandController extends EventEmitter {
     return { ok: true, tared: res.tared || [], unsupported: res.unsupported || [] };
   }
 
+  // --------------------------------------------------- TANK LEVEL TARE ----
+
+  /** Tank components that carry a `level` block, by id. */
+  levelTanks() {
+    return (this.config.pid?.components || []).filter((c) => c.type === 'tank' && c.level);
+  }
+
+  /**
+   * Raw head across one tank, in psi: bottom pressure minus ullage pressure,
+   * before any level tare. `null` when either end is unavailable.
+   *
+   * The ullage end is either a DAQ channel or the bang-bang board's own
+   * transducer, and a stale board is refused — a heartbeat pressure held from
+   * before a fill would tare against a number that is no longer a measurement.
+   */
+  tankLevelDelta(comp) {
+    const bottom = this.readings[comp.level.bottomSensor];
+    if (!Number.isFinite(bottom)) return null;
+
+    let top;
+    if (comp.level.topSensor) {
+      top = this.readings[comp.level.topSensor];
+    } else {
+      const board = this.bangbang.snapshot()[comp.level.topController]?.board;
+      top = board && !board.stale ? board.pressure : null;
+    }
+    if (!Number.isFinite(top)) return null;
+    return bottom - top;
+  }
+
+  /**
+   * Zero the computed tank levels, or clear that zero.
+   *
+   *   { tanks: ['TK-LOX'] }   zero these
+   *   { }                     zero every tank configured for a level
+   *   { ..., clear: true }    back to the raw delta
+   *
+   * This is deliberately NOT a sensor tare. It offsets the DIFFERENCE between
+   * a tank's two transducers, so an empty tank reads 0 in without changing
+   * what either PT reports — the bang-bang loops keep regulating on the same
+   * numbers they did a moment ago, and the CSV keeps the raw pressures.
+   *
+   * Refused during a sequence for the same reason a sensor tare is: an
+   * operator watching a level mid-test must not have the meaning of that
+   * number change underneath them.
+   */
+  tareTankLevels(spec = {}, source = 'operator') {
+    const clear = Boolean(spec.clear);
+    const all = this.levelTanks();
+    if (!all.length) return { ok: false, error: 'No tanks are configured for level' };
+
+    const ids = Array.isArray(spec.tanks) && spec.tanks.length
+      ? spec.tanks
+      : all.map((c) => c.id);
+
+    const known = new Map(all.map((c) => [c.id, c]));
+    const unknown = ids.filter((id) => !known.has(id));
+    if (unknown.length) return { ok: false, error: `Not a level tank: ${unknown.join(', ')}` };
+
+    if (this.sequencer.running) {
+      return { ok: false, error: 'Cannot tare tank levels while a sequence is running' };
+    }
+
+    const tared = [];
+    const missing = [];
+    for (const id of ids) {
+      if (clear) {
+        delete this.tankLevelTares[id];
+        tared.push(id);
+        continue;
+      }
+      const dp = this.tankLevelDelta(known.get(id));
+      if (dp === null) { missing.push(id); continue; }
+      this.tankLevelTares[id] = Number(dp.toFixed(4));
+      tared.push(id);
+    }
+
+    if (missing.length) {
+      this.log('warn', `TANK LEVEL TARE: no usable pressure pair for ${missing.join(', ')}`, source);
+    }
+    if (!tared.length) return { ok: false, error: 'Nothing was tared' };
+
+    this.log('command',
+      `*** TANK LEVEL ${clear ? 'TARE CLEARED' : 'TARE'} *** ${tared.join(', ')}`,
+      source);
+
+    this.emit('telemetry', this.snapshot());
+    return { ok: true, tared, unavailable: missing };
+  }
+
   // --------------------------------------------------------------- ABORT ----
 
   abort(reason = 'Operator abort') {
@@ -468,6 +572,9 @@ export class StandController extends EventEmitter {
       valves,
       sensors,
       controllers: this.bangbang.snapshot(),
+      // The psi currently subtracted from each tank's head. A tank with no
+      // entry is untared; the browser turns what is left into inches.
+      tankLevelTares: { ...this.tankLevelTares },
       sequence: this.sequencer.snapshot(),
       recording: this.recorder.snapshot(),
       eventSeq: this.eventSeq,
@@ -510,6 +617,9 @@ function driverStatus(driver) {
       required: true,
       failed: false,
       lastRxAt: status.lastRxAt ?? 0,
+      rxSampleHz: status.rxSampleHz ?? null,
+      rxFrameHz: status.rxFrameHz ?? null,
+      sampleClockHz: status.sampleClockHz ?? null,
       detail: status.detail,
     }],
   };

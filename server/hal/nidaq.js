@@ -43,6 +43,12 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SCRIPT = path.join(__dirname, 'devices', 'daq_streamer.py');
 
+// Averaging window for the measured receive rate. Long enough that one late
+// frame does not make the header flicker, short enough that a link degrading
+// mid-test is visible while it is still degrading.
+const RX_WINDOW_MS = 3000;
+const RX_MIN_SPAN_S = 0.4;
+
 export class NiDaqDriver {
   constructor(options = {}) {
     this.name = 'nidaq';
@@ -65,6 +71,9 @@ export class NiDaqDriver {
     this.lastRxAt = 0;
     this.connected = false;
     this.frameCount = 0;
+    // Arrival times of recent frames, for the MEASURED receive rate. See
+    // rxRates(). Bounded by age, not by count, so it self-limits at any rate.
+    this.rxWindow = [];              // [{ t, n }] — n = samples in that frame
     this.stdoutBuffer = '';
     this.child = null;
     this.onEvent = options.onEvent || (() => {});
@@ -171,6 +180,7 @@ export class NiDaqDriver {
         this.frameCount++;
         this.lastRxAt = Date.now();
         this.connected = true;
+        this.noteRx(msg);
       } else if (msg.type === 'status') {
         if (!msg.ok) this.onEvent(`NI-DAQ: ${msg.message}`);
         console.error(`[nidaq] ${msg.message}`);
@@ -328,8 +338,60 @@ export class NiDaqDriver {
 
   setValve() { /* read-only device */ }
 
+  /**
+   * Record one frame's arrival for the measured receive rate.
+   *
+   * The sample count is taken from the LONGEST `samples` array in the frame
+   * rather than from the configured samplesPerRead. A short read — the card
+   * returned fewer samples than asked for, which is what a starved DAQ
+   * actually does — has to show up as a lower rate. Reading the configured
+   * number back out would report the nameplate no matter what arrived, which
+   * is the exact failure this measurement exists to catch.
+   */
+  noteRx(msg) {
+    let n = 0;
+    for (const ch of msg.channels || []) {
+      const len = Array.isArray(ch.samples) ? ch.samples.length : 1;
+      if (len > n) n = len;
+    }
+    this.rxWindow.push({ t: this.lastRxAt, n: n || 1 });
+
+    const cutoff = this.lastRxAt - RX_WINDOW_MS;
+    let drop = 0;
+    while (drop < this.rxWindow.length - 1 && this.rxWindow[drop].t < cutoff) drop++;
+    if (drop) this.rxWindow.splice(0, drop);
+  }
+
+  /**
+   * What the host is ACTUALLY receiving, measured at this end of the pipe:
+   * `{ frameHz, sampleHz }`, or null until there is enough of a window.
+   *
+   * This is deliberately not `performance.sample_rate_hz` from the sidecar.
+   * That field is the configured sample clock echoed back — it reads 100 Hz
+   * whether the DAQ is streaming, stuttering, or half a second behind, so it
+   * can never disagree with the config and never tells an operator anything.
+   *
+   * Rates are taken across the span between the first and last frame in the
+   * window, counting the frames AFTER the first: the earliest entry marks
+   * when the interval opened, and its own samples arrived before it.
+   */
+  rxRates() {
+    const w = this.rxWindow;
+    if (w.length < 2) return null;
+    const elapsed = (w[w.length - 1].t - w[0].t) / 1000;
+    if (elapsed < RX_MIN_SPAN_S) return null;
+
+    let samples = 0;
+    for (let i = 1; i < w.length; i++) samples += w[i].n;
+    return {
+      frameHz: (w.length - 1) / elapsed,
+      sampleHz: samples / elapsed,
+    };
+  }
+
   get status() {
-    const rate = this.performance?.sample_rate_hz;
+    const configured = this.performance?.sample_rate_hz;
+    const rx = this.connected ? this.rxRates() : null;
     return {
       name: this.name,
       connected: this.connected,
@@ -338,8 +400,14 @@ export class NiDaqDriver {
       // second ago from one that has been dead since before the count.
       // 0 means nothing has ever been received.
       lastRxAt: this.lastRxAt,
+      // Measured here, not reported by the sidecar — see rxRates().
+      rxSampleHz: rx ? Number(rx.sampleHz.toFixed(1)) : null,
+      rxFrameHz: rx ? Number(rx.frameHz.toFixed(2)) : null,
+      // The sample clock the cards were CONFIGURED for, so the header can say
+      // what the measured rate is falling short of.
+      sampleClockHz: Number.isFinite(configured) ? configured : this.sampleClockHz,
       detail: this.connected
-        ? `${this.detail} · ${this.frameCount} frames${rate ? ` @ ${rate} Hz` : ''}`
+        ? `${this.detail} · ${this.frameCount} frames`
         : `${this.detail} · NO LINK`,
     };
   }

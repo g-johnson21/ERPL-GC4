@@ -6,7 +6,7 @@
  */
 import { bus } from './bus.js';
 import { bootPage } from './chrome.js';
-import { $, el, icon, fmtValue, fmtCurrent, coilState, shiftGate } from './util.js';
+import { $, el, icon, fmtValue, fmtCurrent, coilState, shiftGate, toast } from './util.js';
 import { svgEl, renderComponent, renderValve, renderInstrument, renderPipe, renderJunction } from './pid-symbols.js';
 
 const content = await bootPage('pid');
@@ -241,9 +241,51 @@ function buildToolbar() {
     el('div.pid-zoom-level#zoom-level', { text: '100%' }),
     el('button.icon-btn.pid-zoom-ctl', { title: 'Zoom in (+)', text: '+', onclick: () => zoomByButton(1.2) }),
     el('button.icon-btn.pid-zoom-ctl', { title: 'Reset view (0)', html: icon('refresh', 15), onclick: resetView }),
-    el('button.icon-btn#pid-lock', { onclick: () => setLocked(!viewLocked) })
+    el('button.icon-btn#pid-lock', { onclick: () => setLocked(!viewLocked) }),
+    ...levelTareChips()
   ));
   setLocked(viewLocked);
+}
+
+/**
+ * Zero controls for the computed tank levels.
+ *
+ * Deliberately its own pair of chips rather than a row on the Data page's tare
+ * table: this zeroes the DIFFERENCE between a tank's two transducers, not
+ * either transducer, so it must not read as one more sensor tare. Nothing a
+ * bang-bang loop regulates on moves.
+ */
+function levelTareChips() {
+  if (!P.components.some((c) => c.type === 'tank' && c.level)) return [];
+  return [
+    el('button.tare-chip#pid-level-tare', {
+      title: 'Zero the tank levels against their current pressures.\n'
+        + 'Only the level readout moves — both PTs keep reporting what they do now.',
+      text: 'TARE LEVELS',
+      onclick: () => runLevelTare(false),
+    }),
+    el('button.tare-chip.clear.hidden#pid-level-untare', {
+      title: 'Clear the tank level zero',
+      text: 'CLR',
+      onclick: () => runLevelTare(true),
+    }),
+  ];
+}
+
+async function runLevelTare(clear) {
+  const res = await bus.tareTankLevels(undefined, { clear });
+  if (!res.ok) return;
+  toast(clear ? 'Tank level zero cleared' : `Tank levels zeroed — ${res.tared.join(', ')}`, 'ok');
+}
+
+/** Show the clear chip, and flag the tare chip, only while a zero is applied. */
+function updateLevelTareChips() {
+  const chip = $('#pid-level-tare');
+  if (!chip) return;
+  const tanks = P.components.filter((c) => c.type === 'tank' && c.level);
+  const tared = tanks.filter((c) => bus.tankLevelTare(c.id) !== 0);
+  chip.classList.toggle('on', tared.length > 0);
+  $('#pid-level-untare')?.classList.toggle('hidden', tared.length === 0);
 }
 
 function loadPref(key, fallback) {
@@ -262,6 +304,100 @@ function buildLegend() {
       el('span.lg', {}, el('i', { style: { background: f.color } }), f.label || key)
     )
   ));
+}
+
+// ------------------------------------------------------------ tank level --
+
+/** Configured tank height in inches — the column a full tank stands in. */
+function tankHeightIn() {
+  const h = Number(bus.config.ui?.tankLevel?.heightIn);
+  return Number.isFinite(h) && h > 0 ? h : 70;
+}
+
+/**
+ * The pressure at a tank's ullage, in psi.
+ *
+ * `topSensor` is a DAQ channel; `topController` is the bang-bang board's OWN
+ * transducer, reported over the heartbeat rather than sampled here. The board
+ * pressure is only trusted while the heartbeat is fresh — a stale reading held
+ * from before a fill would show a level that is pure fiction.
+ */
+function ullagePsi(level) {
+  if (level.topSensor) return bus.reading(level.topSensor);
+  if (!level.topController) return null;
+  const board = bus.state?.controllers?.[level.topController]?.board;
+  if (!board || board.stale) return null;
+  return Number.isFinite(board.pressure) ? board.pressure : null;
+}
+
+/**
+ * Liquid level in inches from the hydrostatic head between the tank bottom
+ * and the ullage, or null when the tank is not set up for it, the feature is
+ * switched off, or either pressure is missing.
+ *
+ *   dP[psi] = rho[lb/ft^3] * h[ft] / 144   ->   h[in] = 1728 * dP / rho
+ *
+ * The result is clamped to the tank: a small negative dP is transducer offset,
+ * not a tank below empty, and either way a bar cannot be drawn outside its
+ * vessel. Densities live in config because they are properties of the
+ * propellant, and a cryogen's changes with how cold it actually is.
+ */
+function tankLevelInches(comp) {
+  if (bus.config.ui?.tankLevel?.enabled === false) return null;
+  const level = comp.level;
+  if (!level) return null;
+
+  const rho = Number(level.density);
+  if (!Number.isFinite(rho) || rho <= 0) return null;
+
+  const bottom = level.bottomSensor ? bus.reading(level.bottomSensor) : null;
+  const top = ullagePsi(level);
+  if (!Number.isFinite(bottom) || !Number.isFinite(top)) return null;
+
+  const tare = bus.tankLevelTare(comp.id);
+  const inches = (1728 * (bottom - top - tare)) / rho;
+  // Smooth first, clamp second. Clamping into the filter would let an empty
+  // tank's noise pile up against the 0 rail and drift the average positive.
+  return Math.max(0, Math.min(tankHeightIn(), smoothLevel(comp.id, inches, tare)));
+}
+
+/**
+ * Heavy low-pass on the level, because the number behind it is a small
+ * difference between two large pressures.
+ *
+ * A 70 in column of IPA is about 2 psi. Two 1500 psi transducers each carrying
+ * a psi or so of noise therefore produce a level that swings tens of inches
+ * frame to frame — unreadable, and worse, it looks like the tank is doing it.
+ * The time constant is long on purpose: a fill takes tens of seconds, so
+ * several seconds of lag costs nothing an operator was going to act on.
+ *
+ * Exponential with a dt-derived weight rather than a fixed one, so the lag
+ * stays the configured number of SECONDS whatever rate the stream runs at.
+ */
+const levelFilter = new Map();   // tank id -> { v, t, tare }
+
+function smoothingSeconds() {
+  const s = Number(bus.config.ui?.tankLevel?.smoothingSeconds);
+  return Number.isFinite(s) && s >= 0 ? s : 5;
+}
+
+function smoothLevel(id, raw, tare) {
+  const now = bus.state?.t ?? Date.now();
+  const tau = smoothingSeconds();
+  const prev = levelFilter.get(id);
+
+  // A tare is an instruction to call this level zero NOW. Gliding to the new
+  // zero over the time constant would leave the operator watching the number
+  // they just corrected creep down for the next several seconds.
+  if (!prev || tau <= 0 || prev.tare !== tare) {
+    levelFilter.set(id, { v: raw, t: now, tare });
+    return raw;
+  }
+
+  const dt = Math.max(0, (now - prev.t) / 1000);
+  const v = prev.v + (1 - Math.exp(-dt / tau)) * (raw - prev.v);
+  levelFilter.set(id, { v, t: now, tare });
+  return v;
 }
 
 // ----------------------------------------------------------------- update --
@@ -306,6 +442,7 @@ function update() {
   }
 
   updateInstruments();
+  updateLevelTareChips();
 }
 
 /**
@@ -357,12 +494,27 @@ function updateInstruments() {
 
   // --- tank levels ---
   for (const comp of P.components) {
-    if (comp.type !== 'tank' || !comp.levelSensor) continue;
+    if (comp.type !== 'tank') continue;
     const rect = document.getElementById(`level-${comp.id}`);
+    const text = document.getElementById(`tanklevel-${comp.id}`);
     if (!rect) continue;
-    const value = bus.reading(comp.levelSensor) ?? 0;
-    const frac = Math.max(0, Math.min(1, value / (comp.levelMax || 100)));
     const h = comp.h ?? 220;
+
+    // Differential pressure wins when it is configured and enabled: it is a
+    // direct measurement of the liquid column, where levelSensor is whatever
+    // proxy the tank happened to have.
+    const inches = tankLevelInches(comp);
+    let frac;
+    if (inches !== null) {
+      frac = Math.max(0, Math.min(1, inches / tankHeightIn()));
+      if (text) text.textContent = `${inches.toFixed(1)} in`;
+    } else {
+      if (text) text.textContent = '';
+      if (!comp.levelSensor) continue;
+      const value = bus.reading(comp.levelSensor) ?? 0;
+      frac = Math.max(0, Math.min(1, value / (comp.levelMax || 100)));
+    }
+
     const fillH = frac * h;
     rect.setAttribute('y', String(h / 2 - fillH));
     rect.setAttribute('height', String(fillH));

@@ -304,6 +304,16 @@
 /* Sits between the tag and the status dot. Quiet until a channel is actually
    zeroed, then it carries the offset — a tared channel reading 0 psi looks
    exactly like an untared one, so the offset has to be on the face of it. */
+/* Measured link rate, inside its link chip. Quieter than the LIVE/age text
+   beside it: the chip's first job is still to say whether the link is up. */
+.chip-rate {
+  margin-left: 5px;
+  padding-left: 5px;
+  border-left: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+  font-variant-numeric: tabular-nums;
+  opacity: .72;
+}
+
 .tare-chip {
   margin-left: auto;
   padding: 1px 6px;

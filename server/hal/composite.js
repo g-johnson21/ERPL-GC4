@@ -218,6 +218,11 @@ export class CompositeDriver {
         required: dev.required !== false,
         failed: Boolean(dev.failed),
         lastRxAt: s.lastRxAt ?? 0,
+        // Measured receive rate, where the device reports one. Absent on
+        // devices that do not measure it, and the header simply omits it.
+        rxSampleHz: s.rxSampleHz ?? null,
+        rxFrameHz: s.rxFrameHz ?? null,
+        sampleClockHz: s.sampleClockHz ?? null,
         detail: s.detail,
       });
       lastRxAt = Math.max(lastRxAt, s.lastRxAt ?? 0);

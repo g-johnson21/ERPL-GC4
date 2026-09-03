@@ -191,7 +191,10 @@ const SYMBOLS = {
       }),
       svgEl('path', { d: body, class: 'sym-vessel-stroke' }),
       // Upper dish line, so the tank reads as a pressure vessel not a box.
-      svgEl('path', { d: `M${-hw},${-hh + cap} A${hw},${cap} 0 0 0 ${hw},${-hh + cap}`, class: 'sym-line-thin', fill: 'none' })
+      svgEl('path', { d: `M${-hw},${-hh + cap} A${hw},${cap} 0 0 0 ${hw},${-hh + cap}`, class: 'sym-line-thin', fill: 'none' }),
+      // Differential-pressure fill level, painted over the liquid. Hidden
+      // until page-pid.js has a number to put in it.
+      svgText('', { id: `tanklevel-${c.id}`, x: 0, y: 6, class: 'sym-tank-level', 'text-anchor': 'middle' })
     );
   },
 

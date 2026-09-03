@@ -705,6 +705,7 @@ function generalTab() {
   const tel = draft.telemetry ??= {};
   const safety = draft.safety ??= {};
   const meta = draft.meta ??= {};
+  const tankLevel = ui.tankLevel ??= {};
 
   return el('div.card', {},
     el('h3', { text: 'General settings' }),
@@ -723,11 +724,19 @@ function generalTab() {
       textField('Recording directory', rec.directory, (v) => { rec.directory = v; markDirty(); }),
       textField('Default test name', rec.defaultTestName, (v) => { rec.defaultTestName = v; markDirty(); }),
       numberField('Auto-disarm after (s, 0 = never)', safety.autoDisarmAfterSeconds,
-        (v) => { safety.autoDisarmAfterSeconds = v; markDirty(); }, false, 0)
+        (v) => { safety.autoDisarmAfterSeconds = v; markDirty(); }, false, 0),
+      numberField('Tank height (in)', tankLevel.heightIn ?? 70,
+        (v) => { tankLevel.heightIn = v; markDirty(); }, false, 1, 500),
+      numberField('Tank level smoothing (s)', tankLevel.smoothingSeconds ?? 5,
+        (v) => { tankLevel.smoothingSeconds = v; markDirty(); }, false, 0, 120)
     ),
     el('div.toggle-row', { style: { marginTop: '12px' } },
       toggleField('Require ARM to actuate', safety.requireArmToActuate !== false,
-        (v) => { safety.requireArmToActuate = v; markDirty(); })
+        (v) => { safety.requireArmToActuate = v; markDirty(); }),
+      toggleField('Show tank fill level on P&ID', tankLevel.enabled !== false,
+        (v) => { tankLevel.enabled = v; markDirty(); }),
+      toggleField('Hold SHIFT to enable a valve', ui.requireShiftToActuate !== false,
+        (v) => { ui.requireShiftToActuate = v; markDirty(); })
     )
   );
 }

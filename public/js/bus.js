@@ -178,6 +178,12 @@ class Bus {
   /** Zero sensors against their current reading; `clear` restores them. */
   tareSensors(sensors, { clear = false } = {}) { return this.post('/api/tare', { sensors, clear }); }
   tareKind(kind, { clear = false } = {}) { return this.post('/api/tare', { kind, clear }); }
+  /** Zero the P&ID tank levels. Separate from sensor tares — see state.js. */
+  tareTankLevels(tanks, { clear = false } = {}) {
+    return this.post('/api/tank-level/tare', { tanks, clear });
+  }
+  /** psi currently subtracted from one tank's head, 0 when untared. */
+  tankLevelTare(id) { return Number(this.state?.tankLevelTares?.[id]) || 0; }
   setController(id, patch) { return this.post('/api/controller', { id, ...patch }); }
   startSequence(id) { return this.post('/api/sequence/start', { id }); }
   stopSequence() { return this.post('/api/sequence/stop'); }

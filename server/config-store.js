@@ -380,10 +380,38 @@ export function validateConfig(c) {
     }
   }
 
+  const controllerIds = new Set((c.bangbang || []).map((b) => b.id));
   for (const [i, comp] of (c.pid?.components || []).entries()) {
     if (comp.levelSensor && !sensorIds.has(comp.levelSensor)) {
       err(`pid.components[${i}]: levelSensor "${comp.levelSensor}" is not a defined sensor`);
     }
+    const lvl = comp.level;
+    if (!lvl) continue;
+    const where = `pid.components[${i}] (${comp.id})`;
+    if (!sensorIds.has(lvl.bottomSensor)) {
+      err(`${where}: level.bottomSensor "${lvl.bottomSensor}" is not a defined sensor`);
+    }
+    // Exactly one ullage source: a DAQ channel, or the bang-bang board's own
+    // transducer. Two would leave the reading depending on which the client
+    // happened to prefer.
+    const tops = [lvl.topSensor, lvl.topController].filter((v) => v != null).length;
+    if (tops !== 1) {
+      err(`${where}: level needs exactly one of topSensor or topController`);
+    }
+    if (lvl.topSensor != null && !sensorIds.has(lvl.topSensor)) {
+      err(`${where}: level.topSensor "${lvl.topSensor}" is not a defined sensor`);
+    }
+    if (lvl.topController != null && !controllerIds.has(lvl.topController)) {
+      err(`${where}: level.topController "${lvl.topController}" is not a defined bang-bang controller`);
+    }
+    if (!Number.isFinite(Number(lvl.density)) || Number(lvl.density) <= 0) {
+      err(`${where}: level.density must be a positive number (lb/ft^3)`);
+    }
+  }
+
+  const heightIn = c.ui?.tankLevel?.heightIn;
+  if (heightIn != null && (!Number.isFinite(Number(heightIn)) || Number(heightIn) <= 0)) {
+    err('ui.tankLevel.heightIn must be a positive number of inches');
   }
 
   return errors;

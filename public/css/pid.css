@@ -32,6 +32,11 @@
   padding: 4px;
   backdrop-filter: blur(6px);
 }
+.pid-toolbar .tare-chip {
+  margin-left: 0;
+  align-self: stretch;
+  padding: 0 8px;
+}
 .pid-zoom-level {
   display: grid;
   place-items: center;
@@ -115,6 +120,19 @@
 .sym-level {
   transition: y .25s linear, height .25s linear;
   opacity: .38;
+}
+.sym-tank-level {
+  fill: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .02em;
+  /* Painted over the liquid fill, so it carries its own halo — the fill
+     colour changes with the fluid and cannot be relied on for contrast. */
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 3px;
+  stroke-linejoin: round;
 }
 .sym-glyph {
   fill: var(--text);

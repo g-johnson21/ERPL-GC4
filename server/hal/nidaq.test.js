@@ -173,3 +173,96 @@ test('sensorForLabel is the exact inverse of channelForSensor', () => {
   assert.equal(d.sensorForLabel('pt15'), 'pt15', 'unmapped falls back to the label');
   assert.equal(d.sensorForLabel('garbage'), 'garbage');
 });
+
+// ------------------------------------------------------- measured rx rate --
+
+/**
+ * Feed frames at a fixed spacing, controlling the clock the driver stamps
+ * them with. `noteRx` reads `lastRxAt`, so setting it directly is the whole
+ * of the time travel needed — no fake timers.
+ */
+function feed(driver, { startMs, count, periodMs, samples }) {
+  for (let i = 0; i < count; i++) {
+    driver.lastRxAt = startMs + i * periodMs;
+    driver.noteRx({ channels: [{ samples: new Array(samples).fill(0) }] });
+  }
+}
+
+test('the receive rate is measured from arrivals, not from the configured clock', () => {
+  const d = makeDriver();
+  // 10 frames/s carrying 10 samples each — a 100 Hz sample clock, keeping up.
+  feed(d, { startMs: 1_000_000, count: 21, periodMs: 100, samples: 10 });
+
+  const rx = d.rxRates();
+  assert.equal(rx.frameHz, 10);
+  assert.equal(rx.sampleHz, 100);
+});
+
+test('a link running at half rate reports half, not the nameplate', () => {
+  const d = makeDriver();
+  d.performance = { sample_rate_hz: 100 };
+  feed(d, { startMs: 1_000_000, count: 11, periodMs: 200, samples: 10 });
+
+  d.connected = true;
+  const status = d.status;
+  assert.equal(status.rxSampleHz, 50);
+  assert.equal(status.rxFrameHz, 5);
+  // The configured clock is still reported, so the header can name the gap.
+  assert.equal(status.sampleClockHz, 100);
+});
+
+test('short reads lower the rate, because that is what a starved DAQ does', () => {
+  const d = makeDriver();
+  // Frames arrive on time but carry 4 samples instead of 10.
+  feed(d, { startMs: 1_000_000, count: 21, periodMs: 100, samples: 4 });
+
+  const rx = d.rxRates();
+  assert.equal(rx.frameHz, 10);
+  assert.equal(rx.sampleHz, 40);
+});
+
+test('the sample count comes from the longest channel in the frame', () => {
+  const d = makeDriver();
+  // Thermocouples report one sample per frame beside PTs reporting ten.
+  // Taking the shortest would report the stand as running at a tenth rate.
+  for (let i = 0; i < 21; i++) {
+    d.lastRxAt = 1_000_000 + i * 100;
+    d.noteRx({ channels: [
+      { card: 'tc', samples: [0] },
+      { card: 'pt', samples: new Array(10).fill(0) },
+    ] });
+  }
+  assert.equal(d.rxRates().sampleHz, 100);
+});
+
+test('the window forgets old frames, so a rate that drops is seen dropping', () => {
+  const d = makeDriver();
+  feed(d, { startMs: 1_000_000, count: 21, periodMs: 100, samples: 10 });
+  assert.equal(d.rxRates().sampleHz, 100);
+
+  // Ten seconds later the link comes back at a quarter rate. The earlier
+  // fast frames are long outside the window and must not prop the number up.
+  feed(d, { startMs: 1_011_000, count: 13, periodMs: 400, samples: 10 });
+  assert.equal(d.rxRates().sampleHz, 25);
+});
+
+test('no rate is claimed from a single frame', () => {
+  const d = makeDriver();
+  feed(d, { startMs: 1_000_000, count: 1, periodMs: 100, samples: 10 });
+  assert.equal(d.rxRates(), null);
+
+  // Nor from a span too short to divide by without amplifying the jitter.
+  feed(d, { startMs: 1_000_100, count: 2, periodMs: 100, samples: 10 });
+  assert.equal(d.rxRates(), null);
+});
+
+test('a disconnected device reports no rate at all', () => {
+  const d = makeDriver();
+  feed(d, { startMs: 1_000_000, count: 21, periodMs: 100, samples: 10 });
+  d.connected = false;
+
+  // The last measurement is still in the window, but printing it beside
+  // "NO LINK" would be a rate for a link that is not delivering anything.
+  assert.equal(d.status.rxSampleHz, null);
+  assert.equal(d.status.rxFrameHz, null);
+});

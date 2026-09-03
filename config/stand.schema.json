@@ -131,6 +131,30 @@
               }
             }
           }
+        },
+        "tankLevel": {
+          "type": "object",
+          "description": "P&ID tank fill level estimated from the hydrostatic head between a tank-bottom PT and the ullage PT. Display only.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Show the computed level on the P&ID. When false, tank fills fall back to levelSensor."
+            },
+            "heightIn": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Height of the propellant tanks in inches; a full tank. Levels are clamped to it."
+            },
+            "smoothingSeconds": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Time constant of the exponential filter on the level, in seconds. The level is a small difference between two large pressures, so it needs heavy smoothing to be readable; 0 disables it."
+            }
+          }
+        },
+        "requireShiftToActuate": {
+          "type": "boolean",
+          "description": "Require SHIFT to be held for any click that moves the stand away from safe (open a valve, enable a controller, start a sequence). Default true. A slip guard in the browser only — the server interlocks are unaffected either way."
         }
       }
     },
@@ -880,6 +904,33 @@
               "srcDark": {
                 "type": "string",
                 "description": "logo only: image URL used in the dark theme."
+              },
+              "level": {
+                "type": "object",
+                "description": "tank: differential-pressure level estimate. h[in] = 1728 * (bottom - top)[psi] / density[lb/ft^3], clamped to ui.tankLevel.heightIn.",
+                "required": [
+                  "bottomSensor",
+                  "density"
+                ],
+                "properties": {
+                  "bottomSensor": {
+                    "type": "string",
+                    "description": "Sensor id reading pressure at the tank bottom (liquid head + ullage)."
+                  },
+                  "topSensor": {
+                    "type": "string",
+                    "description": "Sensor id reading ullage pressure. Mutually exclusive with topController."
+                  },
+                  "topController": {
+                    "type": "string",
+                    "description": "Bang-bang controller id whose BOARD transducer reads ullage pressure — used when the ullage PT is on the panda board rather than the DAQ. Ignored while the heartbeat is stale."
+                  },
+                  "density": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "description": "Propellant density in lb/ft^3 at expected conditions (LOX ~71.2, IPA ~49.1)."
+                  }
+                }
               }
             }
           }

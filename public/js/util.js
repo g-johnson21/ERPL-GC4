@@ -306,10 +306,24 @@ export function promptAction({ title, message, label, value = '', confirmLabel =
  * (make it stop) never costs a modifier.
  *
  * This is a slip guard, not an interlock. The real rules live on the server,
- * which cannot see a keyboard.
+ * which cannot see a keyboard. Turning it off in the config therefore weakens
+ * nothing the server enforces — it only removes the extra key a bench operator
+ * has to hold while cycling valves all afternoon.
  */
+let shiftRequired = true;
+
+/**
+ * Set by bootPage from ui.requireShiftToActuate, once config has loaded.
+ *
+ * A setter rather than reading the bus here: bus.js imports this module, and
+ * importing it back would close an import cycle around the toast helper.
+ */
+export function setShiftRequired(required) {
+  shiftRequired = required !== false;
+}
+
 export function shiftGate(event, action) {
-  if (event?.shiftKey) return true;
+  if (!shiftRequired || event?.shiftKey) return true;
   toast(`Hold SHIFT and click to ${action}`, 'warn', 2400);
   return false;
 }
