@@ -235,3 +235,136 @@ test('a non-bang-bang line is not consumed', () => {
   assert.equal(b.fw.command('p0.71,0.69'), false);
   assert.equal(b.fw.command('bL1'), true);
 });
+
+// ------------------------------------------------------------- PT tare ---
+
+test('TL zeroes the side against its current reading', () => {
+  const b = board();
+  b.fw.update({ l: 12.5, f: 30.0 }, 100);
+  b.fw.command('TL');
+  b.fw.update({ l: 12.5, f: 30.0 }, 200);
+
+  assert.equal(b.fw.sides.l.pressure, 0, 'the tared side reads zero at the pressure it was zeroed at');
+  assert.equal(b.fw.sides.f.pressure, 30.0, 'the other side is untouched');
+});
+
+test('the offset persists, so the tared side tracks CHANGES from the zero', () => {
+  const b = board();
+  b.fw.update({ l: 12.5 }, 100);
+  b.fw.command('TL');
+  b.fw.update({ l: 112.5 }, 200);
+  assert.equal(b.fw.sides.l.pressure, 100, '100 psi above the zero reads as 100');
+});
+
+test('the regulator runs on the TARED pressure, not the raw one', () => {
+  // The whole reason the offset is applied on the way in. A board that
+  // regulated on raw and reported tared would hold the wrong pressure and
+  // look correct doing it.
+  const b = board();
+  b.fw.update({ l: 50 }, 100);
+  b.fw.command('TL');                       // zero at 50: raw 50 now reads 0
+  b.start();                                // setpoint 100 +/- 10
+  b.fw.update({ l: 105 }, 200);             // raw 105 -> tared 55, well below the band
+  assert.equal(b.fw.sides.l.press, true, 'still filling: tared 55 is under the 90 psi band floor');
+
+  b.fw.update({ l: 165 }, 300);             // raw 165 -> tared 115, above the band
+  assert.equal(b.fw.sides.l.press, false, 'stopped: tared 115 is over the 110 psi band ceiling');
+});
+
+test('an explicit offset sets the zero without needing a reading', () => {
+  const b = board();
+  b.fw.command('T0,20.0');
+  b.fw.update({ l: 50 }, 100);
+  assert.equal(b.fw.sides.l.pressure, 30);
+});
+
+test('Tz clears both channels at once', () => {
+  const b = board();
+  b.fw.update({ l: 10, f: 20 }, 100);
+  b.fw.command('TL');
+  b.fw.command('TF');
+  b.fw.command('Tz');
+  b.fw.update({ l: 10, f: 20 }, 200);
+  assert.equal(b.fw.sides.l.pressure, 10);
+  assert.equal(b.fw.sides.f.pressure, 20);
+});
+
+test('taring with no reading yet is refused, not silently zeroed', () => {
+  // The failure an operator hits by taring before the board has data. A tare
+  // that quietly did nothing would leave them believing a zero was applied.
+  const b = board();
+  b.fw.command('TL');
+  assert.ok(b.lines.includes('PT_ERROR:no_data'), 'the board must say why');
+  assert.equal(b.fw.sides.l.ptOffset, 0, 'and must not have moved the offset');
+  assert.equal(parseLine('PT_ERROR:no_data').kind, 'error');
+});
+
+test('a successful tare is announced as a PT_TARE event', () => {
+  const b = board();
+  b.fw.update({ l: 12.5 }, 100);
+  b.fw.command('TL');
+
+  const evt = b.lines.map(parseLine).find((m) => m.category === 'PT_TARE');
+  assert.ok(evt, 'success has to be confirmed, or GC cannot tell it from a dropped byte');
+  assert.equal(evt.side, 'l');
+  assert.equal(evt.detail, '12.5');
+});
+
+test('predictive shutoff is refused unless the board is armed', () => {
+  const b = board();
+  b.fw.command('eL1');
+
+  assert.ok(b.lines.some((l) => l.startsWith('BB_ERROR:')), 'a disarmed board must reject it');
+  assert.equal(b.fw.sides.l.predictive, false, 'and must not have stored it');
+});
+
+test('an armed board accepts predictive shutoff on both sides', () => {
+  const b = board();
+  b.fw.setArmed(true);
+  b.fw.command('eL1');
+  b.fw.command('eF1');
+
+  assert.equal(b.fw.sides.l.predictive, true);
+  assert.equal(b.fw.sides.f.predictive, true);
+  assert.equal(b.lines.filter((l) => l.startsWith('BB_ERROR:')).length, 0);
+});
+
+test('predictive shutoff can be turned OFF while disarmed', () => {
+  // The asymmetry the host depends on: the safe direction is never gated, so
+  // a board can always be put back to its default even after the arm latch
+  // has dropped.
+  const b = board();
+  b.fw.setArmed(true);
+  b.fw.command('eL1');
+  b.fw.setArmed(false);
+  b.lines.length = 0;
+
+  b.fw.command('eL0');
+  assert.equal(b.fw.sides.l.predictive, false);
+  assert.equal(b.lines.filter((l) => l.startsWith('BB_ERROR:')).length, 0, 'disabling is never refused');
+});
+
+test('disarming clears predictive shutoff on both sides', () => {
+  const b = board();
+  b.fw.setArmed(true);
+  b.fw.command('eL1');
+  b.fw.command('eF1');
+
+  b.fw.setArmed(false);
+  assert.equal(b.fw.sides.l.predictive, false);
+  assert.equal(b.fw.sides.f.predictive, false);
+
+  // And it stays cleared: re-enabling needs a deliberate command after ARM,
+  // never a side effect of arming.
+  b.fw.setArmed(true);
+  assert.equal(b.fw.sides.l.predictive, false);
+});
+
+test('forceSafe clears predictive shutoff', () => {
+  const b = board();
+  b.fw.setArmed(true);
+  b.fw.command('eL1');
+
+  b.fw.forceSafe(1000);
+  assert.equal(b.fw.sides.l.predictive, false, 'the abort path leaves the board at its defaults');
+});

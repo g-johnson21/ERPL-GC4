@@ -16,8 +16,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   encodeConfig, encodeVent, encodeMdot, encodeEnable, encodeManualVent, encodeAbort,
+  encodePredictive,
   encodeHeartbeat, encodeCfgPush,
-  parseLine, parseHeartbeat, parseCfgPush, parseCommand,
+  encodePtTare, encodePtTareClear, encodePtOffset,
+  parseLine, parseHeartbeat, parseCfgPush, parseCommand, parsePtTare,
   commandSide, heartbeatSide,
 } from './bb-protocol.js';
 
@@ -239,3 +241,108 @@ test('a malformed LINK: line is rejected rather than read as armed', () => {
   }
 });
 
+// ------------------------------------------------------------- PT tare ---
+//
+// Four commands in one verb with two different ways of naming a channel:
+// `TL`/`TF` by side, `T0,`/`T1,` by number, and `Tz` by neither. The decoder
+// has to reach all four without the side lookup that every other command
+// starts with.
+
+test('PT tare encodes by side', () => {
+  assert.equal(encodePtTare('L'), 'TL');
+  assert.equal(encodePtTare('F'), 'TF');
+  assert.equal(encodePtTare('l'), 'TL');      // normalised to the command case
+});
+
+test('PT tare clear is the bare Tz, with no side', () => {
+  assert.equal(encodePtTareClear(), 'Tz');
+});
+
+test('an explicit offset maps the side to the board channel number', () => {
+  // LOX is channel 0 and fuel is channel 1. Callers speak sides everywhere
+  // else in this module, so getting this backwards would zero the wrong tank.
+  assert.equal(encodePtOffset('L', 12.5), 'T0,12.5');
+  assert.equal(encodePtOffset('F', 12.5), 'T1,12.5');
+  assert.equal(encodePtOffset('L', 0), 'T0,0.0');
+  assert.equal(encodePtOffset('F', -3.25), 'T1,-3.3');   // %.1f, like every psi
+});
+
+test('an unknown side is refused rather than encoded', () => {
+  for (const bad of ['', 'X', 'z', '0', null]) {
+    assert.throws(() => encodePtTare(bad), /side/i, `encodePtTare(${bad})`);
+    assert.throws(() => encodePtOffset(bad, 1), /side/i, `encodePtOffset(${bad})`);
+  }
+});
+
+test('every PT command round-trips through the decoder', () => {
+  assert.deepEqual(parseCommand('TL'), { kind: 'ptTare', side: 'L' });
+  assert.deepEqual(parseCommand('TF'), { kind: 'ptTare', side: 'F' });
+  assert.deepEqual(parseCommand('Tz'), { kind: 'ptTareClear' });
+  assert.deepEqual(parseCommand('T0,12.5'), { kind: 'ptOffset', side: 'L', channel: 0, offset: 12.5 });
+  assert.deepEqual(parseCommand('T1,-3.3'), { kind: 'ptOffset', side: 'F', channel: 1, offset: -3.3 });
+  assert.deepEqual(parseCommand(encodePtOffset('F', 0)), { kind: 'ptOffset', side: 'F', channel: 1, offset: 0 });
+});
+
+test('a malformed T command decodes to nothing, not to a tare', () => {
+  // The direction that matters: a garbled line must never come back as a
+  // command to zero a transducer the regulator is running on.
+  for (const bad of ['T', 'TX', 'T2,5', 'T0', 'T0,', 'T,5', 'TZZ', 'T0,abc', 'Tz,1']) {
+    assert.equal(parseCommand(bad), null, `"${bad}" should not decode`);
+  }
+});
+
+test('PT_ERROR is classified as an error, not swallowed as telemetry', () => {
+  // It has no comma and does not start with a digit, so before it was added
+  // to the error prefixes it fell all the way through to "unknown" and was
+  // logged at info level — a refused tare that looked like chatter.
+  for (const line of ['PT_ERROR:no_data', 'PT_ERROR:parse']) {
+    assert.equal(parseLine(line).kind, 'error');
+    assert.equal(parseLine(line).message, line);
+  }
+});
+
+test('a PT_TARE event parses as an event, keeping its category', () => {
+  const msg = parseLine('EVT:1234:PT_TARE:l:12.5');
+  assert.equal(msg.kind, 'event');
+  assert.equal(msg.category, 'PT_TARE');
+  assert.equal(msg.side, 'l');
+  assert.equal(msg.detail, '12.5');
+});
+
+test('the PT_TARE detail parser accepts both plausible shapes, and neither blindly', () => {
+  // The firmware note does not say what the detail carries, so this reads
+  // k=v pairs and bare numbers-in-channel-order, and returns nothing at all
+  // rather than a guess when it recognises neither.
+  assert.deepEqual(parsePtTare('L=12.5,F=-3.0'), { L: 12.5, F: -3 });
+  assert.deepEqual(parsePtTare('0=12.5,1=-3.0'), { L: 12.5, F: -3 });
+  assert.deepEqual(parsePtTare('12.5,-3.0'), { L: 12.5, F: -3 });
+  assert.deepEqual(parsePtTare(''), {});
+  assert.deepEqual(parsePtTare('ok'), {});
+  assert.deepEqual(parsePtTare('saved to eeprom'), {});
+});
+
+test('predictive shutoff encodes as e<side><0|1>', () => {
+  assert.equal(encodePredictive('L', true), 'eL1');
+  assert.equal(encodePredictive('F', false), 'eF0');
+  // Lowercase verb: it actuates a board behaviour rather than storing a
+  // configured number, so it belongs with b/v/x and not with B/V/M.
+  assert.equal(encodePredictive('l', true)[0], 'e', 'the verb stays lowercase whatever case the side arrives in');
+  assert.equal(encodePredictive('f', true), 'eF1', 'the side is upper-cased into command form');
+  assert.throws(() => encodePredictive('X', true), /side must be/);
+});
+
+test('predictive shutoff round-trips through parseCommand', () => {
+  assert.deepEqual(parseCommand(encodePredictive('L', true)), { kind: 'predictive', side: 'L', on: true });
+  assert.deepEqual(parseCommand(encodePredictive('F', false)), { kind: 'predictive', side: 'F', on: false });
+});
+
+test('a malformed predictive command is rejected rather than defaulted', () => {
+  // Anything but an exact 0 or 1 is null. Reading a garbled argument as
+  // "enable" would turn on a valve behaviour nobody asked for; reading it as
+  // "disable" would silently drop one someone did.
+  assert.equal(parseCommand('eL'), null, 'no argument');
+  assert.equal(parseCommand('eL2'), null, 'out of range');
+  assert.equal(parseCommand('eL01'), null, 'trailing junk');
+  assert.equal(parseCommand('eX1'), null, 'unknown side');
+  assert.equal(parseCommand('EL1'), null, 'uppercase E is not this command');
+});

@@ -544,6 +544,10 @@
           "ventAuto": {
             "type": "boolean",
             "description": "BOARD-SIDE. Arms the board's automatic venting at ventTrigger. Requires ventTrigger."
+          },
+          "predictive": {
+            "type": "boolean",
+            "description": "BOARD-SIDE. Predictive valve shutoff (e<side><0|1>): the board closes the press valve on the predicted overshoot rather than on the band edge. Enabling it requires the stand ARMED, so a true here is the power-on preference, not a guarantee — it is pushed when the operator toggles it, never re-asserted silently."
           }
         }
       }

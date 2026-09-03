@@ -127,19 +127,27 @@ a full-height column, and the cards are sized so the longest column fills the
 viewport exactly. During a test an operator reads this page at a glance, and a
 channel one flick of a scroll wheel away is a channel nobody is watching.
 
+That holds until a group has more channels than the screen has room for at a
+readable card size — Draco's eight thermocouples need about 830 px of height,
+so on a 1280x720 laptop this page now scrolls by roughly 160 px. It scrolls
+rather than clipping: a channel you have to reach for is bad, and a channel
+silently off the bottom edge of the screen that claims to show every channel is
+much worse. Widen the window, or use the Table view, and it fits again.
+
 Groups come from `sensorGroups` in the config, so the Draco stand reads as
-**LOX**, **Fuel**, **Pneumatic & Purge**, **Load Cells** and **Thermocouples**
-rather than one undifferentiated wall of pressure transducers. Each column's
-colour runs down the left edge of its cards — blue for LOX, red for fuel — and
-the venturi channels sit with the propellant run they measure rather than in a
-category of their own. Alarm state repaints the rest of the card's border but
-never that stripe: which system a channel belongs to does not change because it
-went out of range.
+**LOX**, **Fuel**, **Misc**, **Load Cells** and **Thermocouples** rather than
+one undifferentiated wall of pressure transducers. **Misc** is the channels
+that belong to no propellant leg — the muscle and purge buses, and chamber
+pressure. Each column's colour runs down the left edge of its cards — blue for
+LOX, red for fuel — and the venturi channels sit with the propellant run they
+measure rather than in a category of their own. Alarm state repaints the rest of
+the card's border but never that stripe: which system a channel belongs to does
+not change because it went out of range.
 
 Each card carries, in this order:
 
 - the **sensor's name**, the largest and boldest thing on it — that is what you
-  scan for on a wall of twenty-two cards;
+  scan for on a wall of twenty-seven cards;
 - the **tag** and hardware channel below it, in monospace, to confirm what you
   found — and beside them the **window min and max**, so the peak a channel hit
   during the last ramp is on the face of the card rather than in a tooltip;
@@ -318,6 +326,7 @@ that fails open.
 | **Dwell** (ms) | board | `wait_ms`, the board's minimum dwell between valve transitions. `0` = none |
 | **Auto-vent at** | board | The `V` command's trigger. Pressure at which the board enters `AV` and vents. Empty = no vent config pushed |
 | **Board may auto-vent** | board | Arms that trigger. Off by default — venting a tank is not something to start doing because a field was left unset |
+| **Predictive valve shutoff** | board | `e<side><0/1>`. The board closes the press valve on the predicted overshoot rather than at the band edge. Off by default; **requires ARM** — see below |
 | **Leak trip** (s) | ground | The board reporting its press valve open this long without reaching setpoint tells the board to stop. `0` = no trip |
 | **Abort above** | ground | *Either* transducer above this latches a stand-wide ABORT and aborts the side. Empty = no threshold |
 
@@ -363,6 +372,75 @@ While a side is live, **manual commands to its valves are refused**, with the
 controller named in the error. Taring its sensor is refused too.
 
 Autosequence `bangbang` steps can set the same fields, plus `vent` and `abort`.
+They deliberately **cannot** tare the board's transducer — see below.
+
+#### Zeroing the board's own transducer
+
+The **TARE** chip on the line that reads `board PT → SV-LOXBB` zeroes the
+transducer *the regulator runs on*. That is a different sensor from the DAQ
+channel shown under it, and from everything the [Data page tares](#taring): the
+board owns it, the board's loop acts on it, and the board keeps the offset in
+its own EEPROM — so it survives a board reset and a GC restart, and GC never
+re-asserts one at startup. Once an offset is applied the chip carries it
+(`−12.4`) and grows a **✕** that clears just that side.
+
+> **A live side refuses to be zeroed.** Telling the loop its tank is at ambient
+> when it is at 450 psi makes the board press to setpoint on top of the 450
+> already in there — it has no other way to know. The control is unavailable
+> while that side is regulating, and the server refuses it regardless of what
+> the browser thinks. A running sequence blocks it too, for the same reason a
+> DAQ tare is blocked then.
+
+On the wire (`bb-protocol.js`):
+
+| Command | Effect |
+|---|---|
+| `TL` / `TF` | Zero that side against its current reading |
+| `Tz` | Clear **both** channels |
+| `T0,<psi>` / `T1,<psi>` | Set one channel's offset explicitly |
+
+Two spellings for the same two channels — `L`/`F` by side, `0`/`1` by number —
+so the decoder reaches the `T` family *before* the side lookup every other
+command starts with, or `Tz` and `T0,` are rejected on their `z` and `0`.
+
+The per-side ✕ sends `T0,0` rather than `Tz`: clearing the fuel side's zero
+because someone re-did the LOX side is not what that button says it does.
+
+The board answers `EVT:…:PT_TARE:…` on success and `PT_ERROR:no_data` /
+`PT_ERROR:parse` on failure. `PT_ERROR` is routed away from the bang-bang
+error path — a refused tare is not a rejected regulator command, and painting
+it onto whichever controller was mid-handshake sends the operator to the wrong
+panel.
+
+#### Predictive valve shutoff
+
+The switch at the bottom of *Limits & trips* asks the board to close the press
+valve early, on where the pressure is **headed** rather than where it is, so the
+rise after the valve shuts lands inside the band instead of above it. It runs
+entirely on the board; GC only turns it on and off.
+
+> **Enabling it requires the stand ARMED.** The board refuses `e<side>1`
+> otherwise, and the refusal would arrive as a `BB_ERROR` line seconds later —
+> after the operator had already watched the switch move. So the server refuses
+> it first, and the control is unavailable while disarmed. **Turning it off is
+> never gated**: not on ARM, not on the loop being live, not on a running
+> sequence. The safe direction never is.
+
+A disarm turns it off explicitly rather than assuming the board did. The
+firmware almost certainly clears it with the arm latch, but "almost certainly"
+would leave GC displaying a setting it can neither verify nor restore —
+`e<side>1` is refused once disarmed, so that is the last moment the board can be
+put into a state the ground station knows. Re-arming does **not** bring it back:
+a regulation change that reappeared as a side effect of arming is exactly the
+kind of surprise this panel exists to avoid.
+
+**It is write-only.** There is no `B` field for it and no `CFG_PUSH` echo key,
+so unlike the setpoint and the deadband the board's actual setting cannot be
+read back. What the card shows is what GC last commanded, and nothing stronger.
+
+`predictive: true` in a `stand.json` controller is a power-on *preference*, not
+a guarantee — it seeds the switch, and the command still goes out only when the
+operator flips it with the stand armed.
 
 #### Unverified against hardware
 
@@ -381,6 +459,13 @@ in the code where they bite. **Check them against firmware before a hot fire.**
 - **`rho`** is sent in the `M` command but has no `CFG_PUSH` echo key, so the
   density the board is using cannot be verified from the ground.
 - **Abort recovery.** Assumed to need a power cycle or a disarm/rearm.
+- **The `PT_TARE` detail format.** The firmware confirms a tare with
+  `EVT:…:PT_TARE:…` but the payload's shape is not documented. The parser
+  accepts `k=v` pairs and bare comma-separated numbers in channel order, and
+  returns nothing rather than guessing when it recognises neither. Nothing
+  depends on it succeeding — the offset GC shows is the one it commanded, and
+  a parsed confirmation only upgrades that to what the board reported. Check a
+  real line against `parsePtTare` before trusting the confirmed values.
 - **Every `mdot*` echo key.** GC-4 never sends the `M` command — nothing in
   `stand.json` configures mass-flow scheduling — so no echo for it has been
   seen. Given the vent keys turned out wrong (below), expect these to be too,
@@ -575,6 +660,13 @@ target for autosequences immediately. `rot` is `0` for a horizontal pipe run and
 `calibration` converts raw ADC counts to engineering units:
 `value = raw * slope + offset`. The `lead` is the point on the drawing the
 instrument taps; a dashed line is drawn from the bubble to it.
+
+**`pid` is optional, and omitting it is the right answer for a spare.** A
+channel that is wired to the DAQ but not yet connected to anything has no tap
+point, and inventing one puts a bubble on the drawing pointing at nothing. Such
+a sensor still reads, still records, and still appears on the Data page and the
+Control Grid strip — it is simply absent from the schematic until it has a
+physical home. Draco's `TC5`–`TC8` are exactly this.
 
 **Array order is display order** — within its group, a sensor appears on the Data
 page, the Control Grid's readout strip and in the CSV in the order it sits in
@@ -776,11 +868,28 @@ Two traps the workbook sets, both of which will silently mis-wire a channel:
   each other by the wiring.
 - **A DC channel's report position is not its actuation channel.** The
   workbook's `channel` is where the board *reports* current on its `s` line;
-  the numeric part of `id` is the channel it *actuates* (`S5`). Per the
-  workbook the purges (DC7/DC8) report at positions 4/5 while the runlines
-  (DC5/DC6) report at 6/7 — the two pairs are swapped, and position 8 is
-  unpopulated. `hardware.json` keys `dcChannels` by report position and
-  carries the actuation channel in `id`, so both stay explicit.
+  the numeric part of `id` is the channel it *actuates* (`S5`).
+  `hardware.json` keys `dcChannels` by report position and carries the
+  actuation channel in `id`, so both stay explicit.
+
+  **The workbook's report order is wrong, and was measured instead.** The
+  board reports two banks, each one reversed:
+
+  | `s` position | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 |
+  |---|---|---|---|---|---|---|---|---|---|---|---|---|
+  | channel | DC8 | DC7 | DC6 | DC5 | DC4 | DC3 | DC2 | DC1 | — | DC11 | DC10 | DC9 |
+
+  Bank A is DC8…DC1, bank B is DC12…DC9. DC12 does not exist, which is why
+  position 8 reads nothing — it is the empty head of the second reversed
+  bank rather than a random gap, and a DC12 added later would land there.
+
+  Taken from the workbook instead, ten of the eleven channels landed on the
+  wrong valve — and plausibly so, because the wrong valve was always a real
+  one drawing real current at the time. Only the muscle bus vent, which sits
+  at its own mirror point, happened to be right. The order in `hardware.json`
+  now comes from actuating each valve from GC and recording which channel
+  drew current (2026-08-31). Re-derive it the same way if the harness
+  changes; do not read it back off the workbook.
 
 Valve `abbrev`s are prefixed with the drawing tag (`PB2 OX RUN`) so a button
 in the UI can be matched to a symbol on the P&ID without a lookup table.

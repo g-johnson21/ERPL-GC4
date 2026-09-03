@@ -164,6 +164,18 @@
 .content.data-page > #data-body {
   flex: 1;
   min-height: 0;
+  /* Cards are sized to fit the viewport and only reach for this when they
+     cannot — when the tallest group has more channels than the screen has
+     room for at a readable card size. Then the page scrolls.
+
+     It used to clip instead, because the parent hides overflow and nothing
+     here asked for a scrollbar. That was fine while every group fit and
+     silently fatal the moment one did not: an eight-channel group on a
+     1280x720 laptop put its last two cards past the bottom edge with no way
+     to reach them. A channel you have to scroll to is bad. A channel that is
+     not on the page at all, on the screen that says it shows every channel,
+     is much worse. */
+  overflow-y: auto;
 }
 /* The table is the dense alternative and is allowed to scroll. */
 .content.data-page.table-mode > #data-body { overflow: auto; }
@@ -577,7 +589,17 @@
   flex: none;
 }
 
-.bb-card .bb-sub { display: block; margin: -4px 0 6px; }
+/* Flex, not block: the board-PT tare chip rides on the right of this line,
+   on the row that names the transducer it zeroes. */
+.bb-card .bb-sub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: -4px 0 6px;
+  min-width: 0;
+}
+.bb-card .bb-sub > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bb-card .bb-sub .tare-chip:disabled { opacity: .35; cursor: not-allowed; }
 
 /* The ground station's own reading of the same tank, and the gap. Small on
    purpose: it is a cross-check, not the number being regulated. */
@@ -603,6 +625,27 @@
   cursor: pointer;
 }
 .bb-lim-check input { margin: 0; }
+
+/* Predictive shutoff sits with the auto-vent checkbox but reads as a switch:
+   everything else in this panel is a number the loop uses, and this changes
+   how the loop runs. Muted to the same weight as its neighbour so it does not
+   compete with the enable control below the panel. */
+.bb-lim-toggle {
+  margin-top: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  gap: 7px;
+}
+.bb-lim-toggle .track { width: 28px; height: 16px; }
+.bb-lim-toggle .track::after { width: 10px; height: 10px; }
+.bb-lim-toggle input:checked + .track::after { transform: translateX(12px); }
+/* Disarmed, the board refuses to turn this on — so the row says so by being
+   unavailable rather than by accepting a click the server will refuse. */
+.bb-lim-toggle:has(input:disabled) { opacity: .45; cursor: not-allowed; }
+/* On, it is worth seeing from the collapsed card: the press trace it produces
+   is not the same experiment as one recorded without it. */
+.bb-lim-toggle:has(input:checked) { color: var(--ok); }
 
 .bb-readout {
   display: flex;

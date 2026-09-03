@@ -20,6 +20,14 @@
  *   SUS  regulating: press opens below (sp - db/2), closes above (sp + db/2)
  *   AV   auto-vent: pressure exceeded ventTrigger with ventAuto on
  *   ABT  latched abort. Nothing in the protocol clears it (§5.4)
+ *
+ * PREDICTIVE SHUTOFF (`e<side><0|1>`)
+ *   Stored and reported, not modelled. The real board closes the press valve
+ *   early on a predicted overshoot; reproducing that here would mean inventing
+ *   its prediction horizon, and a simulator that regulated better than the
+ *   hardware would be worse than one that admits it does not know. What this
+ *   DOES emulate is the part the host has to get right: the arm gate on
+ *   enabling it, and the fact that disabling is accepted in any state.
  */
 import {
   encodeHeartbeat,
@@ -56,6 +64,19 @@ export class BangBangFirmware {
     this.clock = this.bootedAt;
     this.sides = {};
     for (const side of SIDES) this.sides[side] = freshSide();
+    // The board's own arm latch, driven by 'a'/'r'. Only one command consults
+    // it — enabling predictive shutoff — but that command is refused without
+    // it, so the emulation needs to know.
+    this.armed = false;
+  }
+
+  /** Mirror the board's arm latch ('a' / 'r'). */
+  setArmed(armed) {
+    this.armed = Boolean(armed);
+    // Disarming returns predictive shutoff to its default. The board will not
+    // accept `e<side>1` again until it is re-armed, so leaving the flag set
+    // would have the emulation claim a setting the host could not restore.
+    if (!this.armed) for (const side of SIDES) this.sides[side].predictive = false;
   }
 
   /**
@@ -68,6 +89,12 @@ export class BangBangFirmware {
   command(line, now = this.clock) {
     const cmd = parseCommand(line);
     if (!cmd) return false;
+
+    // Handled before `cmd.side` is touched: `Tz` addresses both channels and
+    // carries no side at all.
+    if (cmd.kind === 'ptTareClear' || cmd.kind === 'ptTare' || cmd.kind === 'ptOffset') {
+      return this.ptCommand(cmd, now);
+    }
 
     const side = cmd.side.toLowerCase();
     const st = this.sides[side];
@@ -129,9 +156,62 @@ export class BangBangFirmware {
         this.transition(side, 'ABT', now);
         return true;
 
+      case 'predictive':
+        // The arm gate gets tested here, in the ON direction only, because
+        // that is the asymmetry the host must not get wrong: a stand that
+        // cannot turn a feature OFF while disarmed is a stand that cannot be
+        // put back to a known state.
+        if (cmd.on && !this.armed) {
+          this.emit(`BB_ERROR: ${cmd.side} predictive cutoff requires ARM`);
+          return true;
+        }
+        st.predictive = cmd.on;
+        return true;
+
       default:
         return false;
     }
+  }
+
+  /**
+   * The `T` family: zero the board's own transducers.
+   *
+   * `TL`/`TF` need a reading to zero against, so a side that has never been
+   * given one answers `PT_ERROR:no_data` — the same refusal the real firmware
+   * makes when its V2 frame is stale. That refusal is worth emulating: it is
+   * the failure an operator hits by taring before the board has warmed up,
+   * and a simulator that always succeeded would never show it.
+   */
+  ptCommand(cmd, now) {
+    if (cmd.kind === 'ptTareClear') {
+      for (const side of SIDES) {
+        const st = this.sides[side];
+        st.ptOffset = 0;
+        if (Number.isFinite(st.rawPressure)) st.pressure = st.rawPressure;
+      }
+      this.emitPtTare(now, '', '0.0,0.0');
+      return true;
+    }
+
+    const side = cmd.side.toLowerCase();
+    const st = this.sides[side];
+
+    if (cmd.kind === 'ptOffset') {
+      st.ptOffset = cmd.offset;
+    } else {
+      if (!Number.isFinite(st.rawPressure)) {
+        this.emit('PT_ERROR:no_data');
+        return true;
+      }
+      st.ptOffset = st.rawPressure;
+    }
+    if (Number.isFinite(st.rawPressure)) st.pressure = st.rawPressure - st.ptOffset;
+    this.emitPtTare(now, side, st.ptOffset.toFixed(1));
+    return true;
+  }
+
+  emitPtTare(now, side, detail) {
+    this.emit(`EVT:${Math.round(this.uptime(now))}:PT_TARE:${side}:${detail}`);
   }
 
   /**
@@ -144,7 +224,14 @@ export class BangBangFirmware {
     for (const side of SIDES) {
       const st = this.sides[side];
       const p = Number(pressures[side]);
-      if (Number.isFinite(p)) st.pressure = p;
+      // The offset is applied HERE, on the way in, so every consumer -- the
+      // hysteresis band, the auto-vent trigger and the heartbeat -- sees the
+      // same tared number. A board that regulated on raw and reported tared
+      // would be the worst of both.
+      if (Number.isFinite(p)) {
+        st.rawPressure = p;
+        st.pressure = p - st.ptOffset;
+      }
 
       switch (st.state) {
         case 'SUS':
@@ -233,6 +320,7 @@ export class BangBangFirmware {
       const st = this.sides[side];
       st.press = false;
       st.manualVent = false;
+      st.predictive = false;
       if (st.state !== 'OFF') this.transition(side, 'OFF', now);
       else this.beat(side, now, true);
     }
@@ -330,7 +418,12 @@ function freshSide() {
     state: 'OFF',
     press: false,
     manualVent: false,
+    predictive: false,
     pressure: 0,
+    // What the transducer reads before the stored offset, and the offset
+    // itself. The board regulates on `pressure` = raw - ptOffset.
+    rawPressure: null,
+    ptOffset: 0,
     switchedAt: null,
     openedAt: null,
     lastBeatAt: -Infinity,

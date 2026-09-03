@@ -30,7 +30,7 @@
         "channels": 16,
         "channelMeta": {
           "0": {
-            "maxPsi": 1000,
+            "maxPsi": 1500.0,
             "zeroMa": 4.0
           },
           "1": {
@@ -97,22 +97,43 @@
         }
       },
       "lc": {
+        "_channelMeta": [
+          "Bridge output (V/V) -> lbf, as slope * x + offset.",
+          "",
+          "Channels 0-2 (the TLCA/TLCB/TLCC thrust stack) were calibrated",
+          "2026-08-31 by dead-weight test: 50 lb and 5 lb placed on each cell,",
+          "tared, and the reported value compared against the real weight. Both",
+          "points agreed exactly on the gain error, and all three cells land",
+          "within 0.22% of each other afterwards -- they are the same part, and",
+          "the three different numbers that were here before were all wrong.",
+          "",
+          "The slopes are NEGATIVE because the bridges read inverted: a downward",
+          "load produced a negative reading on every channel. That sign lives",
+          "here rather than in the wiring, so if a cell is ever re-terminated,",
+          "check the sign before trusting the trace.",
+          "",
+          "Channel 3 (LOX tank weight) is NOT calibrated. Its slope is the same",
+          "placeholder that was wrong on 0-2, copied from a cell of a completely",
+          "different capacity -- 0-200 lbf against roughly 2000 for the thrust",
+          "pucks -- so it cannot be right and cannot be derived from them. It",
+          "needs the same dead-weight test, and probably the same sign flip."
+        ],
         "slot": 1,
         "channels": 4,
         "excitationV": 10.0,
         "bridgeOhms": 350.0,
         "channelMeta": {
           "0": {
-            "slope": 296590.0,
+            "slope": -988633.33,
             "offset": 0.0
           },
           "1": {
-            "slope": 59447.0,
-            "offset": -2.91
+            "slope": -990783.33,
+            "offset": 0.0
           },
           "2": {
-            "slope": 59447.9,
-            "offset": -2.91
+            "slope": -990798.33,
+            "offset": 0.0
           },
           "3": {
             "slope": 59447.0,
@@ -168,6 +189,7 @@
       }
     },
     "channelMap": {
+      "pt0": "PT0",
       "pt2": "PT1",
       "pt3": "PT2",
       "pt4": "PT4",
@@ -189,7 +211,11 @@
       "tc0": "TC1",
       "tc1": "TC2",
       "tc2": "TC3",
-      "tc3": "TC4"
+      "tc3": "TC4",
+      "tc4": "TC5",
+      "tc5": "TC6",
+      "tc6": "TC7",
+      "tc7": "TC8"
     }
   },
   "panda": {
@@ -213,9 +239,15 @@
       "",
       "  key      position in the 's' line (0-based)",
       "  id       the PANDA channel the board ACTUATES (S<n>) -- NOT the same",
-      "           as the key: per sensor_config.xlsx the purges (DC7/DC8) sit",
-      "           at s-line positions 4/5 while the runlines (DC5/DC6) sit at",
-      "           6/7, so report order and actuation order are swapped.",
+      "           as the key. The board reports TWO BANKS, each one reversed:",
+      "",
+      "             s-line pos  0 1 2 3 4 5 6 7 | 8  9 10 11",
+      "             channel     8 7 6 5 4 3 2 1 | -- 11 10  9",
+      "",
+      "           Bank A is DC8..DC1, bank B is DC12..DC9. DC12 does not exist,",
+      "           which is why position 8 reads nothing -- it is the empty head",
+      "           of the second reversed bank, not a random gap. A DC12 added",
+      "           later would land there.",
       "  pidTag   the tag on Draco V4.00 (S1..S5, PB1..PB6)",
       "  valve    the stand.json valve this channel senses",
       "  sensed   OPTIONAL. false = this position has no working current sense",
@@ -227,65 +259,68 @@
       "           Set this only after confirming with a meter: if the",
       "           current is real, suppressing it hides a live coil.",
       "",
-      "Source: sensor_config.xlsx DC_Solenoids. Position 8 is unpopulated."
+      "MEASURED 2026-08-31, by actuating each valve from GC and recording",
+      "which channel drew current. This supersedes the order read off",
+      "sensor_config.xlsx, which had all eleven channels wrong but for the",
+      "muscle bus vent. Do not re-derive it from the workbook."
     ],
     "_dcOrder": "Wire position -> logical index, for firmware whose 's' line order does not match channel order. This board reports in order, so it is null. Re-verify against the harness before setting it.",
     "dcOrder": null,
     "dcChannels": {
       "0": {
-        "id": "DC1",
-        "name": "LOX BB",
-        "pidTag": "S1",
-        "valve": "SV-LOXBB"
+        "id": "DC8",
+        "name": "LOX Purge",
+        "pidTag": "S4",
+        "valve": "SV-LOXPURGE"
       },
       "1": {
+        "id": "DC7",
+        "name": "Fuel Purge",
+        "pidTag": "S5",
+        "valve": "SV-FPURGE"
+      },
+      "2": {
+        "id": "DC6",
+        "name": "Fuel Runline",
+        "pidTag": "PB4",
+        "valve": "MV-F"
+      },
+      "3": {
+        "id": "DC5",
+        "name": "LOX Runline",
+        "pidTag": "PB2",
+        "valve": "MV-LOX"
+      },
+      "4": {
+        "id": "DC4",
+        "name": "Fuel GN2 Vent",
+        "pidTag": "PB3",
+        "valve": "SV-FV"
+      },
+      "5": {
+        "id": "DC3",
+        "name": "Lox GN2 Vent",
+        "pidTag": "PB1",
+        "valve": "SV-LOXV"
+      },
+      "6": {
         "id": "DC2",
         "name": "Fuel BB",
         "pidTag": "S2",
         "valve": "SV-FBB",
         "_note": "workbook short_name says s1 for both BB rows; Draco V4.00 shows S2 on the fuel leg"
       },
-      "2": {
-        "id": "DC3",
-        "name": "Lox GN2 Vent",
-        "pidTag": "PB1",
-        "valve": "SV-LOXV"
-      },
-      "3": {
-        "id": "DC4",
-        "name": "Fuel GN2 Vent",
-        "pidTag": "PB3",
-        "valve": "SV-FV"
-      },
-      "4": {
-        "id": "DC7",
-        "name": "Fuel Purge",
-        "pidTag": "S5",
-        "valve": "SV-FPURGE"
-      },
-      "5": {
-        "id": "DC8",
-        "name": "LOX Purge",
-        "pidTag": "S4",
-        "valve": "SV-LOXPURGE"
-      },
-      "6": {
-        "id": "DC5",
-        "name": "LOX Runline",
-        "pidTag": "PB2",
-        "valve": "MV-LOX"
-      },
       "7": {
-        "id": "DC6",
-        "name": "Fuel Runline",
-        "pidTag": "PB4",
-        "valve": "MV-F"
+        "id": "DC1",
+        "name": "LOX BB",
+        "pidTag": "S1",
+        "valve": "SV-LOXBB"
       },
       "9": {
-        "id": "DC9",
-        "name": "LOX Fill",
-        "pidTag": "PB5",
-        "valve": "SV-LOX-FILL"
+        "id": "DC11",
+        "name": "GOX Purge",
+        "pidTag": "PB6",
+        "valve": "SV-GOX-PURGE"
       },
       "10": {
         "id": "DC10",
@@ -294,10 +329,10 @@
         "valve": "SV-MBV"
       },
       "11": {
-        "id": "DC11",
-        "name": "GOX Purge",
-        "pidTag": "PB6",
-        "valve": "SV-GOX-PURGE"
+        "id": "DC9",
+        "name": "LOX Fill",
+        "pidTag": "PB5",
+        "valve": "SV-LOX-FILL"
       }
     }
   },

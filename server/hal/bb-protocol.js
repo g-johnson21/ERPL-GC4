@@ -18,7 +18,7 @@
  *
  * CASE CONVENTION (easy to get wrong, silently)
  *   Uppercase command letter = CONFIGURE   B / V / M
- *   Lowercase command letter = ACTUATE     b / v / x
+ *   Lowercase command letter = ACTUATE     b / v / x / e
  *   Side in a COMMAND is uppercase         L / F
  *   Side in a HEARTBEAT is lowercase       l / f
  *
@@ -45,7 +45,18 @@ export const BB_STATE_LABELS = {
 const ACK_PREFIXES = ['SEQ_', 'Arming!', 'Disarming!', 'Panda Initialized!', 'Firing sequence!'];
 
 /** Prefixes the board uses to reject a command. The ONLY negative ack. */
-const ERROR_PREFIXES = ['BB_ERROR:', 'CMD_ERROR:'];
+const ERROR_PREFIXES = ['BB_ERROR:', 'CMD_ERROR:', 'PT_ERROR:'];
+
+/**
+ * Which of the board's own PT channels each bang-bang side regulates on.
+ *
+ * The board numbers them 0 and 1; the tare command spells the same two
+ * channels as `L` and `F`. Both spellings appear in one four-command
+ * vocabulary (`TL` but `T0,<offset>`), so the mapping lives here once rather
+ * than at each call site.
+ */
+export const PT_CHANNEL = { L: 0, F: 1 };
+export const PT_SIDE_OF_CHANNEL = { 0: 'L', 1: 'F' };
 
 /**
  * `CFG_PUSH` echo keys -> our field names.
@@ -137,6 +148,61 @@ export function encodeManualVent(side, open) {
 /** `x<side>` — per-side abort. LATCHED: nothing in this protocol clears it. */
 export function encodeAbort(side) {
   return `x${requireSide(side)}`;
+}
+
+/**
+ * `e<side><0|1>` — the board's predictive valve shutoff.
+ *
+ * Closes the press valve early, on where the pressure is HEADED rather than
+ * where it is, so the rise after the valve shuts lands inside the band instead
+ * of above it. Defaults OFF in firmware, and this is the only way to change
+ * that — it has no `B` field and no CFG_PUSH echo key, so the board's setting
+ * cannot be read back. GC's copy is what it last commanded, nothing more.
+ *
+ * ENABLING REQUIRES THE BOARD TO BE ARMED; disabling is accepted at any time.
+ * The asymmetry is deliberate and worth preserving in every layer above this
+ * one: the safe direction must never be gated on anything.
+ */
+export function encodePredictive(side, on) {
+  return `e${requireSide(side)}${on ? 1 : 0}`;
+}
+
+/**
+ * `T<side>` — zero the board's OWN transducer on that side, to whatever it is
+ * reading right now. Persisted to the board's EEPROM, so it outlives a power
+ * cycle and is not something GC re-asserts at startup.
+ *
+ * This is the pressure the REGULATOR runs on, not the DAQ channel of the same
+ * tank. Zeroing it while that side is regulating tells the loop a pressurised
+ * tank is at ambient, and the loop then presses to setpoint on top of what is
+ * already in there. The interlock that refuses that lives in bangbang.js;
+ * this function only builds bytes.
+ *
+ * Needs fresh PT data on the board — it answers `PT_ERROR:no_data` otherwise.
+ */
+export function encodePtTare(side) {
+  return `T${requireSide(side)}`;
+}
+
+/** `Tz` — clear the offsets on BOTH channels at once. No per-side form. */
+export function encodePtTareClear() {
+  return 'Tz';
+}
+
+/**
+ * `T<channel>,<offset>` — set one channel's offset explicitly, in PSI.
+ *
+ * Taken by side rather than by channel number so no caller has to carry the
+ * L=0/F=1 mapping around. An offset of 0 is the per-side "clear": `Tz` is
+ * all-or-nothing, and clearing one side without disturbing the other is
+ * exactly what you want when only one transducer was re-zeroed.
+ *
+ * Formatted `%.1f`, matching every other pressure on this wire. The board
+ * reports its PT to one decimal, so an offset carrying more precision than
+ * that would be precision the reading cannot show.
+ */
+export function encodePtOffset(side, psi) {
+  return `T${PT_CHANNEL[requireSide(side)]},${f1(psi)}`;
 }
 
 /** `BB:<side>:<state>:<press01>:<vent01>:<psi>` — the board's heartbeat. */
@@ -327,6 +393,13 @@ export function parseCommand(raw) {
   if (!line) return null;
 
   const verb = line[0];
+
+  // PT tare is decoded BEFORE the side lookup below, because two of its four
+  // forms carry no side at all — `Tz` addresses both channels and `T0,`/`T1,`
+  // address one by number. Falling through to `commandSide(line[1])` would
+  // reject them on the 'z' and the '0'.
+  if (verb === 'T') return parsePtTareCommand(line.slice(1));
+
   const side = commandSide(line[1]);
   if (!side) return null;
   const rest = line.slice(2);
@@ -360,9 +433,74 @@ export function parseCommand(raw) {
       return rest === '0' || rest === '1' ? { kind: 'manualVent', side, open: rest === '1' } : null;
     case 'x':
       return rest === '' ? { kind: 'abort', side } : null;
+    case 'e':
+      return rest === '0' || rest === '1' ? { kind: 'predictive', side, on: rest === '1' } : null;
     default:
       return null;
   }
+}
+
+/**
+ * Decode the argument of a `T` command — everything after the verb.
+ *
+ *   `L` / `F`        tare that side to its current reading
+ *   `z`              clear both channels
+ *   `0,x` / `1,x`    set that channel's offset to x PSI
+ *
+ * `z` is tested before the side lookup: `commandSide` upper-cases, so a
+ * future channel letter would be case-folded into a side if the order were
+ * reversed. Anything else is null — an unrecognised `T` must not be
+ * mistaken for one of these three.
+ */
+function parsePtTareCommand(arg) {
+  if (arg === 'z') return { kind: 'ptTareClear' };
+
+  const side = commandSide(arg);
+  if (side) return { kind: 'ptTare', side };
+
+  const m = /^([01]),(-?(?:\d+\.?\d*|\.\d+))$/.exec(arg);
+  if (!m) return null;
+  const offset = Number(m[2]);
+  if (!Number.isFinite(offset)) return null;
+  return { kind: 'ptOffset', side: PT_SIDE_OF_CHANNEL[m[1]], channel: Number(m[1]), offset };
+}
+
+/**
+ * Pull the applied offsets out of a `PT_TARE` event's detail.
+ *
+ * UNVERIFIED FORMAT. The firmware note says success "emits EVT:…:PT_TARE:…"
+ * without saying what the detail carries, so this accepts the two shapes it
+ * could plausibly be — `k=v` pairs like CFG_PUSH uses, or bare comma-separated
+ * numbers in channel order — and returns nothing at all rather than guessing
+ * when it recognises neither.
+ *
+ * Nothing depends on this succeeding: the offsets GC displays are the ones it
+ * commanded, and this only upgrades them to what the board confirmed. Check a
+ * real PT_TARE line against this before trusting the confirmed values.
+ */
+export function parsePtTare(detail) {
+  const text = String(detail ?? '').trim();
+  if (!text) return {};
+
+  const out = {};
+  if (text.includes('=')) {
+    for (const pair of text.split(',')) {
+      const eq = pair.indexOf('=');
+      if (eq === -1) continue;
+      const key = pair.slice(0, eq).trim().toUpperCase();
+      const value = Number(pair.slice(eq + 1).trim());
+      if (!Number.isFinite(value)) continue;
+      const side = commandSide(key) ?? PT_SIDE_OF_CHANNEL[key.replace(/^(PT|CH)/, '')];
+      if (side) out[side] = value;
+    }
+    return out;
+  }
+
+  const nums = text.split(',').map((v) => Number(v.trim()));
+  if (nums.length && nums.every(Number.isFinite)) {
+    nums.slice(0, 2).forEach((v, i) => { out[PT_SIDE_OF_CHANNEL[i]] = v; });
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------- helpers ---

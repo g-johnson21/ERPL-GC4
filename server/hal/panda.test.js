@@ -442,9 +442,11 @@ test('safeAll disarms the board and drives every valve to its safe state', () =>
     },
   });
   d.safeAll();
-  // Stop the regulator, THEN disarm. A side left in SUS would resume the
-  // moment the board is re-armed.
-  assert.deepEqual(d.sent.slice(0, 3), ['bL0', 'bF0', 'r']);
+  // Stop the regulator and return predictive shutoff to its default, THEN
+  // disarm. A side left in SUS would resume the moment the board is re-armed,
+  // and `e<side>1` is refused once the arm latch is down — so this is the last
+  // moment either can be put back to a state the host knows.
+  assert.deepEqual(d.sent.slice(0, 5), ['bL0', 'bF0', 'eL0', 'eF0', 'r']);
   assert.ok(d.sent.includes('S40'));       // NO vent de-energized => open
   assert.ok(d.sent.includes('S20'));       // NC press de-energized => closed
 });

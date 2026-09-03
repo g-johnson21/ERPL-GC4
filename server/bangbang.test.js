@@ -63,6 +63,15 @@ class FakeBoard {
   bbEnable(side, on) { return this.wire(`b${side}${on ? 1 : 0}`); }
   bbManualVent(side, open) { return this.wire(`v${side}${open ? 1 : 0}`); }
   bbAbort(side) { return this.wire(`x${side}`); }
+  bbPredictive(side, on) { return this.wire(`e${side}${on ? 1 : 0}`); }
+
+  /** The board's own arm latch, as state.js drives it through the driver. */
+  setArmed(armed) { this.fw.setArmed(armed); }
+
+  ptTare(side) { return this.wire(`T${side}`); }
+  ptOffset(side, psi) { return this.wire(`T${side === 'L' ? 0 : 1},${psi.toFixed(1)}`); }
+  ptTareClearAll() { return this.wire('Tz'); }
+  ptTareStatus() { return { offsets: { L: null, F: null }, confirmedAt: 0, error: null }; }
 
   /** Set by BangBangBank.attach(), exactly as the real drivers expose it. */
   onBbError = null;
@@ -103,6 +112,7 @@ function makeStand(overrides = {}, driverOpts = {}) {
     armed: true,
     driver: new FakeBoard(driverOpts),
     config: { bangbang: [bb] },
+    sequencer: { running: false },
     configStore: {
       controller: (id) => (id === bb.id ? bb : null),
       valve: (id) => valves.find((v) => v.id === id) || null,
@@ -522,4 +532,198 @@ test('setAll keeps going when one controller refuses', () => {
   assert.equal(res.ok, false);
   assert.match(res.error, /bb-ox/);
   assert.match(res.error, /bb-fuel/, 'both refusals are reported, not just the first');
+});
+
+// ------------------------------------------------------- board PT tare ---
+//
+// Zeroing the transducer the REGULATOR runs on, which is a different sensor
+// from the DAQ channel `cfg.sensor` names and is guarded separately.
+
+test('a board PT tare goes out as the bare T command for that side', () => {
+  const stand = makeStand();
+  const bank = new BangBangBank(stand);
+  bank.sync();
+
+  assert.equal(bank.set('bb-ox', { ptTare: true }).ok, true);
+  assert.ok(stand.driver.sent.includes('TL'), 'side L tares channel 0');
+  assert.ok(stand.logs.some((l) => l.includes('BOARD PT TARE')),
+    'a zero that moves what the regulator believes has to be in the log');
+});
+
+test('clearing one side sets an explicit zero rather than sending Tz', () => {
+  // Tz clears BOTH channels. Wiping the fuel side's zero because someone
+  // re-did the LOX side is not what the button says it does.
+  const stand = makeStand();
+  const bank = new BangBangBank(stand);
+  bank.sync();
+
+  bank.set('bb-ox', { ptTareClear: true });
+  assert.ok(stand.driver.sent.includes('T0,0.0'));
+  assert.ok(!stand.driver.sent.includes('Tz'));
+});
+
+test('an explicit offset is sent in psi, on the side it was aimed at', () => {
+  const stand = makeStand();
+  const bank = new BangBangBank(stand);
+  bank.sync();
+
+  assert.equal(bank.set('bb-ox', { ptOffset: 12.5 }).ok, true);
+  assert.ok(stand.driver.sent.includes('T0,12.5'));
+  assert.equal(bank.set('bb-ox', { ptOffset: 'nope' }).ok, false);
+});
+
+test('THE INTERLOCK: a live side refuses to have its transducer zeroed', () => {
+  // The hazard this whole block exists for. Zeroing at 450 psi tells the loop
+  // the tank is empty, and it then presses to setpoint on top of the 450 that
+  // is already in there. The board has no other way to know.
+  const stand = makeStand();
+  const bank = new BangBangBank(stand);
+  bank.sync();
+  bringUp(bank, stand, 450);
+  assert.equal(bank.isLive('bb-ox'), true, 'precondition: the loop is running');
+
+  const before = stand.driver.sent.length;
+  for (const patch of [{ ptTare: true }, { ptOffset: 5 }, { ptTareClear: true }]) {
+    const res = bank.set('bb-ox', patch);
+    assert.equal(res.ok, false, `${JSON.stringify(patch)} must be refused`);
+    assert.match(res.error, /regulating/);
+  }
+  assert.equal(stand.driver.sent.length, before, 'and nothing may reach the wire');
+});
+
+test('a running sequence blocks a board PT tare, as it does a DAQ tare', () => {
+  const stand = makeStand();
+  stand.sequencer.running = true;
+  const bank = new BangBangBank(stand);
+  bank.sync();
+
+  const res = bank.set('bb-ox', { ptTare: true });
+  assert.equal(res.ok, false);
+  assert.match(res.error, /sequence/i);
+  assert.equal(stand.driver.sent.includes('TL'), false);
+});
+
+test('a driver with no board transducers says so instead of failing silently', () => {
+  const stand = makeStand();
+  // Assigned, not deleted: it is a prototype method, so `delete` on the
+  // instance leaves it reachable. The udp and serial drivers genuinely
+  // have no such method at all.
+  stand.driver.ptTare = undefined;
+  const bank = new BangBangBank(stand);
+  bank.sync();
+
+  const res = bank.set('bb-ox', { ptTare: true });
+  assert.equal(res.ok, false);
+  assert.match(res.error, /cannot zero/i);
+});
+
+// ------------------------------------------------- predictive valve shutoff ---
+
+test('predictive shutoff reaches the board as e<side>1 and is remembered', () => {
+  const stand = makeStand();
+  const bank = new BangBangBank(stand);
+  stand.driver.setArmed(true);
+  stand.driver.sent.length = 0;
+
+  const res = bank.set('bb-ox', { predictive: true }, 'test');
+  assert.equal(res.ok, true);
+  assert.deepEqual(stand.driver.sent, ['eL1']);
+  assert.equal(bank.snapshot()['bb-ox'].predictive, true);
+  assert.equal(stand.driver.fw.sides.l.predictive, true, 'and the board actually stored it');
+});
+
+test('predictive shutoff cannot be enabled while the stand is disarmed', () => {
+  // The board refuses `e<side>1` unarmed and answers on the error channel
+  // seconds later. The host has to refuse it FIRST, or the operator sees a
+  // toggle move and a rejection they may never read.
+  const stand = makeStand();
+  stand.armed = false;
+  const bank = new BangBangBank(stand);
+  stand.driver.sent.length = 0;
+
+  const res = bank.set('bb-ox', { predictive: true }, 'test');
+  assert.equal(res.ok, false);
+  assert.match(res.error, /ARMED/);
+  assert.deepEqual(stand.driver.sent, [], 'nothing reaches the wire');
+  assert.equal(bank.snapshot()['bb-ox'].predictive, false);
+});
+
+test('predictive shutoff can always be turned off, armed or not', () => {
+  const stand = makeStand();
+  const bank = new BangBangBank(stand);
+  stand.driver.setArmed(true);
+  bank.set('bb-ox', { predictive: true }, 'test');
+
+  stand.armed = false;
+  stand.driver.sent.length = 0;
+  const res = bank.set('bb-ox', { predictive: false }, 'test');
+
+  assert.equal(res.ok, true, 'the safe direction is never gated');
+  assert.deepEqual(stand.driver.sent, ['eL0']);
+  assert.equal(bank.snapshot()['bb-ox'].predictive, false);
+});
+
+test('a disarm turns predictive shutoff off rather than assuming the board did', () => {
+  const stand = makeStand();
+  const bank = new BangBangBank(stand);
+  stand.driver.setArmed(true);
+  bank.set('bb-ox', { predictive: true }, 'test');
+
+  stand.armed = false;
+  stand.driver.sent.length = 0;
+  bank.update({ PT4: 50 }, 0);
+
+  assert.deepEqual(stand.driver.sent, ['eL0'], 'sent, not merely forgotten');
+  assert.equal(bank.snapshot()['bb-ox'].predictive, false);
+
+  // And only once — a resend every tick would be fifty commands a second down
+  // the link the board needs to answer on.
+  stand.driver.sent.length = 0;
+  bank.update({ PT4: 50 }, 20);
+  bank.update({ PT4: 50 }, 40);
+  assert.deepEqual(stand.driver.sent, []);
+});
+
+test('a disarm drops predictive shutoff even when the controller does not require arm', () => {
+  // The gate is the BOARD's arm latch, which applies to every side regardless
+  // of what `requiresArm` says about this controller's own loop.
+  const stand = makeStand({ requiresArm: false });
+  const bank = new BangBangBank(stand);
+  stand.driver.setArmed(true);
+  bringUp(bank, stand);
+  bank.set('bb-ox', { predictive: true }, 'test');
+
+  stand.armed = false;
+  stand.driver.sent.length = 0;
+  bank.update({ PT4: 50 }, 100);
+
+  assert.ok(stand.driver.sent.includes('eL0'));
+  assert.equal(bank.snapshot()['bb-ox'].predictive, false);
+});
+
+test('re-arming does not bring predictive shutoff back on its own', () => {
+  const stand = makeStand();
+  const bank = new BangBangBank(stand);
+  stand.driver.setArmed(true);
+  bank.set('bb-ox', { predictive: true }, 'test');
+
+  stand.armed = false;
+  bank.update({ PT4: 50 }, 0);
+  stand.armed = true;
+  stand.driver.setArmed(true);
+  stand.driver.sent.length = 0;
+  bank.update({ PT4: 50 }, 1000);
+
+  assert.deepEqual(stand.driver.sent, [], 'nothing re-asserts it');
+  assert.equal(bank.snapshot()['bb-ox'].predictive, false, 'it takes a deliberate toggle');
+});
+
+test('a config reload keeps the operator predictive setting', () => {
+  const stand = makeStand();
+  const bank = new BangBangBank(stand);
+  stand.driver.setArmed(true);
+  bank.set('bb-ox', { predictive: true }, 'test');
+
+  bank.sync();
+  assert.equal(bank.snapshot()['bb-ox'].predictive, true);
 });

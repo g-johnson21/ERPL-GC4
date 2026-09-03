@@ -347,8 +347,8 @@
       "color": "#ef4444"
     },
     {
-      "id": "pneu",
-      "label": "Pneumatic & Purge",
+      "id": "misc",
+      "label": "Misc",
       "color": "#94a3b8"
     },
     {
@@ -363,6 +363,32 @@
     }
   ],
   "sensors": [
+    {
+      "id": "PT0",
+      "name": "Chamber",
+      "abbrev": "PT0",
+      "kind": "pressure",
+      "group": "misc",
+      "units": "psi",
+      "channel": 0,
+      "decimals": 1,
+      "min": 0,
+      "max": 1500,
+      "warnHigh": 1200,
+      "dangerHigh": 1380,
+      "calibration": {
+        "slope": 1,
+        "offset": 0
+      },
+      "pid": {
+        "x": 760,
+        "y": 596,
+        "lead": [
+          744,
+          686
+        ]
+      }
+    },
     {
       "id": "PT1",
       "name": "LOX GN2",
@@ -680,7 +706,7 @@
       "name": "Muscle Bus",
       "abbrev": "PT31",
       "kind": "pressure",
-      "group": "pneu",
+      "group": "misc",
       "units": "psi",
       "channel": 10,
       "decimals": 1,
@@ -706,7 +732,7 @@
       "name": "Purge Bus",
       "abbrev": "PT32",
       "kind": "pressure",
-      "group": "pneu",
+      "group": "misc",
       "units": "psi",
       "channel": 11,
       "decimals": 1,
@@ -808,8 +834,8 @@
       "units": "lbf",
       "channel": 103,
       "decimals": 1,
-      "min": -50,
-      "max": 600,
+      "min": 0,
+      "max": 200,
       "calibration": {
         "slope": 1,
         "offset": 0
@@ -920,6 +946,70 @@
           730
         ]
       }
+    },
+    {
+      "id": "TC5",
+      "name": "Spare 5",
+      "abbrev": "TC5",
+      "kind": "temperature",
+      "group": "temp",
+      "units": "°F",
+      "channel": 204,
+      "decimals": 1,
+      "min": -320,
+      "max": 2282,
+      "calibration": {
+        "slope": 1,
+        "offset": 0
+      }
+    },
+    {
+      "id": "TC6",
+      "name": "Spare 6",
+      "abbrev": "TC6",
+      "kind": "temperature",
+      "group": "temp",
+      "units": "°F",
+      "channel": 205,
+      "decimals": 1,
+      "min": -320,
+      "max": 2282,
+      "calibration": {
+        "slope": 1,
+        "offset": 0
+      }
+    },
+    {
+      "id": "TC7",
+      "name": "Spare 7",
+      "abbrev": "TC7",
+      "kind": "temperature",
+      "group": "temp",
+      "units": "°F",
+      "channel": 206,
+      "decimals": 1,
+      "min": -320,
+      "max": 2282,
+      "calibration": {
+        "slope": 1,
+        "offset": 0
+      }
+    },
+    {
+      "id": "TC8",
+      "name": "Spare 8",
+      "abbrev": "TC8",
+      "kind": "temperature",
+      "group": "temp",
+      "units": "°F",
+      "channel": 207,
+      "decimals": 1,
+      "min": -320,
+      "max": 2282,
+      "calibration": {
+        "slope": 1,
+        "offset": 0
+      }
     }
   ],
   "bangbang": [
@@ -1025,70 +1115,76 @@
         },
         {
           "t": 0,
+          "action": "bangbang",
+          "target": "*",
+          "enabled": true
+        },
+        {
+          "t": 5,
           "action": "valve",
           "target": "MV-LOX",
           "state": "open"
         },
         {
-          "t": 0.5,
+          "t": 5.4,
           "action": "log",
           "message": "T-0 FUEL RUNLINE OPEN"
         },
         {
-          "t": 0.5,
+          "t": 5.4,
           "action": "valve",
           "target": "MV-F",
           "state": "open"
         },
         {
-          "t": 5.5,
+          "t": 10.4,
           "action": "log",
           "message": "CUTOFF"
         },
         {
-          "t": 5.5,
+          "t": 10.4,
           "action": "valve",
           "target": "MV-LOX",
           "state": "closed"
         },
         {
-          "t": 5.8,
+          "t": 10.7,
           "action": "valve",
           "target": "MV-F",
           "state": "closed"
         },
         {
-          "t": 6,
+          "t": 10.9,
           "action": "valve",
           "target": "SV-FPURGE",
           "state": "open"
         },
         {
-          "t": 6,
+          "t": 10.9,
           "action": "valve",
           "target": "SV-LOXPURGE",
           "state": "open"
         },
         {
-          "t": 9,
+          "t": 13.9,
           "action": "valve",
           "target": "SV-FPURGE",
           "state": "closed"
         },
         {
-          "t": 9,
+          "t": 13.9,
           "action": "valve",
           "target": "SV-LOXPURGE",
           "state": "closed"
         },
         {
-          "t": 11,
+          "t": 15.9,
           "action": "log",
           "message": "HOT FIRE COMPLETE"
         }
       ],
       "hidden": false,
-      "duration": 11,
+      "duration": 15.9,
       "timeMode": "relative"
     },
     {
@@ -1588,7 +1684,7 @@
         "label": "LOX",
         "sub": "1700 psi",
         "levelSensor": "LC4",
-        "levelMax": 600
+        "levelMax": 200
       },
       {
         "type": "tank",

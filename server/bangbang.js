@@ -111,6 +111,10 @@ export class BangBangBank {
         minIntervalMs: prev?.minIntervalMs ?? c.minIntervalMs ?? 0,
         ventTrigger: prev?.ventTrigger ?? c.ventTrigger ?? null,
         ventAuto: prev ? prev.ventAuto : (c.ventAuto ?? false),
+        // Predictive valve shutoff. Board-side, write-only: there is no echo
+        // key for it, so this is what GC last commanded and nothing stronger.
+        // Same `prev`-not-`prev?.` test as ventAuto, for the same reason.
+        predictive: prev ? prev.predictive : (c.predictive ?? false),
         // Host supervisory trips. No board equivalent exists for either.
         maxOpenSeconds: prev?.maxOpenSeconds ?? c.maxOpenSeconds ?? 0,
         // null, not 0: 0 is a legitimate abort threshold, so "no threshold"
@@ -130,6 +134,7 @@ export class BangBangBank {
         enableSentAt: prev?.enableSentAt ?? null,
         manualVent: prev?.manualVent ?? false,
         stopRetryAt: prev?.stopRetryAt ?? null,
+        predictiveRetryAt: prev?.predictiveRetryAt ?? null,
         pressSince: prev?.pressSince ?? null,
         lastPress: prev?.lastPress ?? false,
         cycles: prev?.cycles ?? 0,
@@ -307,6 +312,65 @@ export class BangBangBank {
       if (!res.ok) return res;
     }
 
+    // --- board PT tare ---
+    //
+    // THE INTERLOCK IS THE POINT OF THIS BLOCK. Zeroing the board's own
+    // transducer tells the regulator its tank is at ambient. If the loop is
+    // live and the tank is at 450 psi, the board then presses to setpoint on
+    // top of the 450 already in there — it has no other way to know. So this
+    // is refused for any side that is live, by the same `isLive` test that
+    // decides which valves the board owns, and refused during a sequence for
+    // the same reason state.js refuses a DAQ tare then.
+    //
+    // Note this is a DIFFERENT sensor from the one state.js guards. That
+    // check covers the DAQ channel `cfg.sensor` names; this one covers the
+    // board's own PT, which no GC sensor id refers to.
+    const wantsPtTare = patch.ptTare || patch.ptOffset !== undefined || patch.ptTareClear;
+    if (wantsPtTare) {
+      if (this.isLive(cfg.id)) {
+        return {
+          ok: false,
+          error: `${cfg.name}: cannot zero the board's transducer while side ${rt.side} is regulating — ` +
+                 'the loop would read the tank as empty and press on top of what is already in it',
+        };
+      }
+      if (this.stand.sequencer.running) {
+        return { ok: false, error: 'Cannot zero a board transducer while a sequence is running' };
+      }
+      if (!this.driver.ptTare) {
+        return { ok: false, error: `The ${this.driver.status?.name || 'active'} driver cannot zero board transducers` };
+      }
+    }
+
+    if (patch.ptTare) {
+      const res = this.driverCall(rt, () => this.driver.ptTare(rt.side));
+      if (!res.ok) return { ok: false, error: `PT tare failed: ${res.error}` };
+      // Loud, for the same reason a DAQ tare is: every board pressure after
+      // this line means something different from the ones before it, and the
+      // regulator acts on that number.
+      this.stand.log('command',
+        `*** BOARD PT TARE *** ${cfg.name}: side ${rt.side} transducer zeroed at its current reading`, source);
+    }
+
+    if (patch.ptOffset !== undefined) {
+      const v = Number(patch.ptOffset);
+      if (!Number.isFinite(v)) return { ok: false, error: 'ptOffset must be a number, in psi' };
+      const res = this.driverCall(rt, () => this.driver.ptOffset(rt.side, v));
+      if (!res.ok) return { ok: false, error: `PT offset failed: ${res.error}` };
+      this.stand.log('command',
+        `*** BOARD PT OFFSET *** ${cfg.name}: side ${rt.side} offset set to ${v.toFixed(1)} psi`, source);
+    }
+
+    // Per-side clear is an explicit zero offset, not `Tz`: the board's `Tz`
+    // clears BOTH channels, and clearing the fuel side's zero because someone
+    // re-did the LOX side is not what anyone means by this button.
+    if (patch.ptTareClear) {
+      const res = this.driverCall(rt, () => this.driver.ptOffset(rt.side, 0));
+      if (!res.ok) return { ok: false, error: `PT tare clear failed: ${res.error}` };
+      this.stand.log('command',
+        `*** BOARD PT TARE CLEARED *** ${cfg.name}: side ${rt.side} offset set to 0`, source);
+    }
+
     // --- overrides: vent and per-side abort ---
     if (patch.vent !== undefined) {
       const open = Boolean(patch.vent);
@@ -326,6 +390,30 @@ export class BangBangBank {
       // say so here rather than letting an operator hunt for the reset that
       // does not exist.
       this.stand.log('abort', `${cfg.name}: side ${rt.side} ABORT sent — latched on the board until it is power-cycled or re-armed`, source);
+    }
+
+    // --- predictive valve shutoff ---
+    //
+    // The board gates `e<side>1` on its own arm latch and accepts `e<side>0`
+    // in any state. That asymmetry is reproduced here rather than merely
+    // relied on: a refusal that arrives as a BB_ERROR line, seconds later and
+    // in a log the operator may not be reading, is not an interlock. Turning
+    // it OFF is never gated — not on ARM, not on the loop being live, not on
+    // a sequence — because the safe direction never is.
+    if (patch.predictive !== undefined) {
+      const want = Boolean(patch.predictive);
+      if (want && !this.stand.armed) {
+        return { ok: false, error: `${cfg.name}: predictive cutoff can only be enabled while the stand is ARMED` };
+      }
+      const res = this.driverCall(rt, () => this.driver.bbPredictive(rt.side, want));
+      if (!res.ok) return { ok: false, error: `Predictive cutoff failed: ${res.error}` };
+      rt.predictive = want;
+      rt.predictiveRetryAt = null;
+      // Logged at command level even though it moves no valve: it changes
+      // WHEN the board closes one, so a press trace recorded with it on and a
+      // trace recorded with it off are not the same experiment.
+      this.stand.log('command',
+        `${cfg.name}: predictive valve shutoff ${want ? 'ENABLED' : 'disabled'}`, source);
     }
 
     // --- enable / disable ---
@@ -494,6 +582,28 @@ export class BangBangBank {
       this.mirrorValves(cfg, rt, board);
 
       if (!rt.side) continue;
+
+      // Losing ARM also drops predictive shutoff, unconditionally — not just
+      // for controllers with `requiresArm`, because the gate is the BOARD's
+      // arm latch and it applies to every side.
+      //
+      // Sent rather than assumed. The firmware almost certainly clears this
+      // with the latch, but "almost certainly" would leave GC displaying a
+      // setting it could not verify and could not restore — `e<side>1` is
+      // refused while disarmed, so this is the last moment the board can be
+      // put into a state GC knows. Disabling is accepted in any state, so it
+      // cannot itself be refused. Retried at 1 Hz like the stop above.
+      if (rt.predictive && !this.stand.armed) {
+        if (rt.predictiveRetryAt == null || now - rt.predictiveRetryAt >= STOP_RETRY_MS) {
+          rt.predictiveRetryAt = now;
+          const res = this.driverCall(rt, () => this.driver.bbPredictive(rt.side, false));
+          if (res.ok) {
+            rt.predictive = false;
+            rt.predictiveRetryAt = null;
+            this.stand.log('warn', `${cfg.name}: predictive shutoff off (stand disarmed)`, 'interlock');
+          }
+        }
+      }
 
       // Losing ARM drops every controller that depends on it. Retried rather
       // than sent once, because a board that missed the first `b<side>0` is
@@ -755,7 +865,14 @@ export class BangBangBank {
         maxOpenSeconds: rt.maxOpenSeconds,
         ventTrigger: rt.ventTrigger,
         ventAuto: rt.ventAuto,
+        predictive: rt.predictive,
         abortAbove: rt.abortAbove,
+
+        // The zero applied to the board's OWN transducer on this side, in psi.
+        // `null` means we have not seen one this session — the offset lives in
+        // the board's EEPROM, so "unknown" and "none" are different answers
+        // and only the board can tell them apart.
+        ptOffset: this.driver.ptTareStatus?.()?.offsets?.[rt.side] ?? null,
 
         // What the board says it is doing. `null` means it has not said.
         board: board && {

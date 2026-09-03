@@ -587,12 +587,27 @@ function controllerCard(c) {
           : 'No board side configured — this controller cannot be pushed to the board.',
       })
     ),
-    el('div.bb-sub', {
-      id: `bb-src-${c.id}`,
-      title: 'The board regulates on its OWN transducer. The DAQ channel below it is a\n'
-           + 'second sensor on the same tank, and the two can legitimately disagree.',
-      text: `board PT → ${c.valve}`,
-    }),
+    el('div.bb-sub', {},
+      el('span', {
+        id: `bb-src-${c.id}`,
+        title: 'The board regulates on its OWN transducer. The DAQ channel below it is a\n'
+             + 'second sensor on the same tank, and the two can legitimately disagree.',
+        text: `board PT → ${c.valve}`,
+      }),
+      // Zeroing the board's own transducer. It sits here, on the line that
+      // names that transducer, rather than with the DAQ tares on the Data
+      // page — this is a different sensor, it lives in the board's EEPROM,
+      // and it is the number the regulator acts on.
+      el('button.tare-chip#bb-tare-' + c.id, {
+        text: 'TARE',
+        onclick: () => bus.setController(c.id, { ptTare: true }),
+      }),
+      el('button.tare-chip.clear.hidden#bb-untare-' + c.id, {
+        text: '✕',
+        title: "Clear this side's offset. The other side is left alone.",
+        onclick: () => bus.setController(c.id, { ptTareClear: true }),
+      })
+    ),
     el('div.bb-readout', {},
       // Reserved width keeps the units label and the state badge from
       // shifting as the pressure reading swings.
@@ -726,6 +741,22 @@ function limitsPanel(c, sensor) {
         },
       }),
       el('span', { text: 'Board may auto-vent' })
+    ),
+    // A switch rather than a checkbox, matching the enable control below it:
+    // this changes how the board runs the loop, where everything above it in
+    // this panel only sets a number the loop uses.
+    el('label.toggle.bb-lim-toggle', { id: `bb-predrow-${c.id}` },
+      el('input', {
+        type: 'checkbox',
+        id: `bb-predictive-${c.id}`,
+        onchange: (e) => {
+          bus.setController(c.id, { predictive: e.target.checked }).then((res) => {
+            if (!res.ok) e.target.checked = !e.target.checked;
+          });
+        },
+      }),
+      el('span.track'),
+      el('span', { text: 'Predictive valve shutoff' })
     )
   );
   return details;
@@ -770,7 +801,8 @@ function limitSummary(rt, sensor) {
     rt.maxOpenSeconds > 0 ? `trip ${rt.maxOpenSeconds}s` : 'trip off',
     rt.ventTrigger != null ? `vent ${rt.ventTrigger}${rt.ventAuto ? ' auto' : ''}` : 'vent off',
     rt.abortAbove != null ? `abort ${rt.abortAbove}${units}` : 'abort off',
-  ].join(' · ');
+    rt.predictive ? 'predictive ON' : null,
+  ].filter(Boolean).join(' · ');
 }
 
 const LIMITS_OPEN_KEY = 'gc4-bb-limits-open';
@@ -1007,6 +1039,35 @@ function updateSidebar() {
                 + ` a persistent gap is a calibration difference worth chasing.`;
     }
 
+    // Board PT tare. Disabled exactly when the server would refuse it, so the
+    // control says "not now" by being unavailable rather than by accepting a
+    // click and toasting a rejection.
+    const tareBtn = $(`#bb-tare-${c.id}`);
+    if (tareBtn) {
+      const live = rt.enabled || (board && !board.stale && board.state !== 'OFF');
+      tareBtn.disabled = Boolean(live) || s.sequence.running;
+      const tared = Number.isFinite(rt.ptOffset) && rt.ptOffset !== 0;
+      tareBtn.classList.toggle('on', tared);
+      // The offset on the face of the button, for the same reason the DAQ
+      // tares carry theirs: a zeroed transducer reading 0 psi looks exactly
+      // like an untared one sitting at ambient.
+      const shown = tared
+        ? `${rt.ptOffset > 0 ? '−' : '+'}${Math.abs(rt.ptOffset).toFixed(1)}`
+        : 'TARE';
+      if (tareBtn.textContent !== shown) tareBtn.textContent = shown;
+      tareBtn.title = live
+        ? `Cannot zero side ${rt.side} while it is regulating — the loop would read the\n`
+          + 'tank as empty and press on top of what is already in it. Disable it first.'
+        : s.sequence.running
+          ? 'Cannot zero a board transducer while a sequence is running.'
+          : tared
+            ? `${Math.abs(rt.ptOffset).toFixed(1)} psi is being ${rt.ptOffset > 0 ? 'subtracted from' : 'added to'} `
+              + `the board's own transducer.\nClick to re-zero at the current reading.`
+            : `Zero the board's own transducer on side ${rt.side} against what it reads now.\n`
+              + 'This is the pressure the REGULATOR runs on, and it is saved to the board.';
+      $(`#bb-untare-${c.id}`)?.classList.toggle('hidden', !tared || tareBtn.disabled);
+    }
+
     const ventBtn = $(`#bb-vent-${c.id}`);
     if (ventBtn) {
       ventBtn.dataset.on = String(Boolean(board?.vent));
@@ -1045,6 +1106,25 @@ function updateSidebar() {
     }
     const ventAuto = $(`#bb-ventAuto-${c.id}`);
     if (ventAuto && document.activeElement !== ventAuto) ventAuto.checked = Boolean(rt.ventAuto);
+
+    const pred = $(`#bb-predictive-${c.id}`);
+    if (pred && document.activeElement !== pred) {
+      pred.checked = Boolean(rt.predictive);
+      // The board refuses `e<side>1` while disarmed, so the control mirrors
+      // that: unavailable when it could only be turned ON, always available
+      // when it could be turned OFF. Same shape as the enable toggle above.
+      pred.disabled = !rt.side || (!s.armed && !rt.predictive);
+      const row = $(`#bb-predrow-${c.id}`);
+      if (row) {
+        row.title = rt.predictive
+          ? `The board is closing ${c.valve} on predicted overshoot rather than at the band edge.\n`
+            + 'Click to return it to plain hysteresis.'
+          : s.armed
+            ? 'Let the board close the press valve early, on where the pressure is headed,\n'
+              + 'so the rise after it shuts lands inside the band instead of above it.'
+            : 'The board only accepts this while the stand is ARMED.';
+      }
+    }
 
     const limSum = $(`#bb-limsum-${c.id}`);
     if (limSum) limSum.textContent = limitSummary(rt, sensor);

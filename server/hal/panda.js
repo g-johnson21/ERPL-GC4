@@ -33,7 +33,7 @@
  *   r            disarm / abort
  *   h            liveness heartbeat, 5 Hz   (see NOTE ON COMMS LOSS)
  *   B/V/M        bang-bang configuration   (see bb-protocol.js)
- *   b/v/x        bang-bang actuation
+ *   b/v/x/e      bang-bang actuation
  *
  * NOTE ON ARM: the board has its own arm latch, independent of GC-4's
  * software interlocks. `armHardware` keeps them in step so a disarmed stand
@@ -59,7 +59,12 @@ import {
   encodeMdot,
   encodeEnable,
   encodeManualVent,
+  encodePredictive,
   encodeAbort,
+  encodePtTare,
+  encodePtTareClear,
+  encodePtOffset,
+  parsePtTare,
   commandSide,
 } from './bb-protocol.js';
 
@@ -155,6 +160,16 @@ export class PandaDriver {
     this.warnedUnarmed = false;
     this.warnedNoWatchdog = false;
     this.firstRxAt = 0;
+
+    // Zero offsets on the board's OWN PT channels, per side. These live in the
+    // board's EEPROM and survive its power cycles, so what is here is only
+    // what this session has seen — commanded or confirmed — and starts null
+    // rather than 0 to say "unknown" instead of "none". GC never re-asserts
+    // them at startup: the board's stored value is the authority, and pushing
+    // a stale offset over it would silently undo a zero someone set at the pad.
+    this.ptOffsets = { L: null, F: null };
+    this.ptTareConfirmedAt = 0;
+    this.ptTareError = null;
   }
 
   async init(config) {
@@ -418,7 +433,32 @@ export class PandaDriver {
         }
       }
     }
+    if (msg.category === 'PT_TARE') this.onPtTareEvent(msg);
     this.onEvent(`PANDA ${msg.category}${msg.side ? `:${msg.side}` : ''} ${msg.detail}`.trim(), 'info');
+  }
+
+  /**
+   * The board confirming a PT tare, and the offsets it ended up with.
+   *
+   * The detail's format is unverified (see parsePtTare), so anything it fails
+   * to read leaves the commanded offsets standing rather than clearing them.
+   * A confirmation we cannot parse is not evidence the tare did not happen —
+   * the board only emits this line on success.
+   */
+  onPtTareEvent(msg) {
+    this.ptTareError = null;
+    this.ptTareConfirmedAt = Date.now();
+    // `EVT:<ms>:PT_TARE:<side>:<detail>` puts the side in its own field for
+    // CFG_PUSH, so honour that shape first and fall back to the detail.
+    const parsed = parsePtTare(msg.detail);
+    const sideFromField = commandSide(msg.side);
+    if (sideFromField && !Object.keys(parsed).length) {
+      const lone = Number(String(msg.detail).trim());
+      if (Number.isFinite(lone)) parsed[sideFromField] = lone;
+    }
+    for (const [side, offset] of Object.entries(parsed)) {
+      if (this.ptOffsets[side] !== undefined) this.ptOffsets[side] = offset;
+    }
   }
 
   /**
@@ -428,6 +468,14 @@ export class PandaDriver {
    */
   onBoardError(msg) {
     this.onEvent(msg.message, 'error');
+    // A PT tare rejection is not a bang-bang rejection. Routing it through
+    // onBbError would paint "Board rejected: PT_ERROR:no_data" onto whichever
+    // controller happened to be mid-handshake, which is a different fault on
+    // a different subsystem and sends the operator to the wrong panel.
+    if (msg.message.startsWith('PT_ERROR:')) {
+      this.ptTareError = msg.message;
+      return;
+    }
     this.onBbError?.(msg.message);
   }
 
@@ -669,6 +717,12 @@ export class PandaDriver {
     // rather than relying on a side effect we cannot see the source of.
     for (const side of ['L', 'F']) this.send(encodeEnable(side, false));
 
+    // Predictive shutoff back to its firmware default too. It is only ever
+    // accepted in the ON direction while armed, and 'r' below drops the arm
+    // latch — so this is the last moment the board can be put back into a
+    // state GC knows for certain, rather than one it has to assume.
+    for (const side of ['L', 'F']) this.send(encodePredictive(side, false));
+
     // 'r' is the board's own disarm/abort: it drops every output itself,
     // which still works if a per-channel command is what went wrong.
     this.send('r');
@@ -701,6 +755,71 @@ export class PandaDriver {
 
   /** Per-side abort. Latched on the board — assume nothing clears it. */
   bbAbort(side) { return this.bbSend(() => encodeAbort(side)); }
+
+  /**
+   * Predictive valve shutoff on or off.
+   *
+   * The board refuses `e<side>1` unless it is armed, and answers on the error
+   * channel like any other rejection. `ok` here still only means the bytes
+   * left the host — bangbang.js checks ARM before calling, so that refusal is
+   * a backstop rather than the interlock.
+   */
+  bbPredictive(side, on) { return this.bbSend(() => encodePredictive(side, on)); }
+
+  // ---------------------------------------------------------- PT tare ----
+  //
+  // Zeroing the board's OWN transducers — the ones its regulator runs on, not
+  // the DAQ channels GC displays beside them. The board persists these to
+  // EEPROM, so a tare outlives both a board reset and a GC restart.
+  //
+  // As with every other command here, `ok` means only that the bytes left the
+  // host. The board answers `EVT:...:PT_TARE:...` on success and
+  // `PT_ERROR:no_data` / `PT_ERROR:parse` on failure, both of which arrive
+  // later and separately.
+
+  /** `T<side>` — zero this side's transducer at whatever it reads now. */
+  ptTare(side) {
+    const res = this.bbSend(() => encodePtTare(side));
+    if (res.ok) this.ptTareError = null;
+    return res;
+  }
+
+  /**
+   * `T<ch>,<psi>` — set one side's offset explicitly.
+   *
+   * The offset is recorded optimistically, because it is the only value GC
+   * has until the board confirms: a display that stayed blank until an
+   * unverified echo arrived would show nothing at all on the firmwares whose
+   * PT_TARE detail this parser does not recognise.
+   */
+  ptOffset(side, psi) {
+    const res = this.bbSend(() => encodePtOffset(side, psi));
+    if (res.ok) {
+      const s = commandSide(side);
+      if (s) this.ptOffsets[s] = Number(psi);
+      this.ptTareError = null;
+    }
+    return res;
+  }
+
+  /** `Tz` — clear BOTH channels. There is no per-side form; use ptOffset(s, 0). */
+  ptTareClearAll() {
+    const res = this.bbSend(() => encodePtTareClear());
+    if (res.ok) {
+      this.ptOffsets = { L: 0, F: 0 };
+      this.ptTareError = null;
+    }
+    return res;
+  }
+
+  /** Offsets and the last rejection, for the UI. */
+  ptTareStatus() {
+    return {
+      offsets: { ...this.ptOffsets },
+      confirmedAt: this.ptTareConfirmedAt,
+      error: this.ptTareError,
+    };
+  }
 
   bbSend(build) {
     let command;

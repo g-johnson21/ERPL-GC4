@@ -33,6 +33,12 @@ import {
   encodeEnable,
   encodeManualVent,
   encodeAbort,
+  encodePredictive,
+  encodePtTare,
+  encodePtTareClear,
+  encodePtOffset,
+  parsePtTare,
+  commandSide,
 } from './bb-protocol.js';
 
 const AMBIENT_PSI = 14.7;
@@ -135,6 +141,9 @@ export class SimulatorDriver {
     // Set by the bang-bang bank, to attribute a board rejection to whatever
     // command was in flight. Mirrors the PANDA driver's hook.
     this.onBbError = options.onBbError || null;
+    this.ptOffsets = { L: null, F: null };
+    this.ptTareConfirmedAt = 0;
+    this.ptTareError = null;
     // Matches the PANDA driver's default, so the energized threshold behaves
     // the same in the simulator as it does on the stand.
     this.dcThresholdA = Number(options.dcThresholdA ?? 0.1);
@@ -257,8 +266,10 @@ export class SimulatorDriver {
   }
 
   setArmed(armed) {
-    // Mirrors the board's 'r': disarming runs the firmware's forceSafe()
-    // across both sides, so a regulator does not survive a disarm.
+    // Mirrors the board's 'a'/'r'. The latch itself gates one command
+    // (predictive shutoff); the 'r' path additionally runs the firmware's
+    // forceSafe() across both sides, so a regulator does not survive a disarm.
+    this.firmware.setArmed(armed);
     if (!armed) this.firmware.forceSafe();
   }
 
@@ -268,7 +279,7 @@ export class SimulatorDriver {
 
   // ----------------------------------------------------------- bang-bang ----
   //
-  // The same six commands the PANDA driver sends, encoded with the same
+  // The same seven commands the PANDA driver sends, encoded with the same
   // encoders and handed to the emulated board as ASCII. Going through the wire
   // format rather than calling the firmware's methods directly is the point:
   // a mistake in the grammar shows up here instead of at the pad.
@@ -279,6 +290,36 @@ export class SimulatorDriver {
   bbEnable(side, on) { return this.boardCommand(() => encodeEnable(side, on)); }
   bbManualVent(side, open) { return this.boardCommand(() => encodeManualVent(side, open)); }
   bbAbort(side) { return this.boardCommand(() => encodeAbort(side)); }
+  bbPredictive(side, on) { return this.boardCommand(() => encodePredictive(side, on)); }
+
+  // PT tare, over the same emulated wire as everything else — so `npm run sim`
+  // exercises the real `T` grammar and the real PT_TARE / PT_ERROR answers
+  // rather than a shortcut that would agree with the server no matter what.
+  ptTare(side) {
+    const res = this.boardCommand(() => encodePtTare(side));
+    if (res.ok) this.ptTareError = null;
+    return res;
+  }
+
+  ptOffset(side, psi) {
+    const res = this.boardCommand(() => encodePtOffset(side, psi));
+    if (res.ok) {
+      const c = commandSide(side);
+      if (c) this.ptOffsets[c] = Number(psi);
+      this.ptTareError = null;
+    }
+    return res;
+  }
+
+  ptTareClearAll() {
+    const res = this.boardCommand(() => encodePtTareClear());
+    if (res.ok) { this.ptOffsets = { L: 0, F: 0 }; this.ptTareError = null; }
+    return res;
+  }
+
+  ptTareStatus() {
+    return { offsets: { ...this.ptOffsets }, confirmedAt: this.ptTareConfirmedAt, error: this.ptTareError };
+  }
 
   boardCommand(build) {
     let command;
@@ -306,6 +347,13 @@ export class SimulatorDriver {
       return;
     }
     if (msg.kind === 'event') {
+      if (msg.category === 'PT_TARE') {
+        this.ptTareError = null;
+        this.ptTareConfirmedAt = Date.now();
+        for (const [side, offset] of Object.entries(parsePtTare(msg.detail))) {
+          if (this.ptOffsets[side] !== undefined) this.ptOffsets[side] = offset;
+        }
+      }
       if (msg.category === 'CFG_PUSH' && this.bb[msg.side]) {
         this.bbEchoes = true;
         Object.assign(this.bb[msg.side].confirmed, msg.config.fields);
@@ -316,6 +364,9 @@ export class SimulatorDriver {
     }
     if (msg.kind === 'error') {
       this.onEvent(line, 'error');
+      // A PT tare rejection is not a bang-bang rejection — same split the
+      // real driver makes, for the same reason.
+      if (line.startsWith('PT_ERROR:')) { this.ptTareError = line; return; }
       this.onBbError?.(line);
     }
   }

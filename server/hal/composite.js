@@ -159,6 +159,7 @@ export class CompositeDriver {
   bbEnable(side, on) { return this.bbCall((d) => d.bbEnable(side, on)); }
   bbManualVent(side, open) { return this.bbCall((d) => d.bbManualVent(side, open)); }
   bbAbort(side) { return this.bbCall((d) => d.bbAbort(side)); }
+  bbPredictive(side, on) { return this.bbCall((d) => d.bbPredictive(side, on)); }
 
   bbCall(fn) {
     const device = this.bbDevice();
@@ -167,6 +168,14 @@ export class CompositeDriver {
   }
 
   bbStatus() { return this.bbDevice()?.bbStatus?.() ?? {}; }
+
+  // The board's own transducers belong to the device that runs the regulator,
+  // not to whichever box the DAQ tare goes to — so these route through
+  // bbDevice() like the rest of the bang-bang surface.
+  ptTare(side) { return this.bbCall((d) => d.ptTare(side)); }
+  ptOffset(side, psi) { return this.bbCall((d) => d.ptOffset(side, psi)); }
+  ptTareClearAll() { return this.bbCall((d) => d.ptTareClearAll()); }
+  ptTareStatus() { return this.bbDevice()?.ptTareStatus?.() ?? null; }
 
   /** Merged per-valve current sense, from whichever device measures it. */
   dcStatus() {
