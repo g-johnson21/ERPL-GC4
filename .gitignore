@@ -2,6 +2,10 @@
 data/*.csv
 data/*.meta.json
 
+# Reference traces from other stands, kept locally as format references
+# rather than in the repo — they are megabytes of rows nothing reads.
+TRITON_*.csv
+
 # Timestamped config backups written on every save from the Config page.
 config/backups/
 
