@@ -225,17 +225,6 @@ body.shift-armed .pid-valve[data-needs-shift="true"] .pid-hit {
   font-weight: 700;
   letter-spacing: .04em;
 }
-
-/* The tag stencilled on the hardware, above the symbol. Deliberately quieter
-   than the GC-4 id below it: it is a cross-reference, not the primary label. */
-.pid-valve-tag {
-  fill: var(--text-faint);
-  font-family: var(--mono);
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: .08em;
-  opacity: .8;
-}
 .pid-valve[data-state="open"] .pid-valve-state { fill: var(--ok); }
 .pid-valve[data-hazard="true"][data-state="open"] .pid-valve-state { fill: var(--danger); }
 

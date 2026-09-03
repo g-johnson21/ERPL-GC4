@@ -99,14 +99,22 @@ with ISA symbols — bowtie valve bodies, solenoid coil boxes, pneumatic ball va
 actuators, regulator diaphragms, check valves, rupture disks, filters, vent
 stacks, quick disconnects. Click any valve symbol to command it.
 
+**Valves are labelled with their panel tag** — `S1`, `PB4` — not with the
+GC-4 id. That is the number stencilled on the hardware and printed on the
+control panel, so a symbol on the drawing matches a valve in front of you with
+no translation step in between. The tag comes from `pid.tag` in `stand.json`;
+the GC-4 id is one hover away, and it is still what the config, the CSV headers
+and every error message use. A valve with no `pid.tag` falls back to its id
+rather than going unlabelled.
+
 Instruments render as ISA bubbles with dashed lead lines to their tap points.
 **Each bubble takes its sensor group's colour** — LOX blue, fuel red,
 thermocouples yellow, load cells purple — so the instrument types separate at a
 glance without reading a single tag. Alarm state still repaints the bubble on
 top of that: knowing a channel is a thermocouple matters less than knowing it
-is in danger. Tanks show liquid level from
-their load cells. Lines animate when propellant is actually flowing through them.
-The engine grows an exhaust plume scaled to chamber pressure.
+is in danger. Tanks show liquid level from their load cells. Lines animate when
+propellant is actually flowing through them. The engine grows an exhaust plume
+scaled to chamber pressure.
 
 Scroll to zoom, drag to pan, `0` to reset. The **padlock** button in the toolbar
 freezes the view so a stray scroll or drag during a test cannot move the

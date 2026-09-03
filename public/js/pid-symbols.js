@@ -353,15 +353,16 @@ export function renderValve(valve, groupColor) {
   body.append(draw(valve));
   g.append(body);
 
-  g.append(svgEl('title', {}, document.createTextNode(`${valve.id} — ${valve.name}`)));
+  g.append(svgEl('title', {}, document.createTextNode(
+    p.tag ? `${p.tag} · ${valve.id} — ${valve.name}` : `${valve.id} — ${valve.name}`,
+  )));
 
-  // The tag stencilled on the hardware (S1, PB2...), above the symbol. It is
-  // what an operator at the stand reads, so showing it here is what lets a
-  // symbol on screen be matched to a valve in front of them.
-  if (p.tag) {
-    g.append(svgText(p.tag, { x: 0, y: -40, class: 'pid-valve-tag', 'text-anchor': 'middle' }));
-  }
-  g.append(svgText(valve.id, { x: 0, y: 42, class: 'pid-label strong', 'text-anchor': 'middle' }));
+  // The tag stencilled on the hardware (S1, PB2...) IS the label. It is what
+  // an operator at the stand reads off the panel, so a symbol on the drawing
+  // matches a valve in front of them with no translation step in between.
+  // Falls back to the GC-4 id rather than going blank if a valve has no tag;
+  // the id stays reachable on hover either way.
+  g.append(svgText(p.tag || valve.id, { x: 0, y: 42, class: 'pid-label strong', 'text-anchor': 'middle' }));
   g.append(svgText('', { x: 0, y: 53, class: 'pid-valve-state', id: `pvs-${valve.id}`, 'text-anchor': 'middle' }));
 
   // Coil state as MEASURED, not as commanded.
