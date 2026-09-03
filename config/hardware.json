@@ -1,7 +1,10 @@
 {
   "_comment": [
     "Hardware wiring for the --driver=stand composite driver.",
-    "Copy config/hardware.example.json here and edit for your stand.",
+    "THIS IS DRACO'S ACTUAL WIRING, and it is tracked in git: the repo",
+    "serves exactly one stand, so the numbers below belong with the code",
+    "that reads them. hardware.example.json stays as the template for a",
+    "different stand -- do not assume the two agree.",
     "",
     "This is deliberately NOT part of stand.json: that file is edited through",
     "the Config page in the browser and rewritten on every save. Wiring should",

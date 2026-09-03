@@ -828,19 +828,26 @@ composes two devices behind the single HAL interface:
 | `nidaq` | NI cDAQ-9189 — 9237 (load cells), 9208 (4–20 mA PTs), 9211 ×2 (thermocouples) | Instrumentation |
 | `panda` | Custom Teensy board, USB serial 460800 8N1 | Valves, igniter, arm latch |
 
-Wiring lives in `config/hardware.json` — chassis name, card slots, serial port,
-and the channel maps that tie hardware channels to sensor ids. Copy
-[`config/hardware.example.json`](config/hardware.example.json) and edit it:
+Wiring lives in [`config/hardware.json`](config/hardware.json) — chassis name,
+card slots, serial port, and the channel maps that tie hardware channels to
+sensor ids. **Draco's is tracked in this repo**, so a fresh clone runs against
+the stand as wired:
 
 ```bash
-cp config/hardware.example.json config/hardware.json
 npm run stand
 ```
 
-It is deliberately a **separate file from `stand.json`**. That one is edited
-through the Config page and rewritten wholesale on save; wiring should not be
-reachable from a browser, nor churn when someone retimes a sequence. It is
-also gitignored, because the COM port and chassis name are per-machine.
+That is a deliberate change from how this kind of file is usually handled. The
+repo serves exactly one stand, and the numbers in it — the DC channel order,
+the load-cell slopes, the PT full scales — were measured, argued about, and
+corrected against hardware. Keeping them out of version control meant every
+correction lived on one laptop, and the calibration that matters most had no
+history at all. [`config/hardware.example.json`](config/hardware.example.json)
+remains as the template for a *different* stand; do not assume the two agree.
+
+It is still deliberately a **separate file from `stand.json`**. That one is
+edited through the Config page and rewritten wholesale on save; wiring should
+not be reachable from a browser, nor churn when someone retimes a sequence.
 
 **Channel maps are the thing to get right.** DAQ channel indices restart at 0
 on every card, so a bare channel number is ambiguous. Keys carry the card:
@@ -1111,7 +1118,8 @@ server/
 config/
   stand.json       THE config — everything is generated from this
   stand.schema.json  JSON Schema for editor autocomplete
-  hardware.example.json  wiring template for --driver=stand
+  hardware.json    Draco's wiring for --driver=stand — tracked
+  hardware.example.json  the same, as a template for another stand
 public/
   *.html           one page per window
   js/bus.js        the only module that talks to the network
