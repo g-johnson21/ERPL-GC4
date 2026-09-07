@@ -415,10 +415,10 @@
       },
       "pid": {
         "x": 480,
-        "y": 140,
+        "y": 126,
         "lead": [
           350,
-          140
+          126
         ]
       }
     },
@@ -441,10 +441,10 @@
       },
       "pid": {
         "x": 480,
-        "y": 262,
+        "y": 222,
         "lead": [
           350,
-          262
+          222
         ]
       }
     },
@@ -571,10 +571,10 @@
       },
       "pid": {
         "x": 880,
-        "y": 140,
+        "y": 126,
         "lead": [
           1010,
-          140
+          126
         ]
       }
     },
@@ -1681,7 +1681,7 @@
         "id": "TXT-2",
         "x": 78,
         "y": 54,
-        "label": "LOX / ETHANOL  -  GN2 BANG-BANG PRESS-FED",
+        "label": "LOX / ETHANOL  -  GN2 REGULATED PRESS-FED",
         "size": 10,
         "anchor": "start"
       },
@@ -1731,21 +1731,21 @@
         "y": 100
       },
       {
-        "type": "check-valve",
-        "id": "C1",
-        "x": 350,
-        "y": 225,
-        "rot": 90,
-        "label": "C1",
-        "labelSide": "right"
-      },
-      {
         "type": "relief-valve",
         "id": "RV1",
         "x": 300,
-        "y": 262,
+        "y": 222,
         "label": "RV1\n1350 psi",
         "labelSide": "left"
+      },
+      {
+        "type": "check-valve",
+        "id": "C1",
+        "x": 350,
+        "y": 270,
+        "rot": 90,
+        "label": "C1",
+        "labelSide": "right"
       },
       {
         "type": "vent-stack",
@@ -2050,7 +2050,8 @@
             350,
             168
           ]
-        ]
+        ],
+        "pressureSensor": "PT1"
       },
       {
         "id": "p-lox-leg",
@@ -2062,7 +2063,7 @@
           ],
           [
             350,
-            262
+            222
           ],
           [
             350,
@@ -2079,7 +2080,8 @@
         ],
         "flowWhen": [
           "SV-LOXBB"
-        ]
+        ],
+        "pressureSensor": "PT2"
       },
       {
         "id": "p-rv1",
@@ -2087,13 +2089,14 @@
         "points": [
           [
             350,
-            262
+            222
           ],
           [
             313,
-            262
+            222
           ]
-        ]
+        ],
+        "pressureSensor": "PT2"
       },
       {
         "id": "p-rv2",
@@ -2107,14 +2110,33 @@
             387,
             372
           ]
-        ]
+        ],
+        "pressureSensor": "PT2"
       },
       {
-        "id": "p-lox-vent",
+        "id": "p-lox-vent-a",
         "fluid": "vent",
         "points": [
           [
             350,
+            336
+          ],
+          [
+            270,
+            336
+          ]
+        ],
+        "flowWhen": [
+          "SV-LOXV"
+        ],
+        "pressureSensor": "PT2"
+      },
+      {
+        "id": "p-lox-vent-b",
+        "fluid": "vent",
+        "points": [
+          [
+            270,
             336
           ],
           [
@@ -2146,15 +2168,33 @@
             1010,
             168
           ]
-        ]
+        ],
+        "pressureSensor": "PT11"
       },
       {
-        "id": "p-fuel-leg",
+        "id": "p-fuel-leg-a",
         "fluid": "n2",
         "points": [
           [
             1010,
             168
+          ],
+          [
+            1010,
+            225
+          ]
+        ],
+        "flowWhen": [
+          "SV-FBB"
+        ]
+      },
+      {
+        "id": "p-fuel-leg-b",
+        "fluid": "n2",
+        "points": [
+          [
+            1010,
+            225
           ],
           [
             1010,
@@ -2179,7 +2219,8 @@
         ],
         "flowWhen": [
           "SV-FBB"
-        ]
+        ],
+        "pressureSensor": "PT12"
       },
       {
         "id": "p-rv3",
@@ -2193,7 +2234,8 @@
             1047,
             250
           ]
-        ]
+        ],
+        "pressureSensor": "PT12"
       },
       {
         "id": "p-b3",
@@ -2207,14 +2249,33 @@
             1046,
             372
           ]
-        ]
+        ],
+        "pressureSensor": "PT12"
       },
       {
-        "id": "p-fuel-vent",
+        "id": "p-fuel-vent-a",
         "fluid": "vent",
         "points": [
           [
             1010,
+            336
+          ],
+          [
+            930,
+            336
+          ]
+        ],
+        "flowWhen": [
+          "SV-FV"
+        ],
+        "pressureSensor": "PT12"
+      },
+      {
+        "id": "p-fuel-vent-b",
+        "fluid": "vent",
+        "points": [
+          [
+            930,
             336
           ],
           [
@@ -2227,11 +2288,26 @@
         ]
       },
       {
+        "id": "p-r1-feed",
+        "fluid": "n2",
+        "points": [
+          [
+            1010,
+            312
+          ],
+          [
+            1075,
+            312
+          ]
+        ],
+        "pressureSensor": "PT12"
+      },
+      {
         "id": "p-purge-feed",
         "fluid": "purge",
         "points": [
           [
-            1010,
+            1075,
             312
           ],
           [
@@ -2258,7 +2334,8 @@
             555,
             868
           ]
-        ]
+        ],
+        "pressureSensor": "PT32"
       },
       {
         "id": "p-rv5",
@@ -2272,10 +2349,11 @@
             1190,
             337
           ]
-        ]
+        ],
+        "pressureSensor": "PT32"
       },
       {
-        "id": "p-b6-vent",
+        "id": "p-b6-vent-a",
         "fluid": "purge",
         "points": [
           [
@@ -2284,17 +2362,50 @@
           ],
           [
             1260,
+            395
+          ]
+        ],
+        "pressureSensor": "PT32"
+      },
+      {
+        "id": "p-b6-vent-b",
+        "fluid": "purge",
+        "points": [
+          [
+            1260,
+            395
+          ],
+          [
+            1260,
             418
           ]
         ]
       },
       {
-        "id": "p-purge-fuel",
+        "id": "p-purge-fuel-a",
         "fluid": "purge",
         "points": [
           [
             862,
             868
+          ],
+          [
+            862,
+            780
+          ]
+        ],
+        "flowWhen": [
+          "SV-FPURGE"
+        ],
+        "pressureSensor": "PT32"
+      },
+      {
+        "id": "p-purge-fuel-b",
+        "fluid": "purge",
+        "points": [
+          [
+            862,
+            780
           ],
           [
             862,
@@ -2310,12 +2421,30 @@
         ]
       },
       {
-        "id": "p-purge-lox",
+        "id": "p-purge-lox-a",
         "fluid": "purge",
         "points": [
           [
             555,
             868
+          ],
+          [
+            555,
+            780
+          ]
+        ],
+        "flowWhen": [
+          "SV-LOXPURGE"
+        ],
+        "pressureSensor": "PT32"
+      },
+      {
+        "id": "p-purge-lox-b",
+        "fluid": "purge",
+        "points": [
+          [
+            555,
+            780
           ],
           [
             555,
@@ -2342,7 +2471,8 @@
             620,
             254
           ]
-        ]
+        ],
+        "pressureSensor": "PT31"
       },
       {
         "id": "p-muscle",
@@ -2364,15 +2494,34 @@
             830,
             380
           ]
-        ]
+        ],
+        "pressureSensor": "PT31"
       },
       {
-        "id": "p-mb-vent",
+        "id": "p-mb-vent-a",
         "fluid": "pneu",
         "points": [
           [
             690,
             380
+          ],
+          [
+            690,
+            428
+          ]
+        ],
+        "flowWhen": [
+          "SV-MBV"
+        ],
+        "pressureSensor": "PT31"
+      },
+      {
+        "id": "p-mb-vent-b",
+        "fluid": "pneu",
+        "points": [
+          [
+            690,
+            428
           ],
           [
             690,
@@ -2384,7 +2533,7 @@
         ]
       },
       {
-        "id": "p-fill",
+        "id": "p-fill-a",
         "fluid": "lox",
         "points": [
           [
@@ -2400,13 +2549,35 @@
             640
           ],
           [
-            350,
+            275,
             640
           ]
         ],
         "flowWhen": [
           "SV-LOX-FILL"
         ]
+      },
+      {
+        "id": "p-fill-b",
+        "fluid": "lox",
+        "points": [
+          [
+            275,
+            640
+          ],
+          [
+            312,
+            640
+          ],
+          [
+            350,
+            640
+          ]
+        ],
+        "flowWhen": [
+          "SV-LOX-FILL"
+        ],
+        "pressureSensor": "PT4"
       },
       {
         "id": "p-b1",
@@ -2448,7 +2619,8 @@
             312,
             614
           ]
-        ]
+        ],
+        "pressureSensor": "PT4"
       },
       {
         "id": "p-lox-drop",
@@ -2462,7 +2634,8 @@
             350,
             640
           ]
-        ]
+        ],
+        "pressureSensor": "PT4"
       },
       {
         "id": "p-lox-run",
@@ -2474,6 +2647,21 @@
           ],
           [
             530,
+            640
+          ],
+          [
+            575,
+            640
+          ]
+        ],
+        "pressureSensor": "PT4"
+      },
+      {
+        "id": "p-lox-main",
+        "fluid": "lox",
+        "points": [
+          [
+            575,
             640
           ],
           [
@@ -2490,12 +2678,30 @@
         ]
       },
       {
-        "id": "p-gox-vent",
+        "id": "p-gox-vent-a",
         "fluid": "vent",
         "points": [
           [
             530,
             640
+          ],
+          [
+            530,
+            575
+          ]
+        ],
+        "flowWhen": [
+          "SV-GOX-PURGE"
+        ],
+        "pressureSensor": "PT4"
+      },
+      {
+        "id": "p-gox-vent-b",
+        "fluid": "vent",
+        "points": [
+          [
+            530,
+            575
           ],
           [
             530,
@@ -2522,7 +2728,8 @@
         "flowAny": [
           "MV-LOX",
           "SV-LOXPURGE"
-        ]
+        ],
+        "pressureSensor": "PT5"
       },
       {
         "id": "p-fuel-drop",
@@ -2536,14 +2743,30 @@
             1010,
             640
           ]
-        ]
+        ],
+        "pressureSensor": "PT14"
       },
       {
-        "id": "p-b4",
+        "id": "p-b4-a",
         "fluid": "fuel",
         "points": [
           [
             1010,
+            640
+          ],
+          [
+            1070,
+            640
+          ]
+        ],
+        "pressureSensor": "PT14"
+      },
+      {
+        "id": "p-b4-b",
+        "fluid": "fuel",
+        "points": [
+          [
+            1070,
             640
           ],
           [
@@ -2558,6 +2781,21 @@
         "points": [
           [
             1010,
+            640
+          ],
+          [
+            790,
+            640
+          ]
+        ],
+        "pressureSensor": "PT14"
+      },
+      {
+        "id": "p-fuel-main",
+        "fluid": "fuel",
+        "points": [
+          [
+            790,
             640
           ],
           [
@@ -2589,8 +2827,10 @@
         "flowAny": [
           "MV-F",
           "SV-FPURGE"
-        ]
+        ],
+        "pressureSensor": "PT15"
       }
-    ]
+    ],
+    "pressurizedPsi": 50
   }
 }

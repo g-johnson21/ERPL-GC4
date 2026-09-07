@@ -118,10 +118,18 @@ Instruments render as ISA bubbles with dashed lead lines to their tap points.
 thermocouples yellow, load cells purple — so the instrument types separate at a
 glance without reading a single tag. Alarm state still repaints the bubble on
 top of that: knowing a channel is a thermocouple matters less than knowing it
-is in danger. Tanks show liquid level from their load cells. Lines animate when
-propellant is actually flowing through them; the two injector legs animate for
-propellant through the run valve *or* gas through the purge valve, since both
-feed the same pipe. The engine grows an exhaust plume scaled to chamber pressure.
+is in danger. Tanks show liquid level from their load cells.
+
+**Lines draw bold when their section is pressurized.** Where a section has a
+transducer, that is the reading: the GN2 supplies on PT1 and PT11, the tank
+legs on PT2 and PT12, the tank outlets on PT4 and PT14, the run lines on PT5
+and PT15, the purge bus on PT32 and the muscle bus on PT31, each against
+`pid.pressurizedPsi` (50 psi by default). A section with no transducer bolds
+while the valves feeding it are open instead. Flow dashes animate only for that
+valve case, since a pressurized tank leg is not moving; the two injector legs
+animate for propellant through the run valve *or* gas through the purge valve,
+since both feed the same pipe. The engine grows an exhaust plume scaled to
+chamber pressure.
 
 **The drawing follows `Draco V4.02.pdf`**, the stand's own P&ID. Each GN2 bus
 has its own two-bottle bank and filter — the LOX bus and the fuel bus are not
@@ -129,9 +137,10 @@ cross-connected. The purge manifold is regulated off the fuel GN2 leg through
 R1, with its own relief and isolation valve, and enters each injector leg
 *downstream* of the run valve, venturi and main check valve, through its own
 check valve. Check valves (C1–C7), relief valves with their setpoints (RV1–RV5)
-and the manual ball valves (B1–B6) are drawn where they sit on the stand, small
-and unclickable, so an operator can read the drawing against the hardware
-without a second document open. PB1, PB3, PB5 and PB6 are pneumatic ball
+and the manual ball valves (B1–B6) are drawn where they sit on the stand, small,
+unclickable and in a muted ink, so an operator can read the drawing against the
+hardware without a second document open and still find the actuated valves
+first. PB1, PB3, PB5 and PB6 are pneumatic ball
 valves, not solenoids, and draw as such. The muscle bus ends in a flag reading
 `PB1-PB6` rather than one green line to every actuator.
 
@@ -940,8 +949,17 @@ for a line fed from two places:
 
 { "id": "p-fuel-inj", "fluid": "fuel",
   "points": [[730,700],[730,740]],
-  "flowAny": ["MV-F", "SV-FPURGE"] }
+  "flowAny": ["MV-F", "SV-FPURGE"], "pressureSensor": "PT15" }
 ```
+
+`pressureSensor` names the transducer that measures the section; the line
+draws bold while it reads at or above `pressurizedAbove` on the pipe, else
+`pid.pressurizedPsi`, else 50. A stale sensor bolds nothing. Split a line
+wherever the two sides would actually hold different pressure: at a valve, the
+way the run lines split at PB2 and PB4, and at a check valve that isolates one
+side, the way the LOX fill line splits at C5 (dewar side flows on PB5, tank side
+reads PT4) and the run lines stop reading PT5 and PT15 upstream of C2 and C4.
+Two pieces meeting end to end draw no tee dot; only three line ends do.
 
 Symbol types: `tank`, `bottle`, `engine`, `regulator`, `filter`, `venturi`,
 `check-valve`, `relief-valve`, `burst-disk`, `vent-stack`, `drain`, `qd`,

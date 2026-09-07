@@ -847,6 +847,10 @@
         "height": {
           "type": "number"
         },
+        "pressurizedPsi": {
+          "type": "number",
+          "description": "A pipe with a pressureSensor is drawn bold once that sensor reads at or above this. Default 50."
+        },
         "fluids": {
           "type": "object",
           "description": "Named services. Each pipe references one by key.",
@@ -1060,6 +1064,14 @@
                   "type": "string"
                 },
                 "description": "Valve ids of which at least ONE must be open for the flow animation to run, in addition to flowWhen. For a line fed from two places, e.g. an injector leg carrying propellant or purge gas."
+              },
+              "pressureSensor": {
+                "type": "string",
+                "description": "Sensor id that measures this section. The line is drawn bold while it reads at or above pressurizedAbove (else pid.pressurizedPsi). A stale sensor bolds nothing."
+              },
+              "pressurizedAbove": {
+                "type": "number",
+                "description": "Per-pipe override of pid.pressurizedPsi, in the sensor's units."
               }
             }
           }

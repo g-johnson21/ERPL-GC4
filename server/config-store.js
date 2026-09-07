@@ -424,6 +424,9 @@ export function validateConfig(c) {
     for (const vid of p.flowAny || []) {
       if (!valveIds.has(vid)) err(`pid.pipes[${i}]: flowAny references unknown valve "${vid}"`);
     }
+    if (p.pressureSensor != null && !sensorIds.has(p.pressureSensor)) {
+      err(`pid.pipes[${i}]: pressureSensor "${p.pressureSensor}" is not a defined sensor`);
+    }
   }
 
   const controllerIds = new Set((c.bangbang || []).map((b) => b.id));

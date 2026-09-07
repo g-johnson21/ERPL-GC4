@@ -319,9 +319,20 @@ const SYMBOLS = {
 
 // -------------------------------------------------------------- assembly --
 
+/**
+ * Valves nobody can move from this screen. They draw in a quieter ink than
+ * the actuated valves so the eye lands on what the ground controller can
+ * actually do, and reads the rest as context.
+ */
+const PASSIVE = new Set(['valve-manual', 'relief-valve', 'check-valve', 'regulator']);
+
 /** Build one static P&ID component (everything except valves and sensors). */
 export function renderComponent(c) {
-  const g = svgEl('g', { class: 'pid-component', transform: `translate(${c.x},${c.y})`, dataset: { compId: c.id } });
+  const g = svgEl('g', {
+    class: PASSIVE.has(c.type) ? 'pid-component passive' : 'pid-component',
+    transform: `translate(${c.x},${c.y})`,
+    dataset: { compId: c.id },
+  });
 
   if (c.type === 'text') {
     g.append(svgText(c.label, {

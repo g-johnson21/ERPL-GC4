@@ -83,10 +83,12 @@ for (const pipe of P.pipes) {
   layerFlow.append(flow);
 }
 
-for (const [key, junction] of detectJunctions(P.pipes)) {
-  void key;
-  layerJunctions.append(renderJunction(junction.x, junction.y, junction.color));
-}
+// Kept so a tee can light up with the lines that meet at it.
+const junctions = detectJunctions(P.pipes).map(([key, j]) => {
+  const node = renderJunction(j.x, j.y, j.color);
+  layerJunctions.append(node);
+  return { key, node, pipes: j.pipes };
+});
 
 for (const comp of P.components) layerComponents.append(renderComponent(comp));
 
@@ -432,6 +434,13 @@ function update() {
   // places -- an injector leg that carries propellant through the run valve
   // or purge gas through the purge valve -- where "all open" is never true
   // and would leave the line dead through both. ---
+  //
+  // A line is drawn BOLD when it is pressurized. Where the section has a
+  // transducer (`pressureSensor`) that is the reading against
+  // `pid.pressurizedPsi`; where it has none, flow through its valves stands
+  // in, so a purge branch bolds while its solenoid is open. Flow dashes
+  // animate only for the valve case: a pressurized tank leg is not moving.
+  const boldPipes = new Set();
   for (const pipe of P.pipes) {
     const isOpen = (id) => bus.valveState(id) === 'open';
     const all = pipe.flowWhen || [];
@@ -439,10 +448,23 @@ function update() {
     const flowing = (all.length > 0 || any.length > 0)
       && all.every(isOpen)
       && (any.length === 0 || any.some(isOpen));
+    const pressurized = isPressurized(pipe);
+    const bold = flowing || pressurized;
+    if (bold) boldPipes.add(pipe.id);
+
     const base = document.getElementById(`pipe-${pipe.id}`);
     const flow = document.getElementById(`flow-${pipe.id}`);
-    if (base) base.dataset.flowing = String(flowing);
+    if (base) {
+      base.dataset.flowing = String(flowing);
+      base.dataset.pressurized = String(pressurized);
+      // Width lives in an inline style (it comes from the fluid), so the
+      // bold weight is set the same way rather than fought from CSS.
+      base.style.strokeWidth = `${pipeWidth(pipe) + (bold ? 1.5 : 0)}px`;
+    }
     if (flow) flow.setAttribute('opacity', flowing ? '0.85' : '0');
+  }
+  for (const j of junctions) {
+    j.node.dataset.on = String([...j.pipes].some((id) => boldPipes.has(id)));
   }
 
   // --- valves ---
@@ -561,18 +583,48 @@ function updateInstruments() {
 
 // ------------------------------------------------------------------ utils --
 
-/** A coordinate touched by two or more pipes is a tee — mark it with a dot. */
+function pipeWidth(pipe) {
+  const w = Number(P.fluids?.[pipe.fluid]?.width);
+  return Number.isFinite(w) ? w : 4;
+}
+
+/**
+ * Whether a line's section reads pressurized on its own transducer.
+ *
+ * A stale channel says nothing, so it bolds nothing: a line lit from a
+ * reading nobody is receiving would be the drawing inventing a state. The
+ * threshold is `pressurizedAbove` on the pipe, else `pid.pressurizedPsi`,
+ * else 50 psi -- comfortably above transducer offset and below anything
+ * the stand calls pressure.
+ */
+function isPressurized(pipe) {
+  if (!pipe.pressureSensor) return false;
+  if (bus.sensorStatus(pipe.pressureSensor) === 'stale') return false;
+  const v = bus.reading(pipe.pressureSensor);
+  if (!Number.isFinite(v)) return false;
+  const configured = Number(pipe.pressurizedAbove ?? P.pressurizedPsi);
+  return v >= (Number.isFinite(configured) ? configured : 50);
+}
+
+/**
+ * A coordinate where three or more line ends meet is a tee — mark it with a
+ * dot. A vertex in the middle of a polyline counts as two ends, since the
+ * line runs through it. Two pipes meeting end to end are one line drawn in
+ * two pieces (split at a valve so each side can carry its own pressure
+ * section) and get no dot: a dot there would read as a branch that is not
+ * on the stand.
+ */
 function detectJunctions(pipes) {
   const seen = new Map();
   for (const pipe of pipes) {
     const fluid = bus.config.pid.fluids[pipe.fluid];
-    for (const [x, y] of pipe.points) {
+    pipe.points.forEach(([x, y], i) => {
       const key = `${x},${y}`;
-      if (!seen.has(key)) seen.set(key, { x, y, color: fluid?.color || '#888', count: 0, pipes: new Set() });
+      if (!seen.has(key)) seen.set(key, { x, y, color: fluid?.color || '#888', ends: 0, pipes: new Set() });
       const entry = seen.get(key);
       entry.pipes.add(pipe.id);
-      entry.count++;
-    }
+      entry.ends += (i === 0 || i === pipe.points.length - 1) ? 1 : 2;
+    });
   }
-  return [...seen.entries()].filter(([, j]) => j.pipes.size > 1);
+  return [...seen.entries()].filter(([, j]) => j.pipes.size > 1 && j.ends >= 3);
 }

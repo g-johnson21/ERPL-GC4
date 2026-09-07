@@ -163,6 +163,13 @@
   pointer-events: none;
 }
 
+/* Hand valves, reliefs, checks and the regulator: nothing on this screen can
+   move them, so they take the muted ink and stop competing with the valves
+   that the controller is actually watching. */
+.pid-component.passive .sym-fill,
+.pid-component.passive .sym-line,
+.pid-component.passive .sym-line-thin { stroke: var(--text-faint); }
+
 /* --------------------------------------------------------------- pipes --- */
 
 .pid-pipe {
@@ -181,8 +188,12 @@
 [data-theme="light"] .pid-flow { stroke: #fff; mix-blend-mode: normal; opacity: 0; }
 @keyframes flow-dash { to { stroke-dashoffset: -22; } }
 
-.pid-pipe[data-flowing="true"] { opacity: 1; }
+/* Bold = full ink. The width step is set inline by page-pid.js, since the
+   base width comes from the fluid and lives in the inline style too. */
+.pid-pipe[data-flowing="true"],
+.pid-pipe[data-pressurized="true"] { opacity: 1; }
 .pid-junction { stroke: none; opacity: .48; }
+.pid-junction[data-on="true"] { opacity: 1; }
 
 /* -------------------------------------------------------------- valves --- */
 
