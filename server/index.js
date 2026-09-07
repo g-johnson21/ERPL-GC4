@@ -48,13 +48,19 @@ const SPECTATOR_PORT = args['no-spectator'] || args.spectator === 'false'
   : Number(args['spectator-port'] ?? process.env.GC_SPECTATOR_PORT ?? PORT + 1);
 
 /**
- * Config sections a save may touch while the stand is ARMED.
+ * Config sections a browser can take WITHOUT rebuilding itself.
  *
- * `$schema` is editor metadata with no runtime meaning, so it rides along.
- * Everything else — valves, sensors, calibrations, safety policy, the P&ID —
- * is locked until the stand is disarmed.
+ * `autosequences` is re-rendered from the `config` event in place; `$schema`
+ * is editor metadata with no runtime meaning. Every other section decides what
+ * some control already on screen means — which valve id a button commands,
+ * what a calibrated reading is in engineering units, where a P&ID symbol sits
+ * — and a page builds that DOM from config exactly once, at boot. So a save
+ * that moves anything else has to reach the stations as a reload.
+ *
+ * This is a DISPLAY fact, not a permission: see `safety.requireDisarmToEditConfig`
+ * for whether such a save is allowed while armed at all.
  */
-const ARMED_EDITABLE = new Set(['autosequences', '$schema']);
+const IN_PLACE_SECTIONS = new Set(['autosequences', '$schema']);
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -154,7 +160,13 @@ const clients = new Set();
 
 stand.on('telemetry', (snap) => broadcast('state', snap));
 stand.on('event', (entry) => broadcast('log', entry));
-stand.on('config-reload', (cfg) => broadcast('config', { configVersion: cfg.meta.configVersion }));
+// `changed` rides along so a browser knows whether it can take the new config
+// in place or has to rebuild against it — see IN_PLACE_SECTIONS.
+stand.on('config-reload', (cfg, changed) => broadcast('config', {
+  configVersion: cfg.meta.configVersion,
+  changed: changed || [],
+  inPlace: (changed || []).every((k) => IN_PLACE_SECTIONS.has(k)),
+}));
 
 /**
  * Attach one browser to the telemetry broadcast.
@@ -385,27 +397,55 @@ async function handleApi(req, res, pathname, url) {
 
     case 'PUT /api/config': {
       const next = body.config ?? body;
+
+      // A RUNNING SEQUENCE STILL REFUSES, and that gate is not configurable.
+      // The sequencer is mid-timeline against the config it started on: it
+      // holds valve ids and step times that are being executed right now, and
+      // swapping the file underneath it would have the back half of a
+      // countdown run against a stand the front half did not describe. Arming
+      // is a state an operator sits in; a sequence is a thing in motion.
       if (stand.sequencer.running) {
         return sendJson(res, 409, { ok: false, errors: ['Cannot change config while a sequence is running'] });
       }
-      // Retiming a countdown between attempts is normal test-day work, and
-      // making an operator disarm to do it costs more than it buys. Wiring is
-      // a different matter: channels, calibrations, interlocks and the P&ID
-      // describe the hardware, and swapping those under a live stand would
-      // move the meaning of every command already on screen.
-      if (stand.armed) {
-        const changed = configStore.changedSections(next).filter((k) => !ARMED_EDITABLE.has(k));
-        if (changed.length) {
+
+      const changed = stand.armed ? configStore.changedSections(next) : [];
+
+      // Editing while ARMED is allowed by default. Retiming a countdown,
+      // retuning a trip, fixing a mislabelled valve between attempts is
+      // ordinary test-day work, and making an operator disarm to do it costs
+      // more than it buys -- a disarm/rearm cycle mid-test has its own risks.
+      //
+      // Set `safety.requireDisarmToEditConfig` to put the old interlock back:
+      // then only autosequences may move while armed, on the argument that
+      // channels, calibrations, interlocks and the P&ID describe the hardware
+      // and swapping them under a live stand moves the meaning of every
+      // command already on screen.
+      if (stand.armed && stand.config.safety.requireDisarmToEditConfig) {
+        const locked = changed.filter((k) => !IN_PLACE_SECTIONS.has(k));
+        if (locked.length) {
           return sendJson(res, 409, {
             ok: false,
             errors: [
-              `DISARM the stand to change ${changed.join(', ')} — ` +
-              `only autosequences can be edited while armed`,
+              `DISARM the stand to change ${locked.join(', ')} — ` +
+              `safety.requireDisarmToEditConfig allows only autosequences while armed`,
             ],
           });
         }
       }
+
       const result = configStore.save(next);
+
+      // An armed structural save is worth a line of its own in the log and the
+      // CSV. It is the moment the numbers on every screen changed meaning, and
+      // a trace read back months later has to show where that happened.
+      if (result.ok && stand.armed) {
+        const structural = (result.changed || []).filter((k) => !IN_PLACE_SECTIONS.has(k));
+        if (structural.length) {
+          stand.log('warn',
+            `*** CONFIG CHANGED WHILE ARMED *** ${structural.join(', ')} — every station is reloading`,
+            who);
+        }
+      }
       return sendJson(res, result.ok ? 200 : 400, result);
     }
 

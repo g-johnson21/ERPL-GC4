@@ -827,16 +827,29 @@ async function save() {
   const valid = await validate(false);
   if (!valid) { toast('Fix the errors before saving', 'error'); return; }
 
-  // Armed saves are allowed for autosequences only, and the server is the one
-  // that decides whether this draft qualifies — it compares the draft against
-  // the running config section by section. Don't second-guess it here; a
-  // client-side copy of that rule is one more thing to keep in step.
+  // What the server will do with this draft is the server's decision — it
+  // compares section by section against the running config. This only has to
+  // describe the consequence honestly, so it reads a policy flag rather than
+  // recomputing that diff; a client-side copy of the rule is one more thing to
+  // keep in step.
   const armed = Boolean(bus.state?.armed);
+  const locked = armed && bus.config.safety?.requireDisarmToEditConfig === true;
   const ok = await confirmAction({
     title: 'Save configuration?',
-    message: armed
-      ? 'The stand is ARMED. Autosequence edits are applied live — every station picks up the new sequences without reloading. Anything outside autosequences is refused until you disarm.'
-      : 'The current file is backed up, then every connected browser reloads with the new configuration. Valve positions are preserved.',
+    message: locked
+      ? 'The stand is ARMED, and this stand is set to require a DISARM for anything '
+        + 'but autosequences. Autosequence edits apply live; any other change will be '
+        + 'refused, with the sections named.'
+      : armed
+        ? [
+          'The stand is ARMED and stays armed. Autosequence edits apply live with no reload.',
+          '',
+          'Anything else -- valves, sensors, calibrations, the P&ID -- changes what the '
+          + 'controls on screen MEAN, so it takes effect on the server at once and then '
+          + 'reloads every station, this one included, a few seconds after a warning. '
+          + 'Valve positions are preserved.',
+        ].join('\n')
+        : 'The current file is backed up, then every connected browser reloads with the new configuration. Valve positions are preserved.',
     confirmLabel: 'Save & Apply',
     danger: armed,
   });
@@ -851,7 +864,10 @@ async function save() {
   if (res.ok) {
     dirty = false;
     $('#dirty-chip')?.classList.add('hidden');
-    toast('Configuration saved — reloading', 'ok');
+    // Deliberately not "reloading": whether this page reloads depends on what
+    // moved, and the config event says which a moment later. Claiming a reload
+    // that does not come is worse than saying less.
+    toast('Configuration saved', 'ok');
   } else {
     showStatus('error', 'Server rejected the configuration', res.errors || [res.error]);
   }

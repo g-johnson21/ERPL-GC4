@@ -53,16 +53,24 @@ export class StandController extends EventEmitter {
 
     this.initFromConfig();
 
-    configStore.on('reload', () => {
+    configStore.on('reload', (_cfg, changed = []) => {
       this.initFromConfig(true);
       this.pruneTankLevelTares();
       this.bangbang.sync();
       // Re-assert the bang-bang config on the board. A reload can change a
       // setpoint, and a board still holding the previous one is the exact
-      // divergence the CFG_PUSH echo exists to catch.
+      // divergence the CFG_PUSH echo exists to catch. This is also what makes
+      // an ARMED reconfiguration honest: the board is holding values from the
+      // old file until this line runs.
       this.bangbang.pushAll('reload');
-      this.log('info', 'Configuration reloaded', 'system');
-      this.emit('config-reload', this.config);
+      this.log('info',
+        changed.length
+          ? `Configuration reloaded — ${changed.join(', ')}`
+          : 'Configuration reloaded',
+        'system');
+      // The section list goes on to the browsers, which need it to decide
+      // between updating in place and rebuilding. See IN_PLACE_SECTIONS.
+      this.emit('config-reload', this.config, changed);
     });
 
     // Recording is an OPERATOR decision, start to finish. Sequences used to

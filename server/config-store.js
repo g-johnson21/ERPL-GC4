@@ -27,9 +27,24 @@ export class ConfigStore extends EventEmitter {
     if (errors.length) {
       throw new Error(`Invalid config ${this.path}:\n  - ${errors.join('\n  - ')}`);
     }
-    this.config = normalizeConfig(parsed);
+    const changed = this.install(normalizeConfig(parsed));
     warnRetiredKeys(parsed);
-    return this.config;
+    return changed;
+  }
+
+  /**
+   * Swap in a normalized config and report which top-level sections moved.
+   *
+   * The section list travels with every reload because a browser cannot work
+   * it out for itself and cannot do without it: `autosequences` can be taken
+   * in place, and every other section changes what a control already on screen
+   * MEANS. Computed here rather than at the route, so a hand edit picked up by
+   * POST /api/config/reload carries it just as a Save & Apply does.
+   */
+  install(next) {
+    const changed = this.config ? diffSections(this.config, next) : [];
+    this.config = next;
+    return changed;
   }
 
   /** Validate + write + hot reload. Returns {ok, errors}. */
@@ -49,14 +64,14 @@ export class ConfigStore extends EventEmitter {
     }
 
     fs.writeFileSync(this.path, JSON.stringify(newConfig, null, 2) + '\n', 'utf8');
-    this.config = normalizeConfig(newConfig);
-    this.emit('reload', this.config);
-    return { ok: true, errors: [] };
+    const changed = this.install(normalizeConfig(newConfig));
+    this.emit('reload', this.config, changed);
+    return { ok: true, errors: [], changed };
   }
 
   reload() {
-    this.load();
-    this.emit('reload', this.config);
+    const changed = this.load();
+    this.emit('reload', this.config, changed);
     return this.config;
   }
 
@@ -69,13 +84,7 @@ export class ConfigStore extends EventEmitter {
    * and key order is ignored, so a re-serialized file is not a "change".
    */
   changedSections(next) {
-    const before = this.config;
-    const after = normalizeConfig(next);
-    const changed = [];
-    for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
-      if (canonical(before[key]) !== canonical(after[key])) changed.push(key);
-    }
-    return changed;
+    return diffSections(this.config, normalizeConfig(next));
   }
 
   get() { return this.config; }
@@ -83,6 +92,15 @@ export class ConfigStore extends EventEmitter {
   sensor(id) { return this.config.sensors.find((s) => s.id === id); }
   controller(id) { return this.config.bangbang.find((c) => c.id === id); }
   sequence(id) { return this.config.autosequences.find((s) => s.id === id); }
+}
+
+/** Top-level sections in which two normalized configs differ. */
+function diffSections(before, after) {
+  const changed = [];
+  for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
+    if (canonical(before[key]) !== canonical(after[key])) changed.push(key);
+  }
+  return changed;
 }
 
 /**
@@ -125,6 +143,11 @@ function normalizeConfig(c) {
 
   cfg.safety ??= {};
   cfg.safety.requireArmToActuate ??= true;
+  // Whether a config save needs the stand DISARMED. Off: an armed save may
+  // touch any section, and every station rebuilds against the new file. On:
+  // only autosequences may move while armed, which is what this server used
+  // to enforce unconditionally. See the PUT /api/config route.
+  cfg.safety.requireDisarmToEditConfig ??= false;
   cfg.safety.autoDisarmAfterSeconds ??= 0;
 
   cfg.valveGroups ??= [];

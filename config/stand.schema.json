@@ -187,6 +187,10 @@
           "type": "boolean",
           "description": "Master switch for the ARM interlock."
         },
+        "requireDisarmToEditConfig": {
+          "type": "boolean",
+          "description": "Default false: a config save may touch any section while the stand is ARMED, and every station reloads against the new file. Set true to allow only autosequences while armed, on the argument that channels, calibrations, interlocks and the P&ID describe the hardware. Neither setting affects the separate refusal to save while a SEQUENCE is running, which is not configurable."
+        },
         "autoDisarmAfterSeconds": {
           "type": "number",
           "minimum": 0,

@@ -325,18 +325,45 @@ matter how far down a long step list you have scrolled. Saving validates
 server-side, writes a timestamped backup of the old file, then hot-reloads every
 connected browser.
 
-**Autosequences can be edited and saved while the stand is ARMED.** Retiming a
-countdown between attempts is ordinary test-day work, and requiring a disarm to
-do it costs more than it buys. The save is compared against the running config
-section by section: if anything outside `autosequences` differs, it is refused
-until you disarm. An armed save also skips the browser reload — the sequence
-list on every station updates in place rather than reloading a control screen
-mid-test.
+**Any section can be edited and saved while the stand is ARMED.** Retiming a
+countdown, retuning a trip, fixing a mislabelled valve between attempts is
+ordinary test-day work, and a disarm/rearm cycle mid-test has risks of its own.
 
-Wiring is a different matter. Channels, calibrations, safety policy and the
-P&ID describe the hardware, and swapping those under a live stand would change
-the meaning of every command already on screen — so those still require a
-disarm. Saving of any kind is refused while a sequence is running.
+Know what that means before you use it. Channels, calibrations, safety policy
+and the P&ID describe the hardware, so changing them **changes what every
+command already on screen means** — which coil a button fires, what a reading
+is in engineering units, which symbol on the drawing is which valve. The server
+takes the new file immediately: it keeps the states of valves that still exist,
+drops those that do not, and re-pushes the bang-bang configuration to the board,
+which is holding the old setpoints until it does.
+
+Two things make it survivable rather than merely permitted:
+
+- **Every station reloads.** A page builds its DOM from config exactly once, so
+  a screen that keeps running after a structural change is showing labels that
+  no longer match what they command. The save is compared section by section;
+  if anything outside `autosequences` moved, every browser rebuilds — armed or
+  not. Armed, it says so first and takes about three seconds, so it is not a
+  surprise in the middle of a command. The stand stays armed across it; the
+  server is the authority and valve states live there.
+- **It is written down.** An armed structural save logs
+  `*** CONFIG CHANGED WHILE ARMED *** <sections>` to the event log and the CSV.
+  A trace read back months later has to show the moment its numbers changed
+  meaning.
+
+An autosequence-only save is still taken in place, with no reload — the
+sequence list on every station updates where it stands.
+
+Set `safety.requireDisarmToEditConfig: true` to put the old interlock back: only
+`autosequences` may then move while armed, and anything else is refused with the
+sections named until you disarm.
+
+**Saving of any kind is refused while a sequence is running, and that is not
+configurable.** The sequencer is mid-timeline against the config it started on,
+executing valve ids and step times right now; swapping the file underneath it
+would run the back half of a countdown against a stand the front half did not
+describe. Arming is a state an operator sits in — a sequence is a thing in
+motion.
 
 ---
 
@@ -755,10 +782,17 @@ Other protections, all per-item configurable:
   finding a drifted zero after arming is exactly when an operator needs this,
   and with no controller enabled and no sequence running, a tare moves a number
   on a screen and in the CSV, not a valve.
-- **Wiring is locked while armed** — valves, sensors, calibrations, safety policy
-  and the P&ID cannot be saved with the stand armed. Autosequences can be:
-  retiming a countdown does not change what any command on screen means.
-  Nothing at all can be saved while a sequence is running.
+- **A config save while armed reloads every station.** Any section can be saved
+  with the stand armed, wiring included — but valves, sensors, calibrations and
+  the P&ID change what every command already on screen means, and a page builds
+  its DOM from config once. So a structural save rebuilds every browser rather
+  than leaving labels that no longer match what they command, warns before it
+  does, and writes `*** CONFIG CHANGED WHILE ARMED ***` to the log and the CSV.
+  Autosequences are taken in place: retiming a countdown changes nothing on
+  screen. `safety.requireDisarmToEditConfig` restores the old lock, under which
+  only autosequences may move while armed. **Nothing at all can be saved while
+  a sequence is running**, and that one is not configurable — see
+  [Config](#config-confightml).
 
 Two things are deliberately *not* protected by a dialog:
 

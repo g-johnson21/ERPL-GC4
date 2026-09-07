@@ -98,24 +98,53 @@ class Bus {
       this.emit('log', entry);
     });
 
-    source.addEventListener('config', async () => {
+    source.addEventListener('config', async (e) => {
+      // What moved, as the server computed it. An older server, or anything
+      // that cannot say, is treated as structural: the safe answer to "can
+      // this screen keep its DOM?" is no.
+      let note = {};
+      try { note = JSON.parse(e.data) || {}; } catch { /* treated as structural */ }
+      const inPlace = note.inPlace === true;
+      const changed = Array.isArray(note.changed) ? note.changed : [];
+
       this.config = await fetch('/api/config').then((r) => r.json());
       this.applyAccent();
       this.emit('config', this.config);
-      // A full reload is the honest way to pick up new valves, sensors or a
-      // redrawn P&ID: every page builds its DOM from config exactly once.
+
+      // Autosequences alone are taken in place: the listeners above have
+      // already rebuilt the sequence list, and reloading a control screen for
+      // a retimed countdown would be all cost and no benefit.
       //
-      // Not while the stand is armed, though. The server only accepts
-      // autosequence edits in that state, so nothing structural can have
-      // changed, and the listeners above have already taken the new sequence
-      // list. Reloading a control screen during a live test would be all cost
-      // and no benefit.
-      if (this.state?.armed) {
-        toast('Autosequences updated', 'info', 2500);
+      // An empty `changed` is the same case and not the same message. The
+      // Config page PUTs the whole document every time, so saving with nothing
+      // edited is an ordinary thing to do, and answering it with "autosequences
+      // updated" tells the operator something happened that did not.
+      if (inPlace) {
+        toast(changed.length ? 'Autosequences updated' : 'Configuration saved — no changes',
+          'info', 2500);
         return;
       }
-      toast('Configuration reloaded — reloading page', 'info', 2000);
-      setTimeout(() => location.reload(), 1200);
+
+      // Anything else and this page is now lying. Every page builds its DOM
+      // from config exactly once, so a changed valve list, calibration or P&ID
+      // leaves buttons and readings on screen that no longer mean what they
+      // say — and a button whose label has quietly stopped matching the valve
+      // it commands is the worst thing this screen can show.
+      //
+      // So it reloads even while ARMED, which the stand used to make
+      // impossible by refusing the save. The reload costs about a second of
+      // visibility and nothing else: the server is the authority, valve states
+      // live there and survive it. A stale screen costs whatever the operator
+      // does next. Armed, it gets a louder warning and longer to land, so it
+      // is not a surprise in the middle of a command.
+      const armed = this.state?.armed;
+      const what = changed.length ? ` — ${changed.join(', ')}` : '';
+      if (armed) {
+        toast(`CONFIG CHANGED WHILE ARMED${what} — reloading this screen`, 'warn', 6000);
+      } else {
+        toast(`Configuration reloaded${what} — reloading page`, 'info', 2000);
+      }
+      setTimeout(() => location.reload(), armed ? 3500 : 1200);
     });
 
     source.addEventListener('error', () => {
