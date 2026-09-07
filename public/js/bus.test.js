@@ -139,3 +139,142 @@ test('an empty declared group is not rendered as an empty column', () => {
   };
   assert.deepEqual(bus.sensorGroups().map((g) => g.id), ['lox']);
 });
+
+// ------------------------------------------------- board transducers --
+
+/** A stand shaped like the real one: a flow-ordered LOX column, one board PT. */
+function standWithBoardPT() {
+  bus.config = {
+    sensorGroups: [{ id: 'lox', label: 'LOX', color: '#3b82f6' }],
+    // Declared in the order fluid reaches them, which is NOT numeric order.
+    sensors: [
+      { id: 'PT1', group: 'lox' },
+      { id: 'PT2', group: 'lox' },
+      { id: 'PT4', group: 'lox' },
+      { id: 'PT21', group: 'lox' },
+      { id: 'PT22', group: 'lox' },
+      { id: 'PT5', group: 'lox' },
+    ],
+    bangbang: [{
+      id: 'bb-ox',
+      side: 'L',
+      boardSensor: { id: 'PT3', name: 'LOX Tank Upstream', group: 'lox', warnHigh: 1200, dangerHigh: 1380 },
+    }],
+  };
+}
+
+test('a board transducer lands at its tag number without reordering the column', () => {
+  // The column is ordered by plumbing, not by number — PT21 and PT22 sit
+  // between PT4 and PT5 because that is the order fluid reaches them. Sorting
+  // the column to place PT3 would rewrite a layout an operator reads down.
+  standWithBoardPT();
+  const lox = bus.sensorGroups()[0];
+  assert.deepEqual(lox.sensors.map((s) => s.id), ['PT1', 'PT2', 'PT3', 'PT4', 'PT21', 'PT22', 'PT5']);
+  assert.equal(lox.sensors[2].board, true, 'and it is marked as the board own');
+  assert.equal(lox.sensors[2].controller, 'bb-ox');
+});
+
+test('a tag that outranks the whole column goes last rather than nowhere', () => {
+  const stand = (group) => ({
+    sensorGroups: [{ id: 'lox', label: 'LOX' }],
+    sensors: [{ id: 'PT1', group: 'lox' }, { id: 'PT2', group: 'lox' }],
+    bangbang: [{ id: 'bb-ox', side: 'L', boardSensor: { id: 'PT9', group } }],
+  });
+
+  bus.config = stand('lox');
+  assert.deepEqual(bus.sensorGroups()[0].sensors.map((s) => s.id), ['PT1', 'PT2', 'PT9']);
+
+  // A group nobody declared is synthesized rather than the reading being lost,
+  // exactly as it is for a DAQ channel.
+  bus.config = stand('board');
+  assert.deepEqual(bus.sensorGroups().map((g) => g.id), ['lox', 'board']);
+});
+
+test('a stale board reads blank, not the last pressure it sent', () => {
+  // The board keeps regulating when the link drops, so a held number is not a
+  // measurement — it is where the tank was when we stopped being told. The
+  // bang-bang card makes the same call, and the two must not disagree.
+  standWithBoardPT();
+  bus.state = { controllers: { 'bb-ox': { board: { pressure: 451.2, stale: false } } } };
+  assert.equal(bus.reading('PT3'), 451.2);
+  assert.equal(bus.sensorStatus('PT3'), 'ok');
+
+  bus.state.controllers['bb-ox'].board.stale = true;
+  assert.equal(bus.reading('PT3'), null);
+  assert.equal(bus.sensorStatus('PT3'), 'stale');
+
+  // A driver that does not speak the board protocol reports no board at all.
+  bus.state = { controllers: { 'bb-ox': { board: null } } };
+  assert.equal(bus.reading('PT3'), null);
+  assert.equal(bus.sensorStatus('PT3'), 'stale');
+});
+
+test('the board thresholds are applied here, because the server applies none', () => {
+  // A DAQ channel arrives with its status already decided. A board PT arrives
+  // as a bare pressure inside `controllers`, so a warn limit that is never
+  // evaluated is a warn limit that never fires.
+  standWithBoardPT();
+  const at = (psi) => {
+    bus.state = { controllers: { 'bb-ox': { board: { pressure: psi, stale: false } } } };
+    return bus.sensorStatus('PT3');
+  };
+  assert.equal(at(450), 'ok');
+  assert.equal(at(1200), 'warn');
+  assert.equal(at(1380), 'danger');
+});
+
+test('the Data page is never offered a tare that would zero the wrong sensor', () => {
+  // The board's zero lives in its own EEPROM, is refused while that side is
+  // regulating, and /api/tare could not apply it. `null` is what keeps the
+  // button from being drawn.
+  standWithBoardPT();
+  bus.state = {
+    sensors: { PT4: { v: 1, status: 'ok', tare: 0 } },
+    controllers: { 'bb-ox': { board: { pressure: 451.2, stale: false } } },
+  };
+  assert.equal(bus.tare('PT4'), 0, 'a DAQ channel the hardware can zero');
+  assert.equal(bus.canTare('PT4'), true);
+  assert.equal(bus.tare('PT3'), null);
+  assert.equal(bus.canTare('PT3'), false);
+});
+
+test('board pressures reach the history, so they get a trace like anything else', () => {
+  standWithBoardPT();
+  bus.history.clear();
+  bus.state = { controllers: { 'bb-ox': { board: { pressure: 450, stale: false } } } };
+
+  bus.pushHistory({ t: 1000, sensors: { PT4: { v: 12 } }, controllers: bus.state.controllers });
+  bus.pushHistory({ t: 1050, sensors: { PT4: { v: 13 } }, controllers: bus.state.controllers });
+  assert.deepEqual(bus.history.get('PT3').v, [450, 450]);
+
+  // A stale board contributes no sample rather than a flat line that never
+  // happened — a sparkline is read as evidence the number is live.
+  bus.pushHistory({ t: 1100, sensors: {}, controllers: { 'bb-ox': { board: { pressure: 450, stale: true } } } });
+  assert.deepEqual(bus.history.get('PT3').t, [1000, 1050]);
+  bus.history.clear();
+});
+
+test('a stand with no bang-bang controllers is unaffected', () => {
+  bus.config = { sensorGroups: [], sensors: [{ id: 'PT1', group: 'lox' }] };
+  assert.deepEqual(bus.boardSensors(), []);
+  assert.equal(bus.boardSensor('PT1'), null);
+  assert.deepEqual(bus.sensorGroups()[0].sensors.map((s) => s.id), ['PT1']);
+});
+
+test('a spectator page refuses to send a command instead of sending one that fails', async () => {
+  // The server is the enforcement — the spectator port has no mutating route
+  // at all. This is the second half: a page that knows it cannot command must
+  // not put a request on the wire, because "it was rejected" and "it was never
+  // sent" look identical to a viewer and only one of them is honest about the
+  // window they are looking at.
+  bus.config = { ui: { spectator: true } };
+  assert.equal(bus.spectator, true);
+
+  const res = await bus.post('/api/arm', { armed: true });
+  assert.equal(res.ok, false);
+  assert.match(res.error, /read-only/i);
+
+  // And an operator station is unaffected: absence of the flag is not the flag.
+  bus.config = { ui: {} };
+  assert.equal(bus.spectator, false);
+});

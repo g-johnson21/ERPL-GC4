@@ -4,6 +4,21 @@
    drawing reads correctly in both themes.
    ========================================================================== */
 
+/* FULL BLEED SIDEWAYS.
+   The sidebar's second column took ~290px off the drawing, and the schematic
+   is fitted to the stage's WIDTH -- every pixel lost sideways scales the whole
+   drawing down. So the P&ID page gives up its horizontal page padding: the
+   stage runs flush to the window edge on the left and to the sidebar's border
+   on the right, which shifts the schematic left and hands the 32px back.
+   Vertical padding stays -- there is slack there, since a width-fitted
+   drawing letterboxes top and bottom anyway. */
+.pid-page { padding-left: 0; padding-right: 0; }
+.pid-page > .pid-stage {
+  border-left: none;
+  border-right: none;
+  border-radius: 0;
+}
+
 .pid-stage {
   position: relative;
   height: calc(100vh - var(--header-h) - 32px);

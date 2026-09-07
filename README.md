@@ -25,6 +25,7 @@ sequence and interlock before you ever touch hardware.
 - [The four pages](#the-four-pages)
 - [The control sidebar](#the-control-sidebar)
 - [Safety model](#safety-model) · [Shift to actuate](#shift-to-actuate)
+- [Spectator view](#spectator-view)
 - [Customizing for your stand](#customizing-for-your-stand)
 - [Connecting real hardware](#connecting-real-hardware)
 - [Data recording](#data-recording)
@@ -43,11 +44,16 @@ node server/index.js                    # simulator, port 8080
 node server/index.js --port=9000        # different port
 node server/index.js --driver=udp --host=192.168.1.50
 node server/index.js --config=config/stand-b.json
+node server/index.js --no-spectator     # control port only
 ```
 
 The banner prints a LAN URL as well as localhost — open that on a second laptop
 or a tablet and you have a second operator station. Every station sees identical
 state; the server is the single authority.
+
+It also prints a second, clearly labelled address on the next port up. That one
+is the [spectator view](#spectator-view): the Data page, read-only, safe to hand
+to whoever is watching.
 
 Try this to see the whole system work:
 
@@ -120,7 +126,28 @@ Scroll to zoom, drag to pan, `0` to reset. The **padlock** button in the toolbar
 freezes the view so a stray scroll or drag during a test cannot move the
 diagram out from under you; the setting sticks across reloads.
 
+**This page has no heading, and that is deliberate.** It carried
+"P&ID / LOX / Ethanol Bi-Propellant Test Stand" and cost about 38 px that the
+stage's `calc(100vh - header - padding)` never accounted for — so the page
+scrolled by exactly the height of the heading, and the bottom of the drawing
+sat under the fold. On a page whose whole point is one glance at the whole
+stand, that is the worst 38 px on the screen. Nothing went with it: the drawing
+carries its own **title block** — the Draco mark, the stand name and the fluid
+summary, in the corner where a drawing puts them — and the page is already
+named in the nav and the browser tab.
+
+**It also runs full bleed sideways.** The schematic is fitted to the width of
+its stage, so every pixel lost horizontally scales the whole drawing down —
+and the sidebar's second column costs it about 290 px. The page gives up its
+own left and right padding in exchange: the stage runs flush to the window edge
+and up against the sidebar's border, which shifts the drawing left and hands
+32 px of that back. It is not a full trade. `\` collapses the sidebar entirely
+when the drawing is what matters.
+
 ### Data (`/data.html`)
+
+Also the only page the [spectator view](#spectator-view) serves, read-only, on
+its own port.
 
 **Every channel on one screen, with nothing to scroll.** Each sensor group gets
 a full-height column, and the cards are sized so the longest column fills the
@@ -143,6 +170,29 @@ LOX, red for fuel — and the venturi channels sit with the propellant run they
 measure rather than in a category of their own. Alarm state repaints the rest of
 the card's border but never that stripe: which system a channel belongs to does
 not change because it went out of range.
+
+**The bang-bang boards' own transducers are on this page too**, in their tank's
+column, at the position their tag number earns them — `PT3` between `PT2` and
+`PT4`, `PT13` between `PT12` and `PT14`. The column is ordered by plumbing
+rather than by number, so they are inserted at their number without resorting
+anything around them.
+
+They are not DAQ channels and the card says so: a dashed border, and `board L` /
+`board F` where a DAQ channel names its channel number. Three things follow from
+that, all of them in the hover text — the reading arrives on the board heartbeat
+rather than the DAQ stream, it is **not written to the recorded CSV**, and it
+carries **no TARE button**, because that zero lives in the board's EEPROM and is
+set from the [bang-bang card](#zeroing-the-boards-own-transducer) instead. A
+stale heartbeat reads `––––`, not the last pressure the board sent: the board
+keeps regulating after the link drops, so a held number is where the tank *was*.
+
+Declare one with a `boardSensor` block on the controller that owns it — see
+[Adding a sensor](#adding-a-sensor). Without it the page is exactly as it was,
+and a stand whose driver has no board-side bang-bang shows nothing extra.
+
+> They do **not** appear on the spectator port. The descriptor rides on the
+> `bangbang` block, and that block is stripped from a spectator's config on
+> purpose.
 
 Each card carries, in this order:
 
@@ -256,12 +306,38 @@ disarm. Saving of any kind is refused while a sequence is running.
 The same sidebar mounts on both actuation pages, so switching views never means
 re-learning a layout. Everything in it is generated from `stand.json`.
 
-**ARM, DISARM and ABORT are pinned to the top and do not scroll.** Under a stand
-with two bang-bang cards and a list of sequences they used to scroll off, which
-made the ABORT button's position depend on where someone had last left the
-scrollbar. Below them the panels scroll as usual, ending in the event log — which
-takes twice the height it used to, now that the recording panel has moved to the
-header.
+**It is two columns wide, because one column did not fit.** Stacked, ARM plus
+two bang-bang cards plus the sequence list plus the log came to about 1520 px
+against the ~850 px an operator station has, so on every screen in the shop the
+sequences and the event log started below the fold. Starting a sequence, or
+reading back what just happened, began with a scroll — which is a poor thing to
+ask of the person working the valves.
+
+So the bang-bang cards took a column of their own on the right, and the left
+column carries the three things an operator reaches for, top to bottom in the
+order they are used:
+
+| Left column | Right column |
+|---|---|
+| ARM / DISARM / ABORT | Bang-bang pressure control |
+| Autosequences, SAFE ALL ACTUATORS | |
+| Event log | |
+
+Neither column is over the fold on its own: about 775 px and 750 px on the
+Draco stand. **Nothing an operator has to reach for is behind a scrollbar.**
+
+That costs the content area roughly 290 px, so both columns narrow together
+below 1400 px and again below 1100 px, and the P&ID page
+[gives up its side padding](#pid-pidhtml) to claw some of it back. `\` still
+collapses the whole sidebar.
+
+**ARM, DISARM and ABORT are pinned to the top and do not scroll.** They used to
+scroll off under the bang-bang cards, which made the ABORT button's position
+depend on where someone had last left the scrollbar. The sidebar is still one
+scroll container, so on a screen too short for even a single column both give at
+once and the pin keeps working. Below ARM the log absorbs whatever height is
+left over — twice what it had, now that the recording panel has moved to the
+header and the bang-bang cards have moved out of its column.
 
 ### Link indicators
 
@@ -350,6 +426,14 @@ half-apply it:
   against hardware* below.
 
 #### What the card shows
+
+**Each card carries its tank's colour down its left edge** — LOX blue, fuel
+red — the same 3 px stripe a sensor card, a readout tile and a P&ID bubble in
+that group already carry. It comes from the group of the DAQ channel the
+controller is compared against, so it needs no configuration of its own. The
+two cards are otherwise identical panels stacked one above the other, offering
+VENT and ABORT SIDE, where acting on the wrong one is the whole failure; the
+colour separates them before the name has been read.
 
 The big number is **the board's own transducer** — the one the loop is actually
 regulating against. The line beneath it is the DAQ's reading of the same tank
@@ -488,6 +572,76 @@ Two corrections the board itself supplied, both now in the code and noted in
 Both surfaced because unrecognised `CFG_PUSH` keys are logged rather than
 dropped. Without that warning, auto-vent would simply never have shown as
 confirmed and nothing would have said why.
+
+---
+
+## Spectator view
+
+A test draws a crowd. The rest of the team wants to see chamber pressure, and
+handing them the control URL works right up until someone leans on a trackpad.
+
+So spectators get their own port — **one above the control port** by default,
+printed in the banner under its own heading:
+
+```
+  Local      http://localhost:8080
+  Network    http://10.33.186.144:8080
+  ----------------------------------------------------------
+  Spectator  read-only Data page — safe to share
+             http://localhost:8081
+             http://10.33.186.144:8081
+```
+
+That second address serves the Data page and nothing else: every channel, live,
+at the same rate the operator sees, with a **SPECTATOR · VIEW ONLY** badge where
+the recording control sits on an operator station.
+
+### What makes it read-only
+
+Not hidden buttons. A hidden button is a suggestion, and anyone who opens
+devtools or types a URL is past it. `server/spectator.js` is a **separate HTTP
+server with no mutating routes at all**:
+
+| | Control port | Spectator port |
+|---|---|---|
+| `POST` / `PUT` / anything but `GET` | routed | **403, before the path is read** |
+| `/api/state` `/api/history` `/api/stream` | yes | yes — the same broadcast, same frame |
+| `/api/config` | the whole stand | trimmed: sensors and branding only |
+| `/api/events` | the event log | empty |
+| `/api/record/list` · `/api/record/download/…` | yes | 404 |
+| `/index.html` `/pid.html` `/config.html` | the real pages | all serve the Data page |
+
+The config a spectator's browser receives has no `valves`, no `bangbang`, no
+`autosequences`, no `pid` and no `safety` — so it never learns the valve ids or
+the interlock policy that a hand-written command would need. `ui.pages` is
+trimmed to the single Data entry, which is what leaves one link in the nav, and
+`ui.spectator` tells the client to drop the tare buttons, the sidebar, the
+recording control and the Escape-to-abort hotkey rather than render controls
+whose only outcome is a rejection.
+
+Telemetry is the one thing shared verbatim: spectators join the same SSE
+broadcast set as the operator, so the numbers on the two screens are the same
+numbers at the same instant. A viewing screen that lags is worse than none —
+the crowd calls out a value the operator stopped seeing seconds ago.
+
+### Controlling it
+
+```bash
+node server/index.js --spectator-port=9090   # somewhere else
+node server/index.js --no-spectator          # off entirely
+```
+
+`GC_SPECTATOR_PORT` does the same as the flag. It is on by default because an
+address only gets shared if it is printed every time, and it exposes strictly
+less than the control port already does on the same interfaces. If the port is
+taken the server says so and carries on — a port collision costs the crowd
+their screen, not the operator their stand.
+
+> The spectator port is a **courtesy barrier, not a security boundary**. There
+> is no authentication anywhere in GC4, and the control port is still on the
+> same network. It stops the honest accident — a leaned-on trackpad, a curious
+> click, a phone in someone's pocket — which is the failure that actually
+> happens on a test day. Put the stand on a network you trust.
 
 ---
 
@@ -675,6 +829,31 @@ tank upstream, tank downstream, venturi inlet, venturi throat, manifold. `kind`
 also decides how the rate of change is quoted: `pressure` is per minute,
 everything else per second.
 
+### Showing a bang-bang board's own transducer
+
+The PT a bang-bang loop regulates against is not a DAQ channel and cannot be a
+`sensors` entry — it has no channel number, its readings arrive on the board
+heartbeat, and its zero lives in the board's EEPROM. Declare it on the
+controller that owns it instead:
+
+```json
+{
+  "id": "bb-ox", "side": "L", "sensor": "PT4", "valve": "SV-LOXBB",
+  "boardSensor": { "id": "PT3", "name": "LOX Tank Upstream" }
+}
+```
+
+Everything else defaults from `sensor` — the DAQ channel this controller is
+compared against, which is on the same tank with the same span — so `group`,
+`units`, `min`/`max` and the warn/danger limits are inherited unless you give
+them. The tag must not already belong to a `sensors` entry; the server refuses
+the config if it does, because two different instruments behind one label on
+the [Data page](#data-datahtml) is the failure that page exists to prevent.
+
+It then appears in its group's column at the position its number earns it, with
+no TARE button and marked as coming from the board. Omit `boardSensor` and
+nothing changes anywhere.
+
 ### Grouping sensors
 
 `group` names an entry in `sensorGroups`, which decides the column a sensor
@@ -741,6 +920,22 @@ as a tee. `flowWhen` lists the valves that must all be open for a line to animat
 
 Add a service by adding a key to `pid.fluids` — it gets a colour, a line width,
 and a legend entry automatically.
+
+The **title block** in the top-left corner is three ordinary components: a
+`logo` and two `text` lines. The page has no heading of its own, so this is
+what names the drawing.
+
+```json
+{ "type": "logo", "id": "LOGO-1", "x": 24, "y": 40, "w": 31, "h": 41,
+  "src": "/img/draco.png", "srcDark": "/img/draco-white.png" }
+```
+
+`x`/`y` are the CENTRE of the box, and `srcDark` is swapped in on the dark
+theme so a black mark does not vanish. **`w`/`h` size the image's canvas, not
+the mark**: the fit is `meet`, so any transparent margin in the artwork sits
+inside the box and the visible mark comes out smaller than the numbers look.
+Size it by eye against the title text rather than from the file's dimensions —
+Draco's dragon is a 240x320 PNG whose ink only fills the middle 186 rows.
 
 ### Look and feel
 
@@ -1098,6 +1293,7 @@ everything to a known safe state; a mis-keyed valve command does the opposite.
 ```
 server/
   index.js         HTTP, REST API, SSE telemetry stream, static files
+  spectator.js     the read-only viewing port — no mutating routes exist on it
   state.js         StandController — authoritative state, interlocks, tick loop
   config-store.js  load / validate / hot-reload, timestamped backups
   bangbang.js      pushes config to the board's regulator; supervisory trips
@@ -1154,6 +1350,10 @@ rejected command can never leave a valve looking open when it is closed.
 | `GET` | `/api/record/list` `/api/record/download/:name` | Recorded files |
 | `PUT` | `/api/config` | Validate, back up, save, hot-reload. While armed, accepts autosequence changes only |
 
+The [spectator port](#spectator-view) serves only the `GET` rows of that table,
+minus the recordings, and refuses every other method before it looks at the
+path.
+
 ---
 
 ## Testing
@@ -1171,6 +1371,12 @@ Unit tests cover the logic whose mistakes are silent on real hardware:
 - **NI-DAQ addressing** — sensor id to card and channel. A tare that lands on
   the wrong channel zeroes a transducer nobody was looking at and leaves the
   intended one reading as before, with nothing on screen to say so.
+- **The spectator port** (`server/spectator.test.js`) — that every mutating
+  method is refused, that the trimmed config carries no valve, controller,
+  sequence or interlock, that the recordings and the control pages are not
+  reachable, and that a path traversal does not escape `public/`. The reason
+  this is tested at the HTTP layer rather than through the UI is that the UI is
+  not what enforces it.
 - **Client lookups** (`public/js/bus.test.js`) — the rate-of-change fit and
   sensor grouping. "The tank is filling at 50 psi/s" is a number an operator
   acts on, and a sign error or a botched window reads as a plausible number

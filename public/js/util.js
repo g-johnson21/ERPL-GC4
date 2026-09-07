@@ -200,6 +200,7 @@ const ICON_PATHS = {
   save: '<path d="M5 4h11l3 3v13H5z"/><path d="M8 4v5h7V4M8 20v-6h8v6"/>',
   warning: '<path d="M12 4 2.5 20h19z"/><path d="M12 10v4M12 17.5v.5"/>',
   zoom: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>',
+  eye: '<path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z"/><circle cx="12" cy="12" r="2.8"/>',
 };
 
 export function icon(name, size = 16) {
@@ -212,6 +213,10 @@ export function icon(name, size = 16) {
 
 let toastStack = null;
 export function toast(message, kind = 'info', ms = 4200) {
+  // Nothing to show a toast on outside a browser. bus.js reaches here from
+  // code paths the unit tests exercise headlessly, and a missing `document`
+  // should not turn "the command was refused" into a ReferenceError.
+  if (typeof document === 'undefined') return null;
   if (!toastStack) {
     toastStack = el('div.toast-stack');
     document.body.append(toastStack);

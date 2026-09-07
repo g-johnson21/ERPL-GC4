@@ -293,6 +293,20 @@
   color: var(--text-faint);
   flex: none;
 }
+/* A bang-bang board's own transducer. It sits in its tank's column, in tag
+   order, because that is where an operator looks for it -- but it is not a DAQ
+   channel: it is absent from the recorded CSV, it does not tare with the rest
+   of the column, and it is the one reading a controller acts on directly.
+   A dashed outline and a lit `board L` marker say so without adding a row. */
+.sensor-card[data-board="true"] {
+  border-style: dashed;
+  border-left-style: solid;
+}
+.sensor-card[data-board="true"] .s-ch {
+  color: var(--accent);
+  font-weight: 700;
+}
+
 .sensor-card .s-status {
   width: 8px; height: 8px;
   border-radius: 50%;
@@ -569,6 +583,11 @@
 
 .bb-card {
   border: 1px solid var(--border);
+  /* Its tank's colour down the left edge, the same 3px stripe a sensor card
+     and a readout tile carry. The LOX and Fuel cards are otherwise identical
+     panels sitting one above the other, and the operations they offer — VENT,
+     ABORT SIDE — are ones where picking the wrong card is the whole failure. */
+  border-left: 3px solid var(--group-color, var(--border));
   border-radius: var(--radius);
   background: var(--bg);
   padding: 9px 10px 10px;

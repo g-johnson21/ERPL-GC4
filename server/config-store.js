@@ -200,6 +200,30 @@ function normalizeConfig(c) {
     // Normalised so nothing downstream has to care about case. The board's
     // commands take uppercase; its heartbeat reports lowercase.
     if (typeof b.side === 'string') b.side = b.side.toUpperCase();
+
+    // The board's OWN transducer, described the way a sensor is so the Data
+    // page can show it beside the DAQ channels instead of leaving it visible
+    // only on the bang-bang card. It is deliberately NOT a `sensors` entry:
+    // there is no DAQ channel behind it, its zero lives in the board's EEPROM,
+    // and nothing that tares a DAQ channel may ever reach it.
+    //
+    // Defaults come from the DAQ channel this controller compares against --
+    // same tank, same fluid, same scale -- so a boardSensor need only give an
+    // id and a name.
+    if (b.boardSensor?.id) {
+      const bs = b.boardSensor;
+      const daq = cfg.sensors.find((x) => x.id === b.sensor);
+      bs.name ??= `${b.abbrev} board PT`;
+      bs.abbrev ??= bs.id;
+      bs.kind ??= 'pressure';
+      bs.group ??= daq?.group ?? 'misc';
+      bs.units ??= daq?.units ?? 'psi';
+      bs.decimals ??= daq?.decimals ?? 1;
+      bs.min ??= daq?.min ?? 0;
+      bs.max ??= daq?.max ?? 1000;
+      if (bs.warnHigh === undefined && daq?.warnHigh !== undefined) bs.warnHigh = daq.warnHigh;
+      if (bs.dangerHigh === undefined && daq?.dangerHigh !== undefined) bs.dangerHigh = daq.dangerHigh;
+    }
   }
 
   for (const s of cfg.autosequences) {
@@ -294,6 +318,7 @@ export function validateConfig(c) {
   }
 
   const usedSides = new Map();
+  const usedBoardTags = new Map();
   for (const [i, b] of (c.bangbang || []).entries()) {
     const where = `bangbang[${i}]`;
     if (!b.id) { err(`${where}: missing id`); continue; }
@@ -320,6 +345,24 @@ export function validateConfig(c) {
     }
     if (b.ventAuto && b.ventTrigger == null) {
       err(`${where} (${b.id}): ventAuto needs a ventTrigger pressure to vent at`);
+    }
+    // The board's own transducer is a SEPARATE instrument from the DAQ channel
+    // this controller compares against, and it goes on the Data page under its
+    // own tag. Letting it borrow an existing tag would put two different
+    // sensors behind one label on a screen whose whole job is telling channels
+    // apart.
+    if (b.boardSensor != null) {
+      const tag = b.boardSensor.id;
+      if (!tag) {
+        err(`${where} (${b.id}): boardSensor needs an id — the tag its readings appear under`);
+      } else if (sensorIds.has(tag)) {
+        err(`${where} (${b.id}): boardSensor id "${tag}" is already a DAQ sensor — ` +
+            `the board's transducer is a different instrument and needs its own tag`);
+      } else if (usedBoardTags.has(tag)) {
+        err(`${where} (${b.id}): boardSensor id "${tag}" is already used by ${usedBoardTags.get(tag)}`);
+      } else {
+        usedBoardTags.set(tag, b.id);
+      }
     }
     for (const k of ['maxOpenMs', 'minIntervalMs']) {
       if (b[k] != null && (!Number.isFinite(Number(b[k])) || Number(b[k]) < 0)) {

@@ -14,21 +14,36 @@ const P = bus.config.pid;
 
 // ------------------------------------------------------------------ shell --
 
+// NO PAGE HEADING HERE, deliberately.
+//
+// It read "P&ID / LOX / Ethanol Bi-Propellant Test Stand" and cost about 38px
+// that the stage's `calc(100vh - header - padding)` never accounted for, so
+// the page scrolled by exactly the height of the heading and the bottom of the
+// drawing sat under the fold. On a page whose whole point is one glance at the
+// whole stand, that is the worst 38px on the screen.
+//
+// Nothing is lost with it gone: the drawing carries its own title block --
+// the stand name and the fluid summary, in the corner where a drawing puts
+// them -- and the page is already named in the nav and the browser tab.
 const stage = el('div.pid-stage#pid-stage');
-content.append(
-  el('div.page-head', {},
-    el('h1', { text: 'P&ID' }),
-    el('span.sub', { text: bus.config.meta.subtitle || bus.config.meta.standName })
-  ),
-  stage
-);
+content.append(stage);
+
+// The schematic is fitted to the stage's width, so the page gives up its
+// horizontal padding and lets the stage run to the window edge -- see
+// `.pid-page` in pid.css.
+content.classList.add('pid-page');
 
 const svg = svgEl('svg', {
   id: 'pid-svg',
   width: '100%',
   height: '100%',
   viewBox: `0 0 ${P.width} ${P.height}`,
-  preserveAspectRatio: 'xMidYMid meet',
+  // Left-anchored, not centred. The stage is normally narrower than the
+  // drawing's aspect ratio so there is no horizontal slack to place at all --
+  // but when there is (a tall, narrow stage, or a zoomed-out view) the
+  // schematic stays against the left edge, away from the sidebar, rather than
+  // drifting into the middle.
+  preserveAspectRatio: 'xMinYMid meet',
 });
 stage.append(svg);
 

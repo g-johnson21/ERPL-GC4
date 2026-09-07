@@ -572,6 +572,66 @@
           "predictive": {
             "type": "boolean",
             "description": "BOARD-SIDE. Predictive valve shutoff (e<side><0|1>): the board closes the press valve on the predicted overshoot rather than on the band edge. Enabling it requires the stand ARMED, so a true here is the power-on preference, not a guarantee — it is pushed when the operator toggles it, never re-asserted silently."
+          },
+          "boardSensor": {
+            "type": "object",
+            "description": "Optional. Describes the board's OWN transducer — the one this loop regulates against — so the Data page can show it beside the DAQ channels. It is NOT a sensors entry: it has no DAQ channel, it is absent from the recorded CSV, and it is zeroed from the bang-bang card rather than by /api/tare. Everything but id and name defaults from this controller's `sensor`, which sits on the same tank with the same span.",
+            "required": [
+              "id"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "The tag it appears under, e.g. PT3. Must NOT be an existing sensor id — the board's transducer is a different instrument. Its position in the Data page column comes from the number in this tag."
+              },
+              "name": {
+                "type": "string"
+              },
+              "abbrev": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "pressure",
+                  "temperature",
+                  "force",
+                  "flow",
+                  "level",
+                  "voltage",
+                  "other"
+                ]
+              },
+              "group": {
+                "type": "string",
+                "description": "A sensorGroups id. Defaults to the group of this controller's `sensor`, which puts the board PT in its own tank's column."
+              },
+              "units": {
+                "type": "string"
+              },
+              "decimals": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "min": {
+                "type": "number"
+              },
+              "max": {
+                "type": "number"
+              },
+              "warnLow": {
+                "type": "number"
+              },
+              "warnHigh": {
+                "type": "number"
+              },
+              "dangerLow": {
+                "type": "number"
+              },
+              "dangerHigh": {
+                "type": "number"
+              }
+            }
           }
         }
       }

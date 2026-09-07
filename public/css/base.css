@@ -38,7 +38,15 @@
   --radius-lg: 12px;
 
   --header-h: 52px;
-  --sidebar-w: 328px;
+  /* The sidebar is two columns wide. Left holds ARM, the sequences and the
+     log; right holds the bang-bang cards. Both are sized so that neither
+     column has to scroll on a 1600x900 station -- see .sidebar below. The
+     media queries at the foot of this file override these two on `.sidebar`,
+     so the total is summed there rather than kept as a third token: a
+     custom property that contains var() is substituted where it is DECLARED,
+     so a `--sidebar-w` defined up here would keep the widths from up here. */
+  --sidebar-ops-w: 292px;
+  --sidebar-bb-w: 328px;
 
   --mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono", Consolas, monospace;
   --sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -292,6 +300,28 @@ body.theme-ready * { transition: background-color .15s, border-color .15s, color
 /* Link indicators plus stand state. ARMED, ABORT and a dead DAQ are the last
    things that may ever be squeezed off a narrow screen, so this row never
    shrinks — the nav above gives way first. */
+/* Where the recording control sits on an operator station, the spectator
+   window says what it is instead. Deliberately quiet — info blue, not a
+   warning colour: nothing is wrong with this window, it just cannot command.
+   The label earns its space by explaining an otherwise bare header. */
+.spectator-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex: none;
+  margin-left: 8px;
+  padding: 5px 11px;
+  border-radius: 100px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  white-space: nowrap;
+  background: var(--info-bg);
+  color: var(--info);
+  border: 1px solid transparent;
+}
+.spectator-badge svg { flex: none; }
+
 .header-status {
   display: flex;
   align-items: center;
@@ -365,29 +395,65 @@ body.theme-ready * { transition: background-color .15s, border-color .15s, color
   min-width: 0;
 }
 
+/* TWO COLUMNS, because one column did not fit.
+   Stacked, the four panels came to ~1520px against the ~850px an operator
+   station actually has, so the sequences and the log lived below the fold and
+   starting a sequence began with a scroll. Side by side each column is under
+   the fold on its own: ARM + sequences + log is ~775px, the two bang-bang
+   cards are ~750px.
+
+   The sidebar stays the single scroll container. On a short screen both
+   columns give at once, which keeps `position: sticky` on the ARM panel
+   working -- `top: 0` is this element's top edge, not a column's. */
 .sidebar {
-  width: var(--sidebar-w);
+  width: calc(var(--sidebar-ops-w) + var(--sidebar-bb-w));
   flex: none;
   background: var(--surface);
   border-left: 1px solid var(--border);
   overflow-y: auto;
   overflow-x: hidden;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: flex-start;
   gap: 0;
 }
 .sidebar.collapsed { width: 0; border-left: none; }
+/* A stand with no bang-bang controllers gets no second column, and the
+   sidebar narrows instead of leaving a 328px hole beside the log. */
+.sidebar.solo { width: var(--sidebar-ops-w); }
+.sidebar.solo .sidebar-col.ops { border-right: none; }
+
+/* `min-height: 100%` rather than `align-items: stretch`: stretch would pin
+   each column to the viewport height and let its content spill out of a box
+   that no longer matches it. This way a column is at least full height -- so
+   the log still absorbs the slack -- and grows past it when it must, which is
+   what gives the sidebar something to scroll. */
+.sidebar-col {
+  min-height: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.sidebar-col.ops {
+  width: var(--sidebar-ops-w);
+  flex: none;
+  border-right: 1px solid var(--border);
+}
+.sidebar-col.regulators {
+  width: var(--sidebar-bb-w);
+  flex: none;
+}
 
 .sidebar-section {
   padding: 12px;
   border-bottom: 1px solid var(--border);
   flex: none;
 }
-.sidebar-section:last-child { border-bottom: none; }
+.sidebar-col > .sidebar-section:last-child { border-bottom: none; }
 
 /* ARM / DISARM / ABORT hold the top of the sidebar and do not scroll with it.
    The sidebar is the scroll container, so `top: 0` is its top edge. Opaque
-   and raised, or the bang-bang cards read through it on the way past. */
+   and raised, or the sequence list reads through it on the way past. */
 .sidebar-section.pinned {
   position: sticky;
   top: 0;
@@ -400,13 +466,24 @@ body.theme-ready * { transition: background-color .15s, border-color .15s, color
    breaks the default `min-height:auto` of a flex item) and must clip, or its
    list overflows the section.
 
-   300px, twice what it was: the log is the running account of the test, and
-   at 150px an autosequence firing its steps pushed everything before it out
-   of view faster than anyone could read it. The recording panel that used to
-   sit under it has moved to the header, which is where the height came from. */
+   It gets far more than the 150px it started with: the log is the running
+   account of the test, and at 150px an autosequence firing its steps pushed
+   everything before it out of view faster than anyone could read it. The
+   recording panel that used to sit under it moved to the header, and the
+   bang-bang cards moved into their own column; the log took both. */
 .sidebar-section.grow {
-  flex: 1 1 auto;
-  min-height: 300px;
+  /* Basis 0, not auto: the log list is long, and an `auto` basis makes the
+     column's content height the length of the log rather than the height of
+     the panel showing it -- which pushed the column past the viewport and put
+     the scrollbar back. With basis 0 the section is exactly its minimum plus
+     whatever the column has left over. */
+  flex: 1 1 0;
+  /* The floor, not the height -- with room to spare the log takes it all.
+     272px, sized against the one moment the column is fullest: a running
+     sequence adds a ~96px progress panel above, and at 300px that pushed the
+     newest log lines below the fold exactly while a sequence was firing steps
+     into them. Losing two lines of scrollback beats losing the live tail. */
+  min-height: 272px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -617,7 +694,16 @@ textarea { font-family: var(--mono); font-size: 12px; line-height: 1.5; resize: 
   .nav a { padding: 7px 9px; }
 }
 
+/* Two columns cost the content area ~290px, so the sidebar starts giving it
+   back earlier than the one-column layout had to. Both columns narrow at
+   once: shrinking only one would put the bang-bang cards and the sequence
+   list on different rhythms, and the cards are the half with fixed-width
+   numeric fields to lose. */
+@media (max-width: 1400px) {
+  .sidebar { --sidebar-ops-w: 264px; --sidebar-bb-w: 304px; }
+}
+
 @media (max-width: 1100px) {
   .nav a span { display: none; }
-  .sidebar { width: 280px; }
+  .sidebar { --sidebar-ops-w: 236px; --sidebar-bb-w: 284px; }
 }

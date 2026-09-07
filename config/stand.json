@@ -57,7 +57,7 @@
       "heightIn": 70,
       "smoothingSeconds": 5
     },
-    "requireShiftToActuate": true
+    "requireShiftToActuate": false
   },
   "telemetry": {
     "sampleRateHz": 50,
@@ -630,9 +630,9 @@
       }
     },
     {
-      "id": "PT24",
+      "id": "PT23",
       "name": "Fuel Venturi Inlet",
-      "abbrev": "PT24",
+      "abbrev": "PT23",
       "kind": "pressure",
       "group": "fuel",
       "units": "psi",
@@ -656,9 +656,9 @@
       }
     },
     {
-      "id": "PT23",
+      "id": "PT24",
       "name": "Fuel Venturi Throat",
-      "abbrev": "PT23",
+      "abbrev": "PT24",
       "kind": "pressure",
       "group": "fuel",
       "units": "psi",
@@ -905,21 +905,19 @@
     },
     {
       "id": "TC4",
-      "name": "Chamber",
-      "abbrev": "CHAMBER",
+      "name": "GOX External",
+      "abbrev": "GOXEXT",
       "kind": "temperature",
       "group": "temp",
       "units": "°F",
       "channel": 203,
       "decimals": 1,
-      "min": -100,
-      "max": 2282,
+      "min": -320,
+      "max": 200,
       "calibration": {
         "slope": 1,
         "offset": 0
       },
-      "warnHigh": 1597,
-      "dangerHigh": 1940,
       "pid": {
         "x": 836,
         "y": 790,
@@ -931,8 +929,8 @@
     },
     {
       "id": "TC5",
-      "name": "Spare 5",
-      "abbrev": "TC5",
+      "name": "Chamber",
+      "abbrev": "CHAMBER",
       "kind": "temperature",
       "group": "temp",
       "units": "°F",
@@ -1000,12 +998,25 @@
       "side": "F",
       "name": "Fuel Tank Press (Fuel BB)",
       "abbrev": "FUEL",
+      "boardSensor": {
+        "id": "PT13",
+        "name": "Fuel Tank Upstream",
+        "abbrev": "PT13",
+        "kind": "pressure",
+        "group": "fuel",
+        "units": "psi",
+        "decimals": 1,
+        "min": 0,
+        "max": 1500,
+        "warnHigh": 1200,
+        "dangerHigh": 1380
+      },
       "sensor": "PT14",
       "valve": "SV-FBB",
       "setpoint": 450,
       "deadband": 15,
       "setpointMin": 0,
-      "setpointMax": 650,
+      "setpointMax": 1000,
       "setpointStep": 5,
       "deadbandMin": 1,
       "deadbandMax": 100,
@@ -1014,9 +1025,9 @@
       "maxOpenSeconds": 30,
       "maxOpenMs": 500,
       "minIntervalMs": 250,
-      "abortAbove": 700,
+      "abortAbove": 1200,
       "ventValve": null,
-      "ventTrigger": 650,
+      "ventTrigger": 1100,
       "ventAuto": false,
       "_ventValve": "UNVERIFIED - leave null until the wiring is confirmed. Two things are unresolved: whether the board's BB vent solenoid is this GN2 vent at all (hardware.json marks DC3/DC4 as pushbutton channels PB1/PB3, while the BB press valves are solenoids S1/S2), and whether the heartbeat's vent01 bit reports COIL state or FLOW state. These vents are normally-open, so the two readings are opposites: setting this now makes the board's 'not venting' reopen a vent the operator just closed."
     },
@@ -1025,12 +1036,25 @@
       "side": "L",
       "name": "Ox Tank Press (LOX BB)",
       "abbrev": "OX",
+      "boardSensor": {
+        "id": "PT3",
+        "name": "LOX Tank Upstream",
+        "abbrev": "PT3",
+        "kind": "pressure",
+        "group": "lox",
+        "units": "psi",
+        "decimals": 1,
+        "min": 0,
+        "max": 1500,
+        "warnHigh": 1200,
+        "dangerHigh": 1380
+      },
       "sensor": "PT4",
       "valve": "SV-LOXBB",
       "setpoint": 470,
       "deadband": 15,
       "setpointMin": 0,
-      "setpointMax": 650,
+      "setpointMax": 1000,
       "setpointStep": 5,
       "deadbandMin": 1,
       "deadbandMax": 100,
@@ -1039,9 +1063,9 @@
       "maxOpenSeconds": 30,
       "maxOpenMs": 500,
       "minIntervalMs": 250,
-      "abortAbove": 700,
+      "abortAbove": 1200,
       "ventValve": null,
-      "ventTrigger": 650,
+      "ventTrigger": 1100,
       "ventAuto": false,
       "_ventValve": "UNVERIFIED - leave null until the wiring is confirmed. Two things are unresolved: whether the board's BB vent solenoid is this GN2 vent at all (hardware.json marks DC3/DC4 as pushbutton channels PB1/PB3, while the BB press valves are solenoids S1/S2), and whether the heartbeat's vent01 bit reports COIL state or FLOW state. These vents are normally-open, so the two readings are opposites: setting this now makes the board's 'not venting' reopen a vent the operator just closed."
     }
@@ -1097,76 +1121,70 @@
         },
         {
           "t": 0,
-          "action": "bangbang",
-          "target": "*",
-          "enabled": true
-        },
-        {
-          "t": 5,
           "action": "valve",
           "target": "MV-LOX",
           "state": "open"
         },
         {
-          "t": 5.4,
+          "t": 0.5,
           "action": "log",
           "message": "T-0 FUEL RUNLINE OPEN"
         },
         {
-          "t": 5.4,
+          "t": 0.5,
           "action": "valve",
           "target": "MV-F",
           "state": "open"
         },
         {
-          "t": 10.4,
+          "t": 8,
           "action": "log",
           "message": "CUTOFF"
         },
         {
-          "t": 10.4,
+          "t": 8,
           "action": "valve",
           "target": "MV-LOX",
           "state": "closed"
         },
         {
-          "t": 10.7,
+          "t": 8.5,
           "action": "valve",
           "target": "MV-F",
           "state": "closed"
         },
         {
-          "t": 10.9,
+          "t": 8.7,
           "action": "valve",
           "target": "SV-FPURGE",
           "state": "open"
         },
         {
-          "t": 10.9,
+          "t": 8.7,
           "action": "valve",
           "target": "SV-LOXPURGE",
           "state": "open"
         },
         {
-          "t": 13.9,
+          "t": 11.7,
           "action": "valve",
           "target": "SV-FPURGE",
           "state": "closed"
         },
         {
-          "t": 13.9,
+          "t": 11.7,
           "action": "valve",
           "target": "SV-LOXPURGE",
           "state": "closed"
         },
         {
-          "t": 15.9,
+          "t": 11.7,
           "action": "log",
           "message": "HOT FIRE COMPLETE"
         }
       ],
       "hidden": false,
-      "duration": 15.9,
+      "duration": 11.7,
       "timeMode": "relative"
     },
     {
@@ -1288,12 +1306,6 @@
         {
           "t": 0,
           "action": "valve",
-          "target": "MV-F",
-          "state": "closed"
-        },
-        {
-          "t": 0,
-          "action": "valve",
           "target": "MV-LOX",
           "state": "closed"
         },
@@ -1306,59 +1318,65 @@
         {
           "t": 0.1,
           "action": "valve",
+          "target": "MV-F",
+          "state": "closed"
+        },
+        {
+          "t": 0.2,
+          "action": "valve",
           "target": "SV-LOXBB",
           "state": "closed"
         },
         {
-          "t": 0.1,
+          "t": 0.2,
           "action": "valve",
           "target": "SV-FBB",
           "state": "closed"
         },
         {
-          "t": 0.2,
+          "t": 0.3,
           "action": "valve",
           "target": "SV-LOXV",
           "state": "open"
         },
         {
-          "t": 0.2,
+          "t": 0.3,
           "action": "valve",
           "target": "SV-FV",
           "state": "open"
         },
         {
-          "t": 0.6,
+          "t": 0.3,
           "action": "valve",
           "target": "SV-FPURGE",
           "state": "open"
         },
         {
-          "t": 0.6,
+          "t": 0.3,
           "action": "valve",
           "target": "SV-LOXPURGE",
           "state": "open"
         },
         {
-          "t": 3,
+          "t": 5.3,
           "action": "valve",
           "target": "SV-FPURGE",
           "state": "closed"
         },
         {
-          "t": 3,
+          "t": 5.3,
           "action": "valve",
           "target": "SV-LOXPURGE",
           "state": "closed"
         },
         {
-          "t": 5.2,
+          "t": 5.3,
           "action": "log",
           "message": "Abort state reached — stand is venting"
         }
       ],
       "abortConditions": [],
-      "duration": 5.2,
+      "duration": 5.3,
       "timeMode": "absolute"
     },
     {
@@ -1395,7 +1413,7 @@
         }
       ],
       "timeMode": "relative",
-      "hidden": false,
+      "hidden": true,
       "duration": 6
     },
     {
@@ -1432,7 +1450,7 @@
         }
       ],
       "timeMode": "relative",
-      "hidden": false,
+      "hidden": true,
       "duration": 6
     },
     {
@@ -1493,7 +1511,7 @@
         }
       ],
       "timeMode": "relative",
-      "hidden": false,
+      "hidden": true,
       "duration": 11.8
     },
     {
@@ -1529,8 +1547,27 @@
       "duration": 1
     },
     {
+      "id": "seq-custom-13",
+      "name": "GN2 Purge",
+      "abbrev": "NEW",
+      "description": "",
+      "style": "normal",
+      "requiresArm": true,
+      "confirm": true,
+      "abortConditions": [],
+      "steps": [
+        {
+          "t": 0,
+          "action": "log",
+          "message": "Sequence start"
+        }
+      ],
+      "hidden": false,
+      "duration": 0
+    },
+    {
       "id": "seq-custom-12",
-      "name": "PB2",
+      "name": "New Sequence 12",
       "abbrev": "NEW",
       "description": "",
       "style": "normal",
@@ -1544,21 +1581,21 @@
           "message": "Sequence start"
         },
         {
-          "t": 5,
+          "t": 0,
           "action": "valve",
-          "target": "MV-LOX",
+          "target": "SV-FBB",
           "state": "open"
         },
         {
-          "t": 10,
+          "t": 0.2,
           "action": "valve",
-          "target": "MV-LOX",
+          "target": "SV-FBB",
           "state": "closed"
         }
       ],
       "timeMode": "relative",
       "hidden": false,
-      "duration": 10
+      "duration": 0.2
     }
   ],
   "recording": {
@@ -1624,9 +1661,9 @@
         "x": 40,
         "y": 40,
         "w": 64,
-        "h": 18,
-        "src": "/img/erpl-black.png",
-        "srcDark": "/img/erpl-white.png"
+        "h": 64,
+        "src": "/img/draco.png",
+        "srcDark": "/img/draco-white.png"
       },
       {
         "type": "text",
@@ -1753,7 +1790,7 @@
         "x": 700,
         "y": 676,
         "w": 88,
-        "h": 100
+        "h": 135
       },
       {
         "type": "terminator",

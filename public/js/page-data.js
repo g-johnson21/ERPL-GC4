@@ -30,7 +30,7 @@ let windowSeconds = Number(loadPref('gc4-data-window', '60'));
 content.append(
   el('div.page-head', {},
     el('h1', { text: 'Data' }),
-    el('span.sub#data-sub', { text: `${bus.config.sensors.length} channels @ ${bus.config.telemetry.streamRateHz} Hz` }),
+    el('span.sub#data-sub', { text: channelSummary() }),
     el('div', { style: { marginLeft: 'auto', display: 'flex', gap: '10px', alignItems: 'center' } },
       el('label.field', { style: { margin: 0 }, text: 'Window' }),
       el('select', {
@@ -54,6 +54,17 @@ content.append(
 // definite height, which it only has if nothing above it can scroll.
 content.classList.add('data-page');
 
+/**
+ * The DAQ channels and the boards' transducers counted apart, because they do
+ * not arrive the same way: the DAQ streams at the telemetry rate, the board
+ * PTs come in on the bang-bang heartbeat.
+ */
+function channelSummary() {
+  const daq = `${bus.config.sensors.length} channels @ ${bus.config.telemetry.streamRateHz} Hz`;
+  const board = bus.boardSensors().length;
+  return board ? `${daq} · ${board} board PT` : daq;
+}
+
 function setMode(next) {
   mode = next;
   savePref('gc4-data-mode', next);
@@ -67,13 +78,25 @@ function setMode(next) {
 
 const sparks = new Map(); // sensorId -> canvas
 
+/**
+ * Everything currently on screen, in column order: the DAQ channels plus the
+ * bang-bang boards' own transducers, which `sensorGroups()` folds in.
+ *
+ * Captured at build time rather than recomputed every frame. It only changes
+ * with the config, and a config reload rebuilds the page anyway.
+ */
+let rendered = [];
+let renderedGroups = [];
+
 function build() {
   const host = $('#data-body');
   clear(host);
   sparks.clear();
   content.classList.toggle('table-mode', mode === 'table');
-  if (mode === 'cards') buildCards(host);
-  else buildTable(host);
+  renderedGroups = groupedSensors();
+  rendered = renderedGroups.flatMap((g) => g.sensors);
+  if (mode === 'cards') buildCards(host, renderedGroups);
+  else buildTable(host, renderedGroups);
   update();
 }
 
@@ -87,8 +110,7 @@ const groupedSensors = () => bus.sensorGroups();
  * line up with it. Sizing in CSS rather than JS means it survives a window
  * resize with no listener and no reflow loop.
  */
-function buildCards(host) {
-  const groups = groupedSensors();
+function buildCards(host, groups) {
   const rows = Math.max(1, ...groups.map((g) => g.sensors.length));
 
   host.append(el('div.sensor-columns', { style: { '--rows': String(rows) } },
@@ -114,6 +136,7 @@ function buildCards(host) {
  * the ids keeps the two from having to agree on a taxonomy.
  */
 function groupTareButtons(group) {
+  if (bus.spectator) return [];
   const ids = group.sensors.filter((s) => bus.canTare(s.id)).map((s) => s.id);
   if (!ids.length) return [];
   return [
@@ -159,7 +182,12 @@ function sensorCard(sensor) {
   sparks.set(sensor.id, canvas);
   const w = valueWidthCh(sensor);
 
-  return el('div.sensor-card', { id: `sc-${sensor.id}`, dataset: { status: 'stale' } },
+  return el('div.sensor-card', {
+    // Spread rather than a null: `dataset` is assigned wholesale, and a null
+    // there lands in the DOM as the string "null".
+    id: `sc-${sensor.id}`,
+    dataset: { status: 'stale', ...(sensor.board && { board: 'true' }) },
+  },
     el('div.s-top', {},
       el('span.s-name', { text: sensor.name, title: sensor.name }),
       el('span.s-status')
@@ -175,7 +203,7 @@ function sensorCard(sensor) {
     // the extremes go where there was already room.
     el('div.s-sub', {},
       el('span.s-id', { text: sensor.id }),
-      el('span.s-ch', { text: `ch ${sensor.channel}` }),
+      el('span.s-ch', { text: channelLabel(sensor), title: channelTitle(sensor) }),
       el('span.s-stat', {}, el('i', { text: 'MIN' }), el('span', { id: `smin-${sensor.id}`, text: '––' })),
       el('span.s-stat', {}, el('i', { text: 'MAX' }), el('span', { id: `smax-${sensor.id}`, text: '––' })),
       ...tareControls(sensor)
@@ -193,6 +221,30 @@ function sensorCard(sensor) {
 }
 
 /**
+ * Where the reading comes from: a DAQ channel number, or the bang-bang bus.
+ *
+ * The distinction is worth a line on the card. A board PT is not in the
+ * recorded CSV, it does not tare with the rest of its column, and it is the
+ * one transducer whose value a controller acts on directly — reading it as
+ * just another channel would be reading it wrong.
+ */
+function channelLabel(sensor) {
+  return sensor.board ? `board ${sensor.side}` : `ch ${sensor.channel}`;
+}
+
+function channelTitle(sensor) {
+  if (!sensor.board) return `DAQ channel ${sensor.channel}`;
+  const name = bus.controller(sensor.controller)?.name || sensor.controller;
+  return [
+    `The bang-bang board's own transducer on bus ${sensor.side} — the one ${name}`,
+    'regulates against. It arrives on the board heartbeat, not the DAQ stream,',
+    'and it is not written to the recorded CSV.',
+    '',
+    'Zeroed from its card on the actuation pages, never from here.',
+  ].join('\n');
+}
+
+/**
  * The zero controls for one channel: a TARE button that shows the live offset
  * once one is applied, and a CLEAR button that only exists while there is
  * something to clear.
@@ -205,6 +257,14 @@ function sensorCard(sensor) {
  * stay unique.
  */
 function tareControls(sensor) {
+  // A tare changes what every screen reads, the operator's included. It is an
+  // instrumentation command, not a view setting, so the spectator port neither
+  // offers it nor accepts it — updateTareControls tolerates the missing nodes.
+  if (bus.spectator) return [];
+  // Nor does a board transducer get one. Its zero lives in the board's EEPROM,
+  // is refused while that side is regulating, and belongs on the card that
+  // owns the loop — /api/tare could not apply it if this button sent it.
+  if (sensor.board) return [];
   return [
     el('button.tare-chip.hidden', {
       id: `tb-${sensor.id}`,
@@ -221,20 +281,28 @@ function tareControls(sensor) {
   ];
 }
 
-function buildTable(host) {
+function buildTable(host, groups) {
   const wrap = el('div.table-wrap');
   // Fixed layout: with `auto`, every column re-measures as readings change and
   // the whole table twitches at 20 Hz.
   const table = el('table.data-table.fixed');
 
-  const widths = ['20%', '92px', '112px', '58px', '128px', '96px', '96px', '120px', '48px', '84px', '108px'];
+  // The Tare column goes entirely on a spectator view rather than standing
+  // empty: a header over a column that can never hold anything reads as a
+  // feature that failed to load.
+  const tare = !bus.spectator;
+  // The Ch column carries "ch 12" for a DAQ channel and "board L" for a
+  // bang-bang transducer, and it is sized for the longer of the two.
+  const widths = ['20%', '92px', '112px', '58px', '128px', '96px', '96px', '120px', '76px', '84px'];
+  if (tare) widths.push('108px');
   const cols = el('colgroup');
   for (const w of widths) cols.append(el('col', { style: { width: w } }));
   table.append(cols);
 
   // Description first, tag second — the same order as the cards, so switching
   // views does not mean re-learning where to look.
-  const headers = ['Description', 'Tag', 'Group', 'Value', 'Rate', 'Min', 'Max', 'Range', 'Ch', 'Status', 'Tare'];
+  const headers = ['Description', 'Tag', 'Group', 'Value', 'Rate', 'Min', 'Max', 'Range', 'Ch', 'Status'];
+  if (tare) headers.push('Tare');
   table.append(el('thead', {}, el('tr', {},
     headers.map((h) =>
       el('th', { text: h, class: ['Value', 'Rate', 'Min', 'Max', 'Ch'].includes(h) ? 'num' : '' })
@@ -242,9 +310,9 @@ function buildTable(host) {
   )));
 
   const tbody = el('tbody');
-  for (const group of groupedSensors()) {
+  for (const group of groups) {
     tbody.append(el('tr.group-row', { style: { '--group-color': group.color || '#64748b' } },
-      el('td', { colspan: 11 },
+      el('td', { colspan: headers.length },
         el('span.group-swatch'),
         group.label,
         el('span.col-count', { text: String(group.sensors.length) })
@@ -260,9 +328,9 @@ function buildTable(host) {
         el('td.num.muted', { id: `tmin-${s.id}`, text: '––' }),
         el('td.num.muted', { id: `tmax-${s.id}`, text: '––' }),
         el('td.mono.muted', { text: `${s.min} … ${s.max} ${s.units}` }),
-        el('td.num.muted', { text: s.channel }),
+        el('td.num.muted', { text: channelLabel(s), title: channelTitle(s) }),
         el('td', { id: `ts-${s.id}`, text: '–' }),
-        el('td.tare-cell', {}, tareControls(s))
+        tare ? el('td.tare-cell', {}, tareControls(s)) : null
       ));
     }
   }
@@ -285,7 +353,7 @@ function update() {
 
   updateTareControls();
 
-  for (const sensor of bus.config.sensors) {
+  for (const sensor of rendered) {
     const value = bus.reading(sensor.id);
     const status = bus.sensorStatus(sensor.id);
     const stats = windowStats(sensor.id, windowSeconds);
@@ -338,7 +406,7 @@ function update() {
  * the offset is shown on the button itself rather than tucked in a tooltip.
  */
 function updateTareControls() {
-  for (const sensor of bus.config.sensors) {
+  for (const sensor of rendered) {
     const offset = bus.tare(sensor.id);
     const tareable = offset !== null;
     const tared = tareable && offset !== 0;
@@ -362,7 +430,7 @@ function updateTareControls() {
     $(`#tx-${sensor.id}`)?.classList.toggle('hidden', !tared);
   }
 
-  for (const group of groupedSensors()) {
+  for (const group of renderedGroups) {
     const anyTared = group.sensors.some((s) => (bus.tare(s.id) ?? 0) !== 0);
     $(`#untare-group-${group.id}`)?.classList.toggle('hidden', !anyTared);
   }

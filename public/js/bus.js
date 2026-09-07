@@ -54,6 +54,15 @@ class Bus {
     return this;
   }
 
+  /**
+   * True when this page was served by the read-only spectator port.
+   *
+   * The server is what actually enforces it — the spectator listener has no
+   * mutating routes to reach. This flag exists so the UI does not offer
+   * controls whose only possible outcome is a rejection.
+   */
+  get spectator() { return this.config?.ui?.spectator === true; }
+
   applyAccent() {
     const accent = this.config?.ui?.accent;
     if (accent) {
@@ -120,16 +129,26 @@ class Bus {
 
   pushHistory(snap) {
     for (const [id, reading] of Object.entries(snap.sensors || {})) {
-      if (reading.v === null) continue;
-      let series = this.history.get(id);
-      if (!series) { series = { t: [], v: [] }; this.history.set(id, series); }
-      series.t.push(snap.t);
-      series.v.push(reading.v);
-      if (series.t.length > this.historyLimit) {
-        const drop = series.t.length - this.historyLimit;
-        series.t.splice(0, drop);
-        series.v.splice(0, drop);
-      }
+      this.pushSample(snap.t, id, reading.v);
+    }
+    // The boards' own transducers arrive on the heartbeat rather than in
+    // `sensors`, but every screen draws them with the same sparkline, rate and
+    // window min/max as a DAQ channel -- and all three read from here.
+    for (const bs of this.boardSensors()) {
+      this.pushSample(snap.t, bs.id, this.boardPressure(bs, snap));
+    }
+  }
+
+  pushSample(t, id, value) {
+    if (!Number.isFinite(value)) return;
+    let series = this.history.get(id);
+    if (!series) { series = { t: [], v: [] }; this.history.set(id, series); }
+    series.t.push(t);
+    series.v.push(value);
+    if (series.t.length > this.historyLimit) {
+      const drop = series.t.length - this.historyLimit;
+      series.t.splice(0, drop);
+      series.v.splice(0, drop);
     }
   }
 
@@ -150,6 +169,15 @@ class Bus {
   // ------------------------------------------------------------ commands --
 
   async post(path, body = {}) {
+    // A spectator page has no control that reaches this, so getting here means
+    // something slipped through — a hotkey, a stale listener. Refuse locally
+    // and say so plainly, rather than send a command the server will reject
+    // anyway and leave the viewer wondering whether it took.
+    if (this.spectator) {
+      toast('Spectator view — this screen cannot command the stand', 'warn', 4000);
+      return { ok: false, error: 'Spectator view is read-only' };
+    }
+
     let json;
     try {
       const res = await fetch(path, {
@@ -198,6 +226,55 @@ class Bus {
   controller(id) { return this.config.bangbang.find((c) => c.id === id); }
   group(id) { return this.config.valveGroups.find((g) => g.id === id); }
 
+  // ------------------------------------------------- board transducers --
+
+  /**
+   * The bang-bang boards' own transducers, shaped like sensors.
+   *
+   * These are the PTs the regulator actually runs on, and until now they were
+   * visible only on the bang-bang card — so the one number the loop acts on
+   * was the one number missing from the screen that shows every instrument.
+   *
+   * They are NOT `config.sensors` and must never be added to it: there is no
+   * DAQ channel behind them, they are absent from the recorded CSV, their zero
+   * lives in the board's EEPROM, and the config editor round-trips
+   * `config.sensors` back into stand.json. They are declared on the controller
+   * that owns them (`bangbang[].boardSensor`) and assembled here.
+   *
+   * Rebuilt only when the config object itself changes — this is on the path
+   * of every telemetry frame.
+   */
+  boardSensors() {
+    if (this.boardSensorsFor !== this.config) {
+      this.boardSensorsFor = this.config;
+      this.boardSensorList = (this.config?.bangbang || [])
+        .filter((c) => c.boardSensor?.id)
+        .map((c) => ({ ...c.boardSensor, board: true, controller: c.id, side: c.side }));
+      this.boardSensorById = new Map(this.boardSensorList.map((s) => [s.id, s]));
+    }
+    return this.boardSensorList;
+  }
+
+  /** One board transducer by tag, or null when the tag is a DAQ channel. */
+  boardSensor(id) {
+    this.boardSensors();
+    return this.boardSensorById.get(id) || null;
+  }
+
+  /**
+   * What a board says its transducer reads, or null.
+   *
+   * A stale heartbeat reads null rather than the last number seen. The board
+   * keeps regulating when the link drops, so a held pressure is not a
+   * measurement — it is where the tank was when we stopped being told. The
+   * bang-bang card makes the same call for the same reason.
+   */
+  boardPressure(bs, snap = this.state) {
+    const board = snap?.controllers?.[bs.controller]?.board;
+    if (!board || board.stale || !Number.isFinite(board.pressure)) return null;
+    return board.pressure;
+  }
+
   /**
    * Sensor groups in display order, each with its members.
    *
@@ -205,20 +282,30 @@ class Bus {
    * than dropped — the same forgiveness the Control Grid gives valve groups.
    * Since `group` defaults to `kind`, a config that predates sensorGroups
    * still comes back grouped by type.
+   *
+   * The boards' own transducers are folded in here rather than appended, so
+   * every screen that groups sensors gets them in the right place without
+   * knowing they are different.
    */
   sensorGroups() {
     const defined = this.config.sensorGroups || [];
     const groups = defined.map((g) => ({ ...g, sensors: [] }));
     const byId = new Map(groups.map((g) => [g.id, g]));
 
-    for (const sensor of this.config.sensors) {
-      let group = byId.get(sensor.group);
+    const groupFor = (id) => {
+      let group = byId.get(id);
       if (!group) {
-        group = { id: sensor.group, label: sensor.group || 'Other', color: '#64748b', sensors: [] };
+        group = { id, label: id || 'Other', color: '#64748b', sensors: [] };
         byId.set(group.id, group);
         groups.push(group);
       }
-      group.sensors.push(sensor);
+      return group;
+    };
+
+    for (const sensor of this.config.sensors) groupFor(sensor.group).sensors.push(sensor);
+    for (const bs of this.boardSensors()) {
+      const members = groupFor(bs.group).sensors;
+      members.splice(tagSlot(members, bs.id), 0, bs);
     }
     return groups.filter((g) => g.sensors.length);
   }
@@ -263,8 +350,32 @@ class Bus {
   }
 
   valveState(id) { return this.state?.valves?.[id]?.state ?? 'closed'; }
-  reading(id) { return this.state?.sensors?.[id]?.v ?? null; }
-  sensorStatus(id) { return this.state?.sensors?.[id]?.status ?? 'stale'; }
+
+  reading(id) {
+    const bs = this.boardSensor(id);
+    return bs ? this.boardPressure(bs) : (this.state?.sensors?.[id]?.v ?? null);
+  }
+
+  /**
+   * ok / warn / danger / stale.
+   *
+   * The server does this for every DAQ channel and ships the answer in the
+   * snapshot. It does not do it for a board transducer — that pressure reaches
+   * the snapshot inside `controllers`, not `sensors` — so the same thresholds
+   * are applied here, against the same fields.
+   */
+  sensorStatus(id) {
+    const bs = this.boardSensor(id);
+    if (!bs) return this.state?.sensors?.[id]?.status ?? 'stale';
+
+    const v = this.boardPressure(bs);
+    if (!Number.isFinite(v)) return 'stale';
+    if (bs.dangerHigh != null && v >= bs.dangerHigh) return 'danger';
+    if (bs.dangerLow != null && v <= bs.dangerLow) return 'danger';
+    if (bs.warnHigh != null && v >= bs.warnHigh) return 'warn';
+    if (bs.warnLow != null && v <= bs.warnLow) return 'warn';
+    return 'ok';
+  }
 
   /**
    * Current tare offset, or null when no device can zero this sensor.
@@ -273,6 +384,11 @@ class Bus {
    * means "tareable, currently untared".
    */
   tare(id) {
+    // A board transducer is zeroed from its bang-bang card, against the
+    // board's own EEPROM, and only while that side is not regulating. Nothing
+    // on the Data page may reach it, so it reports no offset and therefore
+    // grows no Tare button.
+    if (this.boardSensor(id)) return null;
     const t = this.state?.sensors?.[id]?.tare;
     return Number.isFinite(t) ? t : null;
   }
@@ -289,6 +405,31 @@ class Bus {
     }
     return { ok: true };
   }
+}
+
+/**
+ * Where a tag belongs in a group that is ordered by plumbing, not by number.
+ *
+ * The LOX column runs PT1, PT2, PT4, PT21, PT22, PT5 — the order fluid reaches
+ * them, which is what an operator reads down. Sorting the column numerically
+ * to place one new tag would rewrite that. Instead the tag goes before the
+ * first member of its own family that outranks it, so PT3 lands between PT2
+ * and PT4 and nothing else moves. A tag that outranks everything, or that has
+ * no numbered family in the column, goes last.
+ */
+function tagSlot(members, id) {
+  const me = tagNumber(id);
+  if (!me) return members.length;
+  for (let i = 0; i < members.length; i++) {
+    const other = tagNumber(members[i].id);
+    if (other && other.prefix === me.prefix && other.n > me.n) return i;
+  }
+  return members.length;
+}
+
+function tagNumber(id) {
+  const m = /^([A-Za-z]+)(\d+)$/.exec(id || '');
+  return m ? { prefix: m[1].toUpperCase(), n: Number(m[2]) } : null;
 }
 
 function contrastInk(hex) {

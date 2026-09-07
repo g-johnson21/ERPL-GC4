@@ -252,7 +252,14 @@ const SYMBOLS = {
     );
   },
 
-  /** Bitmap logo for the drawing title block. Swaps with the theme. */
+  /**
+   * Bitmap logo for the drawing title block. Swaps with the theme.
+   *
+   * `w`/`h` size the CANVAS, not the mark: `meet` fits the whole PNG, so any
+   * transparent margin the artwork carries is inside the box and the visible
+   * mark comes out smaller than the numbers suggest. Size it by eye against
+   * the title text rather than by the file's dimensions.
+   */
   logo: (c) => {
     const w = c.w ?? 48, h = c.h ?? 48;
     const img = svgEl('image', {

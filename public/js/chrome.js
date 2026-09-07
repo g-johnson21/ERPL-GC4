@@ -13,9 +13,12 @@ import { currentTheme, toggleTheme, applyConfigDefault } from './theme.js';
 
 export function mountHeader(activePage) {
   const cfg = bus.config;
+  const spectator = bus.spectator;
   const header = el('header.app-header');
 
-  header.append(
+  // Nulls filtered rather than passed through: `Node.append` stringifies them
+  // into a literal "null" in the header, unlike el()'s own child handling.
+  header.append(...[
     el('div.brand', {},
       themedLogo(cfg.ui.logo, 'org-logo'),
       el('span.brand-mark', { text: cfg.ui.brand }),
@@ -33,7 +36,17 @@ export function mountHeader(activePage) {
         html: `${icon(page.icon || 'grid')}<span>${page.label}</span>`,
       })
     )),
-    recordingControl(),
+    // Recording opens and closes the team's data files, so it belongs to the
+    // operator. Spectators get a badge in its place saying what this window
+    // is — the absence of every control is otherwise indistinguishable from a
+    // page that failed to finish loading.
+    spectator
+      ? el('span.spectator-badge', {
+          html: `${icon('eye', 13)}<span>SPECTATOR · VIEW ONLY</span>`,
+          title: 'This window is served by the read-only spectator port.\n'
+               + 'It shows live telemetry and cannot command the stand.',
+        })
+      : recordingControl(),
     el('div.header-spacer'),
     el('div.header-status#header-status'),
     el('span.clock#header-clock', { text: '--:--:--' }),
@@ -42,13 +55,14 @@ export function mountHeader(activePage) {
       'aria-label': 'Toggle theme',
       onclick: () => { toggleTheme(); syncThemeIcon(); },
     }),
-    el('button.icon-btn#sidebar-toggle', {
+    // Nothing to toggle when there is no sidebar to toggle.
+    spectator ? null : el('button.icon-btn#sidebar-toggle', {
       title: 'Show / hide control sidebar (\\)',
       'aria-label': 'Toggle sidebar',
       html: icon('panel'),
       onclick: toggleSidebar,
     })
-  );
+  ].filter(Boolean));
 
   document.body.prepend(header);
   syncThemeIcon();
@@ -65,6 +79,19 @@ export function mountHeader(activePage) {
   bus.on('connection', updateHeaderStatus);
   updateHeaderStatus();
   updateRecordingControl();
+
+  // Every hotkey below either commands the stand or moves furniture that a
+  // spectator does not have, and ABORT in particular must not be bound on a
+  // window that cannot abort: a viewer who hits Escape expecting the stand to
+  // safe, and is told it did nothing only by a toast, is worse off than one
+  // who never believed the key was theirs. Theme stays — it is local.
+  if (spectator) {
+    document.addEventListener('keydown', (e) => {
+      if (e.target instanceof Element && e.target.matches('input, textarea, select')) return;
+      if (e.key.toLowerCase() === 't' && !e.ctrlKey && !e.metaKey) { toggleTheme(); syncThemeIcon(); }
+    });
+    return;
+  }
 
   document.addEventListener('keydown', (e) => {
     // ABORT, first and unconditionally — including from inside a text field.
@@ -174,7 +201,8 @@ function updateHeaderStatus() {
     .map(([id]) => id);
   if (tared.length) {
     const node = chip(`TARE ${tared.length}`, 'warn');
-    node.title = `Zero offsets are applied to: ${tared.join(', ')}\nManage them on the Data page.`;
+    node.title = `Zero offsets are applied to: ${tared.join(', ')}\n`
+      + (bus.spectator ? 'The operator manages them from the Data page.' : 'Manage them on the Data page.');
     chips.push(node);
   }
 
@@ -455,14 +483,32 @@ function fmtAge(ms) {
 
 // ============================================================= SIDEBAR =====
 
+/**
+ * Two columns, not one.
+ *
+ * Stacked, ARM + two bang-bang cards + the sequences + the log came to about
+ * 1520px of sidebar against the ~850px an operator station has, so on every
+ * screen in the shop the sequence buttons and the event log started below the
+ * fold. Running a sequence or reading back what just happened began with a
+ * scroll, which is a poor thing to ask of the person working the valves.
+ *
+ * So the bang-bang cards get a column of their own on the right, and the left
+ * column carries the three things an operator reaches for -- ARM/ABORT, the
+ * sequences, the log -- top to bottom in the order they are used. Neither
+ * column is over the fold on its own.
+ */
 export function mountSidebar(container) {
   const sidebar = el('aside.sidebar');
+
+  const controllers = controllerSection();
   sidebar.append(
-    armSection(),
-    controllerSection(),
-    sequenceSection(),
-    logSection()
+    el('div.sidebar-col.ops', {}, armSection(), sequenceSection(), logSection())
   );
+  // A stand with no bang-bang controllers has no second column; the sidebar
+  // narrows to the first rather than reserving space for an empty one.
+  if (controllers) sidebar.append(el('div.sidebar-col.regulators', {}, controllers));
+  else sidebar.classList.add('solo');
+
   container.append(sidebar);
 
   bus.on('state', updateSidebar);
@@ -477,12 +523,15 @@ export function mountSidebar(container) {
 // ------------------------------------------------------------ ARM / ABORT --
 
 /**
- * Pinned to the top of the sidebar — it does not scroll with the rest.
+ * Pinned to the top of the left column — it does not scroll with the rest.
  *
  * ARM, DISARM and ABORT are the three controls whose whole value is being
  * reachable without looking for them. Under a stand with two bang-bang cards
  * and a list of sequences they scrolled off the top, which made the ABORT
  * button's position depend on where someone had last left the scrollbar.
+ *
+ * The sidebar — not the column — is the scroll container, so the sticky still
+ * holds on a screen too short for even one column.
  */
 function armSection() {
   return el('div.sidebar-section.pinned', {},
@@ -517,9 +566,10 @@ function armSection() {
 
 // -------------------------------------------------------- BANG-BANG BANK --
 
+/** The bang-bang column's contents, or null when this stand has no controllers. */
 function controllerSection() {
   const cfg = bus.config;
-  if (!cfg.bangbang.length) return el('div.hidden');
+  if (!cfg.bangbang.length) return null;
 
   const body = el('div#bb-list');
   for (const c of cfg.bangbang) body.append(controllerCard(c));
@@ -584,6 +634,15 @@ const BOARD_STATES = {
 function controllerCard(c) {
   const sensor = bus.sensor(c.sensor);
 
+  // The tank's colour, taken from the DAQ channel this controller is compared
+  // against — LOX blue, fuel red, the same stripe every other card for that
+  // group already carries on the Data page, the readout strip and the P&ID
+  // bubbles. Two near-identical panels stacked in one column are easy to act
+  // on in the wrong order, and the colour separates them before the name has
+  // been read. A controller whose sensor is unknown falls back to the plain
+  // border rather than picking a colour that means nothing.
+  const group = bus.sensorGroup(c.sensor);
+
   const setpointInput = el('input', {
     type: 'number',
     id: `bb-sp-${c.id}`,
@@ -617,7 +676,9 @@ function controllerCard(c) {
     },
   });
 
-  return el(`div.bb-card#bb-card-${c.id}`, {},
+  return el(`div.bb-card#bb-card-${c.id}`, {
+    style: group?.color ? { '--group-color': group.color } : {},
+  },
     el('div.bb-head', {},
       el('span.bb-name', { text: c.name }),
       // Which board bus this is. The letter is the one that goes on the wire,
@@ -1257,7 +1318,9 @@ export async function bootPage(pageId, { sidebar = true } = {}) {
   const content = el('main.content');
   body.append(content);
   document.body.append(body);
-  if (sidebar) mountSidebar(body);
+  // The sidebar is the actuation surface — ARM, controllers, sequences. A
+  // spectator page never mounts it, whatever the caller asked for.
+  if (sidebar && !bus.spectator) mountSidebar(body);
 
   requestAnimationFrame(() => document.body.classList.add('theme-ready'));
   return content;

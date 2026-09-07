@@ -6,6 +6,8 @@
  *   node server/index.js --driver=udp --host=192.168.1.50
  *   node server/index.js --driver=serial --port-name=COM4 --baud=921600
  *   node server/index.js --port=8080 --bind=0.0.0.0 --config=config/stand.json
+ *   node server/index.js --spectator-port=9090   read-only view elsewhere
+ *   node server/index.js --no-spectator          control port only
  *
  * Zero npm dependencies — Node built-ins only, so it runs at the pad on a
  * laptop with no internet. Telemetry is pushed to browsers over Server-Sent
@@ -21,6 +23,7 @@ import { ConfigStore, validateConfig } from './config-store.js';
 import { TapHub } from './tools/tap-hub.js';
 import { createDriver, driverNames } from './hal/index.js';
 import { StandController } from './state.js';
+import { createSpectatorServer } from './spectator.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -31,6 +34,18 @@ const PORT = Number(args.port ?? process.env.GC_PORT ?? 8080);
 const BIND = args.bind ?? process.env.GC_BIND ?? '0.0.0.0';
 const CONFIG_PATH = path.resolve(ROOT, args.config ?? 'config/stand.json');
 const DRIVER_NAME = args.driver ?? process.env.GC_DRIVER ?? 'simulator';
+
+/**
+ * The read-only viewing port — see spectator.js.
+ *
+ * On by default, one above the control port, because the address only gets
+ * shared if it is printed in the banner every time. It exposes strictly less
+ * than the control port already does on the same interfaces, so defaulting it
+ * on widens nothing; `--no-spectator` (or `--spectator-port=0`) turns it off.
+ */
+const SPECTATOR_PORT = args['no-spectator'] || args.spectator === 'false'
+  ? 0
+  : Number(args['spectator-port'] ?? process.env.GC_SPECTATOR_PORT ?? PORT + 1);
 
 /**
  * Config sections a save may touch while the stand is ARMED.
@@ -141,6 +156,26 @@ stand.on('telemetry', (snap) => broadcast('state', snap));
 stand.on('event', (entry) => broadcast('log', entry));
 stand.on('config-reload', (cfg) => broadcast('config', { configVersion: cfg.meta.configVersion }));
 
+/**
+ * Attach one browser to the telemetry broadcast.
+ *
+ * Shared with the spectator server rather than reimplemented there: the whole
+ * value of a viewing screen is that it shows the same numbers at the same
+ * instant as the operator's, and two copies of this would eventually drift.
+ */
+function openStream(req, res) {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  res.write('retry: 1000\n\n');
+  res.write(`event: state\ndata: ${JSON.stringify(stand.snapshot())}\n\n`);
+  clients.add(res);
+  req.on('close', () => clients.delete(res));
+}
+
 function broadcast(event, data) {
   if (!clients.size) return;
   const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
@@ -177,13 +212,53 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+/**
+ * The read-only view, on its own listener.
+ *
+ * Started before the banner so the banner can tell the truth about whether it
+ * came up, and never fatal: a port collision costs the crowd their screen, not
+ * the operator their stand.
+ */
+let spectatorServer = null;
+let spectatorReady = false;
+if (SPECTATOR_PORT > 0) {
+  spectatorServer = createSpectatorServer({ stand, publicDir: PUBLIC_DIR, openStream, mime: MIME });
+  spectatorReady = await new Promise((resolve) => {
+    spectatorServer.once('error', (err) => {
+      const why = err.code === 'EADDRINUSE'
+        ? `port ${SPECTATOR_PORT} is already in use — try --spectator-port=<n>`
+        : err.message;
+      console.error(`\n  [spectator] read-only view unavailable: ${why}`);
+      resolve(false);
+    });
+    spectatorServer.listen(SPECTATOR_PORT, BIND, () => resolve(true));
+  });
+  if (!spectatorReady) spectatorServer = null;
+  // Whatever goes wrong on this listener afterwards is logged, not thrown. An
+  // unhandled 'error' here reaches the uncaughtException handler, which safes
+  // the stand — the viewing screen must never be able to end a test.
+  else spectatorServer.on('error', (err) => console.error(`  [spectator] ${err.message}`));
+}
+
 server.listen(PORT, BIND, () => {
+  const ips = localAddresses();
   const banner = [
     '',
     `  ${configStore.get().ui.brand}  —  ${configStore.get().meta.standName}`,
     `  ${'-'.repeat(58)}`,
     `  Local      http://localhost:${PORT}`,
-    ...localAddresses().map((ip) => `  Network    http://${ip}:${PORT}`),
+    ...ips.map((ip) => `  Network    http://${ip}:${PORT}`),
+    // Listed apart from the control URLs, and labelled, so the address that
+    // gets texted to whoever is watching is not the one with the valves on it.
+    ...(spectatorReady
+      ? [
+          `  ${'-'.repeat(58)}`,
+          '  Spectator  read-only Data page — safe to share',
+          `             http://localhost:${SPECTATOR_PORT}`,
+          ...ips.map((ip) => `             http://${ip}:${SPECTATOR_PORT}`),
+          `  ${'-'.repeat(58)}`,
+        ]
+      : []),
     `  Driver     ${driver.status.name}  (${driver.status.detail})`,
     `  Config     ${path.relative(ROOT, CONFIG_PATH)}`,
     `  Recording  ${path.join(configStore.get().recording.directory)}/`,
@@ -201,19 +276,7 @@ async function handleApi(req, res, pathname, url) {
   const route = `${method} ${pathname}`;
 
   // --- streaming ---
-  if (route === 'GET /api/stream') {
-    res.writeHead(200, {
-      'Content-Type': 'text/event-stream; charset=utf-8',
-      'Cache-Control': 'no-cache, no-transform',
-      Connection: 'keep-alive',
-      'X-Accel-Buffering': 'no',
-    });
-    res.write('retry: 1000\n\n');
-    res.write(`event: state\ndata: ${JSON.stringify(stand.snapshot())}\n\n`);
-    clients.add(res);
-    req.on('close', () => clients.delete(res));
-    return;
-  }
+  if (route === 'GET /api/stream') return openStream(req, res);
 
   // --- read-only ---
   if (route === 'GET /api/config') return sendJson(res, 200, stand.config);
@@ -444,6 +507,7 @@ async function shutdown(signal) {
   console.log(`\n  ${signal} received — safing actuators and shutting down...`);
   for (const res of clients) { try { res.end(); } catch {} }
   server.close();
+  spectatorServer?.close();
   try { await stand.shutdown(); } catch (err) { console.error('  shutdown error:', err.message); }
   console.log('  Stopped.\n');
   process.exit(0);
