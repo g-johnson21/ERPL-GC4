@@ -7,7 +7,7 @@
 import { bus } from './bus.js';
 import { bootPage } from './chrome.js';
 import { $, el, icon, fmtValue, fmtCurrent, coilState, shiftGate, toast } from './util.js';
-import { svgEl, renderComponent, renderValve, renderInstrument, renderPipe, renderJunction } from './pid-symbols.js';
+import { svgEl, svgText, renderComponent, renderValve, renderInstrument, renderPipe, renderJunction } from './pid-symbols.js';
 
 const content = await bootPage('pid');
 const P = bus.config.pid;
@@ -192,7 +192,7 @@ stage.addEventListener('pointerdown', (e) => {
   // Never start a pan from a control. Capturing the pointer here would
   // redirect the following pointerup, so the toolbar buttons would never
   // receive a click at all.
-  if (e.target.closest('.pid-valve, .pid-toolbar, .pid-legend')) return;
+  if (e.target.closest('.pid-valve, .pid-toolbar, .pid-legend, .sim-manual, .sim-reg, .pid-popover')) return;
   if (viewLocked || e.button !== 0) return;
   dragging = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y };
   stage.classList.add('panning');
@@ -419,12 +419,147 @@ function smoothLevel(id, raw, tare) {
 
 // ----------------------------------------------------------------- update --
 
+// Declared ahead of the first update(): that call runs the simulator hook,
+// which reads this flag before the block that defines the hook is reached.
+let simWired = false;
+
 buildToolbar();
 buildLegend();
 
 bus.on('state', update);
 update();
 applyView();
+
+// ------------------------------------------------------- simulator controls --
+//
+// Hand valves and regulators have no channel on the stand; a person turns
+// them. The simulator exposes them, and while it is the driver the P&ID lets
+// the operator work them from the drawing -- so a fill, a drain or a purge
+// bus vent can be rehearsed the way the real one happens, at the valve.
+// Wired once, on the first snapshot that carries a `sim` block, and never on
+// hardware, where that block is absent.
+
+function wireSimControls() {
+  const sim = bus.sim;
+  if (!sim || simWired || bus.spectator) return;
+  simWired = true;
+  stage.classList.add('sim-live');
+
+  for (const [id, hand] of Object.entries(sim.manual || {})) {
+    const node = componentNode(id);
+    if (!node) continue;
+    node.classList.add('sim-manual');
+    node.setAttribute('tabindex', '0');
+    node.setAttribute('role', 'button');
+    node.append(svgEl('title', {}, document.createTextNode(
+      `${id} — ${hand.name}\nSimulator: click to open or close this hand valve`)));
+    const act = () => bus.simToggleValve(id);
+    node.addEventListener('click', act);
+    node.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); act(); }
+    });
+  }
+
+  for (const [id, reg] of Object.entries(sim.regulators || {})) {
+    const node = componentNode(id);
+    if (!node) continue;
+    node.classList.add('sim-reg');
+    node.setAttribute('tabindex', '0');
+    node.setAttribute('role', 'button');
+    node.append(svgEl('title', {}, document.createTextNode(
+      `${id} — ${reg.name}\nSimulator: click to set the pressure`)));
+    // The set pressure, drawn under the symbol's own label.
+    const comp = P.components.find((c) => c.id === id);
+    const y = comp?.type === 'bottle' ? 18 : 36;
+    node.append(svgText('', { id: `simreg-${id}`, x: 0, y, class: 'pid-sublabel sim-set', 'text-anchor': 'middle' }));
+    const act = (e) => openRegulatorPopover(id, e);
+    node.addEventListener('click', act);
+    node.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); act(e); }
+    });
+  }
+
+  // Say so on the legend, where a first-time operator looks for what the
+  // colours mean and will look for what the clickable grey symbols mean.
+  $('.pid-legend')?.append(el('span.lg.sim-note', {}, el('i.sim-dot'), 'SIM: hand valves and regulators are live — click them'));
+}
+
+function componentNode(id) {
+  return layerComponents.querySelector(`[data-comp-id="${CSS.escape(id)}"]`);
+}
+
+/** Paint hand-valve positions and regulator set pressures from the snapshot. */
+function updateSimControls() {
+  const sim = bus.sim;
+  if (!sim) return;
+  wireSimControls();
+  for (const [id, hand] of Object.entries(sim.manual || {})) {
+    const node = componentNode(id);
+    if (node) node.dataset.state = hand.state;
+  }
+  for (const [id, reg] of Object.entries(sim.regulators || {})) {
+    const text = document.getElementById(`simreg-${id}`);
+    if (text) text.textContent = `${reg.psi} psi`;
+  }
+}
+
+/**
+ * A small popover for a regulator's set pressure, placed by the symbol. A
+ * number field rather than a prompt(): the range and step come from the
+ * simulator, and Escape has to keep meaning "leave it alone".
+ */
+function openRegulatorPopover(id, event) {
+  closePopover();
+  const reg = bus.sim?.regulators?.[id];
+  if (!reg) return;
+
+  const input = el('input', {
+    type: 'number', min: reg.min, max: reg.max, step: reg.step ?? 1, value: reg.psi,
+    'aria-label': `${reg.name} set pressure, psi`,
+  });
+  const submit = async () => {
+    const psi = Number(input.value);
+    if (!Number.isFinite(psi)) return;
+    const res = await bus.simSetRegulator(id, psi);
+    if (res.ok) closePopover();
+  };
+  const pop = el('div.pid-popover', {},
+    el('div.pid-popover-title', { text: `${id} · ${reg.name}` }),
+    el('div.pid-popover-row', {},
+      input,
+      el('span.pid-popover-units', { text: `psi  (${reg.min}–${reg.max})` })
+    ),
+    el('div.pid-popover-actions', {},
+      el('button.btn.small', { text: 'Cancel', onclick: closePopover }),
+      el('button.btn.small.primary', { text: 'Set', onclick: submit })
+    )
+  );
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); submit(); }
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closePopover(); }
+  });
+  // Keep a click inside the popover from reaching the stage's pan handler.
+  pop.addEventListener('pointerdown', (e) => e.stopPropagation());
+
+  const r = stage.getBoundingClientRect();
+  const x = (event?.clientX ?? r.left + r.width / 2) - r.left;
+  const y = (event?.clientY ?? r.top + r.height / 2) - r.top;
+  pop.style.left = `${Math.min(x + 12, r.width - 240)}px`;
+  pop.style.top = `${Math.min(y + 12, r.height - 120)}px`;
+  stage.append(pop);
+  input.focus();
+  input.select();
+}
+
+function closePopover() {
+  $('.pid-popover')?.remove();
+}
+
+document.addEventListener('pointerdown', (e) => {
+  if (!(e.target instanceof Element)) return;
+  if (e.target.closest('.pid-popover, .sim-reg')) return;
+  closePopover();
+});
 
 function update() {
   if (!bus.state) return;
@@ -488,6 +623,7 @@ function update() {
 
   updateInstruments();
   updateLevelTareChips();
+  updateSimControls();
 }
 
 /**
@@ -573,7 +709,9 @@ function updateInstruments() {
     const sensorId = comp.plumeSensor;
     const value = sensorId ? bus.reading(sensorId) : null;
     const threshold = comp.plumeThreshold ?? 50;
-    const max = bus.sensor(sensorId)?.max ?? 500;
+    // Full plume at `plumeMax`, not at the transducer's range: a 1500 psi
+    // channel on a 300 psi engine would never show more than a flicker.
+    const max = comp.plumeMax ?? bus.sensor(sensorId)?.max ?? 500;
     const intensity = Number.isFinite(value) && value > threshold
       ? Math.min(1, (value - threshold) / (max - threshold))
       : 0;

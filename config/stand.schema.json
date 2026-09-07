@@ -967,6 +967,10 @@
               "plumeThreshold": {
                 "type": "number"
               },
+              "plumeMax": {
+                "type": "number",
+                "description": "engine: plumeSensor reading at which the exhaust plume is drawn at full strength. Defaults to the sensor's max."
+              },
               "anchor": {
                 "enum": [
                   "start",

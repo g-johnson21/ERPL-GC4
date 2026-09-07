@@ -215,6 +215,15 @@ class Bus {
   setController(id, patch) { return this.post('/api/controller', { id, ...patch }); }
   startSequence(id) { return this.post('/api/sequence/start', { id }); }
   stopSequence() { return this.post('/api/sequence/stop'); }
+  /**
+   * Simulator-only controls: the hand valves and regulators a person at the
+   * pad would turn. `sim` is null on hardware, and every screen that offers
+   * these checks it first.
+   */
+  get sim() { return this.state?.sim ?? null; }
+  simToggleValve(id) { return this.post('/api/sim/valve', { id, toggle: true }); }
+  simSetValve(id, state) { return this.post('/api/sim/valve', { id, state }); }
+  simSetRegulator(id, psi) { return this.post('/api/sim/regulator', { id, psi }); }
   startRecording(name) { return this.post('/api/record/start', { name }); }
   stopRecording() { return this.post('/api/record/stop'); }
   listRecordings() { return fetch('/api/record/list').then((r) => r.json()); }

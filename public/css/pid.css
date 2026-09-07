@@ -170,6 +170,57 @@
 .pid-component.passive .sym-line,
 .pid-component.passive .sym-line-thin { stroke: var(--text-faint); }
 
+/* Simulator only: the hand valves and regulators become controls. They keep
+   the muted ink at rest -- they are still not the stand's actuators -- but
+   take the pointer, light on hover, and an open hand valve fills green the
+   way an open actuated valve does. */
+.pid-stage.sim-live .sim-manual,
+.pid-stage.sim-live .sim-reg { cursor: pointer; outline: none; }
+.pid-stage.sim-live .sim-manual:hover .sym-fill,
+.pid-stage.sim-live .sim-reg:hover .sym-fill { fill: var(--surface-3); stroke: var(--text); }
+.pid-stage.sim-live .sim-manual:focus-visible .sym-fill,
+.pid-stage.sim-live .sim-reg:focus-visible .sym-fill { stroke: var(--accent); }
+.pid-stage.sim-live .sim-manual[data-state="open"] .sym-fill { fill: var(--ok); stroke: var(--ok); }
+.pid-stage.sim-live .sim-manual[data-state="open"] .sym-line { stroke: var(--ok); }
+.sim-set { fill: var(--text-muted); }
+.pid-legend .sim-note { color: var(--text); }
+.pid-legend .sim-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--ok);
+  flex: none;
+}
+
+.pid-popover {
+  position: absolute;
+  z-index: 6;
+  min-width: 220px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .35);
+  font-size: 11.5px;
+}
+.pid-popover-title {
+  font-family: var(--mono);
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+.pid-popover-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.pid-popover-row input {
+  width: 80px;
+  font-family: var(--mono);
+  font-size: 13px;
+  padding: 4px 6px;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.pid-popover-units { color: var(--text-muted); font-family: var(--mono); font-size: 10.5px; }
+.pid-popover-actions { display: flex; justify-content: flex-end; gap: 6px; }
+
 /* --------------------------------------------------------------- pipes --- */
 
 .pid-pipe {

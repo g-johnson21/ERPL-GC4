@@ -13,9 +13,10 @@ acquisition needs Python with `nidaqmx`.
 node server/index.js
 ```
 
-Then open <http://localhost:8080>. It starts in **simulator** mode with a full
-physics model of the Draco LOX/ethanol stand, so you can exercise every screen,
-sequence and interlock before you ever touch hardware.
+Then open <http://localhost:8080>. It starts in **simulator** mode with a
+physics model of the Draco LOX/ethanol stand, tag for tag from its P&ID, so you
+can exercise every screen, sequence and interlock before you ever touch
+hardware. See [The simulator](#the-simulator).
 
 ---
 
@@ -26,6 +27,7 @@ sequence and interlock before you ever touch hardware.
 - [The control sidebar](#the-control-sidebar)
 - [Safety model](#safety-model) · [Shift to actuate](#shift-to-actuate)
 - [Spectator view](#spectator-view)
+- [The simulator](#the-simulator)
 - [Customizing for your stand](#customizing-for-your-stand)
 - [Connecting real hardware](#connecting-real-hardware)
 - [Data recording](#data-recording)
@@ -57,19 +59,29 @@ to whoever is watching.
 
 Try this to see the whole system work:
 
-1. **Shift-click Pneumatics On** in the sidebar — charges the actuator supply.
-   Anything that moves the stand away from safe wants SHIFT held; hold it for a
-   moment first and watch which controls light up.
-2. **ARM** (pinned to the top of the sidebar), confirm.
+1. **ARM** (pinned to the top of the sidebar), confirm. Anything that moves
+   the stand away from safe wants SHIFT held; hold it for a moment first and
+   watch which controls light up.
+2. On the **P&ID**, shift-click **PB5** to fill the LOX tank from the dewar.
+   The tank vent PB1 is open, as it must be for the dewar to push against it;
+   watch LC4, the level bar and the tank thermocouples go cold. Close PB5.
 3. **Start New Log File** in the header, name it, Enter. The indicator turns
    green and names the file.
-4. Shift-enable both bang-bang controllers — the emulated board takes over and
-   the tanks come up to setpoint. Watch the board's PT and the DAQ's disagree
-   slightly on the card; that divergence is modelled on purpose.
-5. **Shift-click HOT FIRE** — 10 s countdown, igniter, ox lead, 5 s burn, cutoff
-   and purge. Stop the log when you have seen enough of the tail.
+4. Shift-click **PB1** and **PB3** to close the tank vents — with a vent open
+   the press pulses just blow through it, and the tank stalls at a hundred psi
+   or so. Then shift-enable both bang-bang controllers: the emulated board
+   takes over, S1 and S2 pulse, and the tanks come up to setpoint. Watch the
+   board's PT and the DAQ's disagree slightly on the card; that divergence is
+   modelled on purpose. The purge bus (PT32) only comes alive now: R1 is fed
+   off the fuel leg.
+5. **Shift-click HOT FIRE** — ox lead, fuel, 8 s burn, cutoff and purge. Stop
+   the log when you have seen enough of the tail.
 
 Press **ABORT** — or just **Escape** — at any point to see everything drive safe.
+Then try the things nobody can do from a real console: click **B2** on the
+drawing to drain the LOX tank, click **R1** to change the purge pressure, or
+open **S3** with the compressor set to zero and watch the pneumatic valves fall
+to their springs when the muscle bus runs out.
 
 ---
 
@@ -798,6 +810,78 @@ Both show in the link detail as `WATCHDOG UNARMED` / `NO WATCHDOG IN FIRMWARE`.
 
 ---
 
+## The simulator
+
+`--driver=simulator` is the default, and it is a lumped-parameter model of the
+Draco stand as drawn in `Draco V4.02.pdf`. Every transducer on the P&ID reads
+something that depends on the valves around it:
+
+- **GN2.** Two bottle banks, one per bus, on PT1 and PT11, drawn down as they
+  deliver. S1 and S2 push gas into the tanks through C1 and C3. PT2 sits
+  between S1 and C1, so it reads the bottle's push while S1 is open and settles
+  to tank pressure through the check valve once it shuts. PT12 is below C3 and
+  reads the fuel tank.
+- **Tanks.** Ullage pressure, propellant mass, and the hydrostatic head that
+  separates PT4 and PT14 at the bottom from the ullage — the same head the
+  P&ID turns into a level. PB1 and PB3 vent. RV2 and RV3 relieve. A sealed LOX
+  tank self-pressurizes from boil-off, and every tank leaks a little.
+- **LOX fill.** From the dewar through PB5 and C5, and only while the tank is
+  below the dewar's head pressure: vent the tank to fill it. The LOX tank
+  starts **empty**; fuel is hand-loaded before a test and starts full.
+- **Run lines.** Cavitating venturis: flow is set by inlet pressure, the throat
+  (PT22, PT24) drops to vapour pressure under flow and reads line pressure at
+  rest. C2 and C4 isolate the manifolds (PT5, PT15) from the run valves.
+- **Purge.** R1 regulates purge gas off the **fuel leg**, so PT32 only holds
+  pressure once the fuel side is pressurized. RV5 relieves, B6 vents, and S4
+  and S5 push purge gas into the manifolds.
+- **Muscle bus.** The compressor keeps the surge tank between cut-in and
+  cut-out on PT31, every actuator stroke costs it a slug, and S3 vents it. The
+  PB valves are spring-return pneumatic actuators: below 50 psi they sit in
+  their spring position whatever the coil says — lose the bus and the mains
+  shut while the vents fall open, as they would on the stand. The current
+  sense keeps reporting the coil, because that is what it measures.
+- **Engine.** Ignites on its own once both propellants have flowed for a
+  moment (the igniter is assumed live), so a cold-flow sequence burns. Thrust
+  lands on the three load cells; TC5 follows the chamber.
+
+The transducers are deliberately quiet — a few tenths of a psi on a tank
+channel, a couple of psi on a 6000 psi bottle — so a trace reads as signal.
+
+**The bang-bang regulator does not run in the simulator.** It runs in
+`bb-firmware.js`, an emulation of the PANDA board, and the simulator talks to
+it over the same ASCII grammar the real board uses, so `npm run sim` exercises
+the real protocol end to end. The emulated board reads its own transducer
+(PT3, PT13) with its own bias and noise; the DAQ channel it disagrees with is
+the real situation.
+
+### Hand valves and regulators
+
+The hand valves (B1–B6) and the two regulators — R1 for purge, the compressor
+cut-out for the muscle bus — have no channel on the real stand; a person at
+the pad turns them. **In the simulator they are yours.** On the P&ID they
+take the pointer: click a hand valve to open or close it (it fills green like
+an actuated valve), click a regulator to set its pressure. A note on the
+legend says so, and none of it appears on hardware, where the snapshot
+carries no `sim` block and the drawing offers nothing clickable. There is no
+ARM interlock on these, since nothing they touch is an actuator the stand
+controls; each change is logged as a `SIM` command.
+
+| Control | What it does |
+|---|---|
+| B1 | LOX fill line vent — halves the fill rate while open |
+| B2 | LOX tank drain |
+| B3 | Fuel tank manual vent |
+| B4 | Fuel tank drain |
+| B6 | Purge bus vent |
+| R1 | Purge regulator, 0–300 psi (default 200) |
+| AC-1 | Compressor cut-out, 0–150 psi (default 120); 0 switches it off |
+
+The model's roles and tuning constants are at the top of
+`server/hal/simulator.js`. It is tuned for plausible traces, not prediction —
+do not size hardware from it.
+
+---
+
 ## Customizing for your stand
 
 Everything lives in [`config/stand.json`](config/stand.json). Nothing about a
@@ -1361,7 +1445,7 @@ server/
   recorder.js      CSV writer and metadata sidecars
   hal/
     index.js       driver registry + the composed `stand` driver
-    simulator.js   lumped-parameter stand model
+    simulator.js   lumped-parameter model of the Draco stand, tag for tag
     udp.js         Ethernet controller (dependency-free)
     serial.js      USB serial controller (needs `serialport`)
     nidaq.js       NI cDAQ instrumentation, via the Python sidecar
@@ -1406,6 +1490,7 @@ rejected command can never leave a valve looking open when it is closed.
 | `POST` | `/api/tare` | Zero instrumentation: `{sensors:[…]}` or `{kind:"pressure"}`, plus `clear` to undo |
 | `POST` | `/api/controller` | Bang-bang: `enabled`, `setpoint`, `deadband`, `maxOpenMs`, `minIntervalMs`, `ventTrigger`, `ventAuto`, `maxOpenSeconds`, `abortAbove`, plus the overrides `vent` and `abort` |
 | `POST` | `/api/sequence/start` `/api/sequence/stop` | Autosequences |
+| `POST` | `/api/sim/valve` `/api/sim/regulator` | Simulator only: `{id, state}` or `{id, toggle:true}` for a hand valve, `{id, psi}` for a regulator. 409 on any other driver |
 | `POST` | `/api/record/start` `/api/record/stop` | Recording |
 | `GET` | `/api/record/list` `/api/record/download/:name` | Recorded files |
 | `PUT` | `/api/config` | Validate, back up, save, hot-reload. While armed, accepts autosequence changes only |
@@ -1426,6 +1511,11 @@ Unit tests cover the logic whose mistakes are silent on real hardware:
 
 - **PANDA line parser** — volts→mA→psi, normally-open coil polarity, the
   `1`–`9`,`A`–`C` solenoid tokens, partial-chunk reassembly.
+- **The simulator** (`server/hal/simulator.test.js`) — against the real
+  `stand.json`: that every tag reads, which valve moves which pressure, what
+  the check valves stop, that the purge bus follows the fuel leg, that a lost
+  muscle bus drops the pneumatic valves to their springs, and that the
+  transducers stay quiet.
 - **Composite driver** — routing, degraded-mode behaviour, the per-device link
   state the header indicators read, and which device a tare is routed to.
 - **NI-DAQ addressing** — sensor id to card and channel. A tare that lands on

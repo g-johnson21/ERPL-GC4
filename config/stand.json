@@ -2016,7 +2016,8 @@
         "w": 84,
         "h": 100,
         "plumeSensor": "PT0",
-        "plumeThreshold": 50
+        "plumeThreshold": 50,
+        "plumeMax": 350
       },
       {
         "type": "text",

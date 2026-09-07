@@ -484,6 +484,44 @@ export class StandController extends EventEmitter {
     return { ok: true, tared, unavailable: missing };
   }
 
+  // ----------------------------------------------------- SIMULATOR ONLY ----
+
+  /**
+   * Work a hand valve or set a regulator in the simulator.
+   *
+   *   { id: 'B2', state: 'open' } | { id: 'B2', toggle: true }
+   *   { id: 'R1', psi: 180 }
+   *
+   * These have no channel on a real stand -- a person at the pad turns them
+   * -- so the route exists only while a driver offers simControls(), and the
+   * P&ID only shows the controls when the snapshot carries a `sim` block.
+   * No ARM interlock: nothing here reaches an actuator the stand controls,
+   * and the point is to rehearse the parts of a test that happen by hand.
+   */
+  simCommand(spec = {}, source = 'operator') {
+    const driver = this.driver;
+    if (!driver.simControls) {
+      return { ok: false, error: `The ${driver.status.name} driver has no simulator controls` };
+    }
+    const id = String(spec.id || '');
+    let result;
+    if (spec.psi !== undefined) {
+      result = driver.simSetRegulator(id, spec.psi);
+      if (result.ok) this.log('command', `SIM ${id} (${result.name}) set to ${result.psi} psi`, source);
+    } else {
+      let state = spec.state;
+      if (spec.toggle) {
+        const current = driver.simControls().manual?.[id]?.state;
+        if (!current) return { ok: false, error: `No hand valve "${id}" in the simulator` };
+        state = current === 'open' ? 'closed' : 'open';
+      }
+      result = driver.simSetManual(id, state);
+      if (result.ok) this.log('command', `SIM ${id} (${result.name}) -> ${result.state.toUpperCase()}`, source);
+    }
+    if (result.ok) this.emit('telemetry', this.snapshot());
+    return result;
+  }
+
   // --------------------------------------------------------------- ABORT ----
 
   abort(reason = 'Operator abort') {
@@ -579,6 +617,9 @@ export class StandController extends EventEmitter {
       recording: this.recorder.snapshot(),
       eventSeq: this.eventSeq,
       configVersion: this.config.meta.configVersion,
+      // Hand valves and regulators the operator can work, simulator only.
+      // Absent on hardware, and the P&ID draws nothing clickable without it.
+      sim: this.driver.simControls?.() ?? null,
     };
   }
 

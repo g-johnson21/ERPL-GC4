@@ -368,6 +368,16 @@ async function handleApi(req, res, pathname, url) {
       return sendJson(res, result.ok ? 200 : 409, withState(result));
     }
 
+    // Simulator only: hand valves and regulators nobody can reach from a
+    // real stand. 409 on any other driver, so a client cannot mistake the
+    // absence of a control for a control that took.
+    //   { id: 'B2', state: 'open' } | { id: 'B2', toggle: true } | { id: 'R1', psi: 180 }
+    case 'POST /api/sim/valve':
+    case 'POST /api/sim/regulator': {
+      const result = stand.simCommand(body, who);
+      return sendJson(res, result.ok ? 200 : 409, withState(result));
+    }
+
     case 'POST /api/config/validate': {
       const errors = validateConfig(body.config ?? body);
       return sendJson(res, 200, { ok: errors.length === 0, errors });
