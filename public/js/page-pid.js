@@ -427,10 +427,18 @@ applyView();
 function update() {
   if (!bus.state) return;
 
-  // --- pipes: animate flow when every gating valve is open ---
+  // --- pipes: animate flow when every `flowWhen` valve is open AND at least
+  // one `flowAny` valve is. The second list exists for a line fed from two
+  // places -- an injector leg that carries propellant through the run valve
+  // or purge gas through the purge valve -- where "all open" is never true
+  // and would leave the line dead through both. ---
   for (const pipe of P.pipes) {
-    const flowing = (pipe.flowWhen || []).length > 0
-      && pipe.flowWhen.every((id) => bus.valveState(id) === 'open');
+    const isOpen = (id) => bus.valveState(id) === 'open';
+    const all = pipe.flowWhen || [];
+    const any = pipe.flowAny || [];
+    const flowing = (all.length > 0 || any.length > 0)
+      && all.every(isOpen)
+      && (any.length === 0 || any.some(isOpen));
     const base = document.getElementById(`pipe-${pipe.id}`);
     const flow = document.getElementById(`flow-${pipe.id}`);
     if (base) base.dataset.flowing = String(flowing);

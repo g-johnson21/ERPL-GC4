@@ -421,6 +421,9 @@ export function validateConfig(c) {
     for (const vid of p.flowWhen || []) {
       if (!valveIds.has(vid)) err(`pid.pipes[${i}]: flowWhen references unknown valve "${vid}"`);
     }
+    for (const vid of p.flowAny || []) {
+      if (!valveIds.has(vid)) err(`pid.pipes[${i}]: flowAny references unknown valve "${vid}"`);
+    }
   }
 
   const controllerIds = new Set((c.bangbang || []).map((b) => b.id));

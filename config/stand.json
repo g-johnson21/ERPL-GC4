@@ -53,7 +53,7 @@
       }
     ],
     "tankLevel": {
-      "enabled": true,
+      "enabled": false,
       "heightIn": 70,
       "smoothingSeconds": 5
     },
@@ -113,7 +113,7 @@
       "safeState": "closed",
       "abortState": "closed",
       "pid": {
-        "x": 400,
+        "x": 350,
         "y": 168,
         "rot": 90,
         "tag": "S1"
@@ -135,7 +135,7 @@
       "safeState": "closed",
       "abortState": "closed",
       "pid": {
-        "x": 1000,
+        "x": 1010,
         "y": 168,
         "rot": 90,
         "tag": "S2"
@@ -147,7 +147,7 @@
       "name": "LOx GN2 Vent",
       "abbrev": "PB1 LOX VENT",
       "group": "vent",
-      "type": "solenoid",
+      "type": "ball",
       "channel": 3,
       "normallyOpen": true,
       "requiresArm": true,
@@ -157,7 +157,7 @@
       "safeState": "open",
       "abortState": "open",
       "pid": {
-        "x": 300,
+        "x": 270,
         "y": 336,
         "rot": 0,
         "tag": "PB1"
@@ -169,7 +169,7 @@
       "name": "Fuel GN2 Vent",
       "abbrev": "PB3 FUEL VENT",
       "group": "vent",
-      "type": "solenoid",
+      "type": "ball",
       "channel": 4,
       "normallyOpen": true,
       "requiresArm": true,
@@ -179,7 +179,7 @@
       "safeState": "open",
       "abortState": "open",
       "pid": {
-        "x": 1100,
+        "x": 930,
         "y": 336,
         "rot": 0,
         "tag": "PB3"
@@ -201,8 +201,8 @@
       "safeState": "closed",
       "abortState": "closed",
       "pid": {
-        "x": 620,
-        "y": 662,
+        "x": 575,
+        "y": 640,
         "rot": 0,
         "tag": "PB2"
       },
@@ -223,8 +223,8 @@
       "safeState": "closed",
       "abortState": "closed",
       "pid": {
-        "x": 780,
-        "y": 662,
+        "x": 790,
+        "y": 640,
         "rot": 0,
         "tag": "PB4"
       },
@@ -245,9 +245,9 @@
       "safeState": "closed",
       "abortState": "open",
       "pid": {
-        "x": 960,
-        "y": 750,
-        "rot": 90,
+        "x": 862,
+        "y": 780,
+        "rot": -90,
         "tag": "S5"
       },
       "momentaryMs": 1000
@@ -267,8 +267,8 @@
       "safeState": "closed",
       "abortState": "open",
       "pid": {
-        "x": 460,
-        "y": 750,
+        "x": 555,
+        "y": 780,
         "rot": 90,
         "tag": "S4"
       },
@@ -279,7 +279,7 @@
       "name": "LOX Fill",
       "abbrev": "PB5 LOX FILL",
       "group": "fill",
-      "type": "solenoid",
+      "type": "ball",
       "channel": 9,
       "normallyOpen": false,
       "requiresArm": true,
@@ -289,8 +289,8 @@
       "safeState": "closed",
       "abortState": "closed",
       "pid": {
-        "x": 262,
-        "y": 606,
+        "x": 215,
+        "y": 640,
         "rot": 0,
         "tag": "PB5"
       },
@@ -311,9 +311,9 @@
       "safeState": "closed",
       "abortState": "open",
       "pid": {
-        "x": 752,
-        "y": 380,
-        "rot": 0,
+        "x": 690,
+        "y": 428,
+        "rot": -90,
         "tag": "S3"
       },
       "momentaryMs": 1000
@@ -323,7 +323,7 @@
       "name": "GOX Purge",
       "abbrev": "PB6 GOX PURGE",
       "group": "aux",
-      "type": "solenoid",
+      "type": "ball",
       "channel": 11,
       "normallyOpen": false,
       "requiresArm": true,
@@ -333,10 +333,11 @@
       "safeState": "closed",
       "abortState": "closed",
       "pid": {
-        "x": 680,
-        "y": 550,
+        "x": 530,
+        "y": 575,
         "rot": 90,
-        "tag": "PB6"
+        "tag": "PB6",
+        "labelSide": "right"
       },
       "momentaryMs": 1000
     }
@@ -387,11 +388,11 @@
         "offset": 0
       },
       "pid": {
-        "x": 760,
-        "y": 596,
+        "x": 800,
+        "y": 840,
         "lead": [
-          744,
-          686
+          714,
+          812
         ]
       }
     },
@@ -413,10 +414,10 @@
         "offset": 0
       },
       "pid": {
-        "x": 530,
+        "x": 480,
         "y": 140,
         "lead": [
-          400,
+          350,
           140
         ]
       }
@@ -439,11 +440,11 @@
         "offset": 0
       },
       "pid": {
-        "x": 530,
-        "y": 300,
+        "x": 480,
+        "y": 262,
         "lead": [
-          400,
-          300
+          350,
+          262
         ]
       }
     },
@@ -465,11 +466,11 @@
         "offset": 0
       },
       "pid": {
-        "x": 238,
-        "y": 464,
+        "x": 200,
+        "y": 470,
         "lead": [
-          340,
-          464
+          290,
+          470
         ]
       }
     },
@@ -491,11 +492,11 @@
         "offset": 0
       },
       "pid": {
-        "x": 498,
-        "y": 600,
+        "x": 412,
+        "y": 594,
         "lead": [
-          512,
-          662
+          430,
+          640
         ]
       }
     },
@@ -517,11 +518,11 @@
         "offset": 0
       },
       "pid": {
-        "x": 562,
-        "y": 600,
+        "x": 478,
+        "y": 594,
         "lead": [
-          548,
-          662
+          452,
+          640
         ]
       }
     },
@@ -543,11 +544,11 @@
         "offset": 0
       },
       "pid": {
-        "x": 516,
-        "y": 756,
+        "x": 615,
+        "y": 810,
         "lead": [
-          516,
-          662
+          670,
+          740
         ]
       }
     },
@@ -569,10 +570,10 @@
         "offset": 0
       },
       "pid": {
-        "x": 870,
+        "x": 880,
         "y": 140,
         "lead": [
-          1000,
+          1010,
           140
         ]
       }
@@ -595,11 +596,11 @@
         "offset": 0
       },
       "pid": {
-        "x": 870,
-        "y": 300,
+        "x": 880,
+        "y": 250,
         "lead": [
-          1000,
-          300
+          1010,
+          250
         ]
       }
     },
@@ -621,11 +622,11 @@
         "offset": 0
       },
       "pid": {
-        "x": 1160,
-        "y": 464,
+        "x": 1170,
+        "y": 470,
         "lead": [
-          1060,
-          464
+          1070,
+          470
         ]
       }
     },
@@ -647,11 +648,11 @@
         "offset": 0
       },
       "pid": {
-        "x": 902,
-        "y": 600,
+        "x": 925,
+        "y": 592,
         "lead": [
-          888,
-          662
+          902,
+          640
         ]
       }
     },
@@ -673,11 +674,11 @@
         "offset": 0
       },
       "pid": {
-        "x": 838,
-        "y": 600,
+        "x": 840,
+        "y": 592,
         "lead": [
-          852,
-          662
+          868,
+          640
         ]
       }
     },
@@ -699,11 +700,11 @@
         "offset": 0
       },
       "pid": {
-        "x": 902,
-        "y": 756,
+        "x": 785,
+        "y": 775,
         "lead": [
-          902,
-          662
+          730,
+          740
         ]
       }
     },
@@ -725,10 +726,10 @@
         "offset": 0
       },
       "pid": {
-        "x": 752,
+        "x": 760,
         "y": 300,
         "lead": [
-          752,
+          760,
           380
         ]
       }
@@ -751,11 +752,11 @@
         "offset": 0
       },
       "pid": {
-        "x": 1180,
-        "y": 620,
+        "x": 1135,
+        "y": 368,
         "lead": [
-          1270,
-          620
+          1135,
+          312
         ]
       }
     },
@@ -823,11 +824,11 @@
         "offset": 0
       },
       "pid": {
-        "x": 326,
-        "y": 650,
+        "x": 255,
+        "y": 588,
         "lead": [
-          400,
-          640
+          322,
+          562
         ]
       }
     },
@@ -847,11 +848,11 @@
         "offset": 0
       },
       "pid": {
-        "x": 238,
-        "y": 524,
+        "x": 200,
+        "y": 536,
         "lead": [
-          340,
-          524
+          290,
+          536
         ]
       }
     },
@@ -871,11 +872,11 @@
         "offset": 0
       },
       "pid": {
-        "x": 238,
+        "x": 200,
         "y": 404,
         "lead": [
-          340,
-          404
+          290,
+          410
         ]
       }
     },
@@ -895,11 +896,11 @@
         "offset": 0
       },
       "pid": {
-        "x": 580,
-        "y": 756,
+        "x": 405,
+        "y": 690,
         "lead": [
-          580,
-          662
+          405,
+          640
         ]
       }
     },
@@ -919,11 +920,11 @@
         "offset": 0
       },
       "pid": {
-        "x": 836,
-        "y": 790,
+        "x": 500,
+        "y": 690,
         "lead": [
-          744,
-          730
+          500,
+          640
         ]
       }
     },
@@ -1639,7 +1640,7 @@
         "width": 5.5
       },
       "purge": {
-        "label": "Purge / GOX",
+        "label": "GN2 Purge",
         "color": "#a855f7",
         "width": 3.5
       },
@@ -1680,24 +1681,91 @@
         "id": "TXT-2",
         "x": 78,
         "y": 54,
-        "label": "LOX / ETHANOL  -  GN2 REGULATED PRESS-FED",
+        "label": "LOX / ETHANOL  -  GN2 BANG-BANG PRESS-FED",
         "size": 10,
         "anchor": "start"
       },
       {
+        "type": "text",
+        "id": "TXT-3",
+        "x": 78,
+        "y": 68,
+        "label": "PER DRACO P&ID V4.02",
+        "size": 9,
+        "weight": 500,
+        "muted": true,
+        "anchor": "start"
+      },
+      {
         "type": "bottle",
-        "id": "TK-GN2",
+        "id": "TK-GN2-LOX",
         "x": 88,
         "y": 210,
         "w": 90,
         "h": 120,
-        "label": "GN2",
-        "sub": "4 x 6K"
+        "count": 2,
+        "label": "GN2 (LOX BUS)",
+        "sub": "2 x 6K"
+      },
+      {
+        "type": "filter",
+        "id": "FL-LOX",
+        "x": 220,
+        "y": 100
+      },
+      {
+        "type": "bottle",
+        "id": "TK-GN2-FUEL",
+        "x": 1262,
+        "y": 195,
+        "w": 90,
+        "h": 120,
+        "count": 2,
+        "label": "GN2 (FUEL BUS)",
+        "sub": "2 x 6K"
+      },
+      {
+        "type": "filter",
+        "id": "FL-FUEL",
+        "x": 1140,
+        "y": 100
+      },
+      {
+        "type": "check-valve",
+        "id": "C1",
+        "x": 350,
+        "y": 225,
+        "rot": 90,
+        "label": "C1",
+        "labelSide": "right"
+      },
+      {
+        "type": "relief-valve",
+        "id": "RV1",
+        "x": 300,
+        "y": 262,
+        "label": "RV1\n1350 psi",
+        "labelSide": "left"
+      },
+      {
+        "type": "vent-stack",
+        "id": "VS-LOX",
+        "x": 200,
+        "y": 314,
+        "label": "VENT"
+      },
+      {
+        "type": "relief-valve",
+        "id": "RV2",
+        "x": 400,
+        "y": 372,
+        "label": "RV2\n1300 psi",
+        "labelSide": "right"
       },
       {
         "type": "tank",
         "id": "TK-LOX",
-        "x": 400,
+        "x": 350,
         "y": 484,
         "w": 120,
         "h": 168,
@@ -1713,9 +1781,77 @@
         }
       },
       {
+        "type": "check-valve",
+        "id": "C3",
+        "x": 1010,
+        "y": 225,
+        "rot": 90,
+        "label": "C3",
+        "labelSide": "right"
+      },
+      {
+        "type": "relief-valve",
+        "id": "RV3",
+        "x": 1060,
+        "y": 250,
+        "label": "RV3\n1400 psi",
+        "labelSide": "right"
+      },
+      {
+        "type": "regulator",
+        "id": "R1",
+        "x": 1075,
+        "y": 312,
+        "label": "R1"
+      },
+      {
+        "type": "relief-valve",
+        "id": "RV5",
+        "x": 1190,
+        "y": 350,
+        "rot": 90,
+        "label": "RV5\n250 psi",
+        "labelSide": "right"
+      },
+      {
+        "type": "valve-manual",
+        "id": "B6",
+        "x": 1260,
+        "y": 395,
+        "rot": 90,
+        "scale": 0.7,
+        "label": "B6",
+        "labelSide": "right"
+      },
+      {
+        "type": "vent-stack",
+        "id": "VS-PURGE",
+        "x": 1260,
+        "y": 440,
+        "rot": 180,
+        "label": "VENT",
+        "labelOffset": 30
+      },
+      {
+        "type": "vent-stack",
+        "id": "VS-FUEL",
+        "x": 820,
+        "y": 314,
+        "label": "VENT"
+      },
+      {
+        "type": "valve-manual",
+        "id": "B3",
+        "x": 1060,
+        "y": 372,
+        "scale": 0.7,
+        "label": "B3",
+        "labelSide": "right"
+      },
+      {
         "type": "tank",
         "id": "TK-FUEL",
-        "x": 1000,
+        "x": 1010,
         "y": 484,
         "w": 120,
         "h": 168,
@@ -1731,112 +1867,188 @@
       {
         "type": "bottle",
         "id": "AC-1",
-        "x": 640,
-        "y": 180,
+        "x": 620,
+        "y": 172,
         "w": 84,
-        "h": 80,
+        "h": 70,
         "label": "AIR COMP"
       },
       {
         "type": "tank",
-        "id": "TK-ACUMULATOR",
-        "x": 640,
-        "y": 286,
+        "id": "TK-SURGE",
+        "x": 620,
+        "y": 284,
         "w": 96,
-        "h": 66,
+        "h": 60,
         "fluid": "pneu",
-        "label": "ACUMULATOR"
+        "label": "SURGE TANK"
       },
       {
         "type": "terminator",
         "id": "T-MUSCLE",
         "x": 862,
         "y": 380,
-        "label": "MUSCLE BUS"
+        "label": "PB1-PB6"
+      },
+      {
+        "type": "vent-stack",
+        "id": "VS-MB",
+        "x": 690,
+        "y": 490,
+        "rot": 180,
+        "label": "VENT",
+        "labelOffset": 30
       },
       {
         "type": "bottle",
         "id": "DW-1",
-        "x": 100,
-        "y": 700,
+        "x": 80,
+        "y": 735,
         "w": 84,
         "h": 100,
         "label": "LOX DEWAR"
       },
       {
-        "type": "qd",
-        "id": "QD-1",
-        "x": 176,
-        "y": 606,
-        "label": "QD"
+        "type": "valve-manual",
+        "id": "B1",
+        "x": 155,
+        "y": 596,
+        "rot": 90,
+        "scale": 0.7,
+        "label": "B1",
+        "labelSide": "right"
+      },
+      {
+        "type": "relief-valve",
+        "id": "RV4",
+        "x": 155,
+        "y": 690,
+        "rot": 90,
+        "label": "RV4\n350 psi",
+        "labelOffset": 30
+      },
+      {
+        "type": "check-valve",
+        "id": "C5",
+        "x": 275,
+        "y": 640,
+        "label": "C5"
+      },
+      {
+        "type": "valve-manual",
+        "id": "B2",
+        "x": 312,
+        "y": 598,
+        "rot": 90,
+        "scale": 0.7,
+        "label": "B2",
+        "labelSide": "right"
       },
       {
         "type": "venturi",
         "id": "VEN-LOX",
-        "x": 530,
-        "y": 662,
+        "x": 450,
+        "y": 640,
         "label": "V1"
+      },
+      {
+        "type": "vent-stack",
+        "id": "VS-GOX",
+        "x": 530,
+        "y": 518,
+        "label": "GOX VENT"
+      },
+      {
+        "type": "check-valve",
+        "id": "C6",
+        "x": 645,
+        "y": 700,
+        "label": "C6",
+        "labelSide": "top"
+      },
+      {
+        "type": "check-valve",
+        "id": "C2",
+        "x": 670,
+        "y": 722,
+        "rot": 90,
+        "label": "C2",
+        "labelSide": "left"
+      },
+      {
+        "type": "valve-manual",
+        "id": "B4",
+        "x": 1070,
+        "y": 640,
+        "scale": 0.7,
+        "label": "B4"
       },
       {
         "type": "venturi",
         "id": "VEN-FUEL",
-        "x": 870,
-        "y": 662,
+        "x": 880,
+        "y": 640,
         "label": "V2"
+      },
+      {
+        "type": "check-valve",
+        "id": "C7",
+        "x": 760,
+        "y": 700,
+        "rot": 180,
+        "label": "C7",
+        "labelSide": "top"
+      },
+      {
+        "type": "check-valve",
+        "id": "C4",
+        "x": 730,
+        "y": 722,
+        "rot": 90,
+        "label": "C4",
+        "labelSide": "right"
       },
       {
         "type": "engine",
         "id": "E-1",
         "x": 700,
-        "y": 676,
-        "w": 88,
-        "h": 135
+        "y": 740,
+        "w": 84,
+        "h": 100,
+        "plumeSensor": "PT0",
+        "plumeThreshold": 50
       },
       {
-        "type": "terminator",
-        "id": "PM-1",
-        "x": 1180,
-        "y": 852,
-        "label": "PURGE MANIFOLD"
-      },
-      {
-        "type": "terminator",
-        "id": "T-GOX",
-        "x": 680,
-        "y": 500,
-        "label": "GOX"
+        "type": "text",
+        "id": "TXT-PURGE",
+        "x": 1000,
+        "y": 859,
+        "label": "PURGE MANIFOLD",
+        "size": 9.5,
+        "weight": 600,
+        "muted": true
       }
     ],
     "pipes": [
       {
-        "id": "p-gn2-riser",
+        "id": "p-gn2-lox-supply",
         "fluid": "n2",
         "points": [
           [
             88,
-            150
+            126
           ],
           [
             88,
             100
-          ]
-        ]
-      },
-      {
-        "id": "p-gn2-hdr",
-        "fluid": "n2",
-        "points": [
+          ],
           [
-            88,
+            350,
             100
           ],
           [
-            400,
-            100
-          ],
-          [
-            1000,
-            100
+            350,
+            168
           ]
         ]
       },
@@ -1845,15 +2057,23 @@
         "fluid": "n2",
         "points": [
           [
-            400,
-            100
+            350,
+            168
           ],
           [
-            400,
+            350,
+            262
+          ],
+          [
+            350,
             336
           ],
           [
-            400,
+            350,
+            372
+          ],
+          [
+            350,
             400
           ]
         ],
@@ -1862,24 +2082,31 @@
         ]
       },
       {
-        "id": "p-fuel-leg",
+        "id": "p-rv1",
         "fluid": "n2",
         "points": [
           [
-            1000,
-            100
+            350,
+            262
           ],
           [
-            1000,
-            336
-          ],
-          [
-            1000,
-            400
+            313,
+            262
           ]
-        ],
-        "flowWhen": [
-          "SV-FBB"
+        ]
+      },
+      {
+        "id": "p-rv2",
+        "fluid": "n2",
+        "points": [
+          [
+            350,
+            372
+          ],
+          [
+            387,
+            372
+          ]
         ]
       },
       {
@@ -1887,11 +2114,11 @@
         "fluid": "vent",
         "points": [
           [
-            400,
+            350,
             336
           ],
           [
-            232,
+            200,
             336
           ]
         ],
@@ -1900,15 +2127,98 @@
         ]
       },
       {
+        "id": "p-gn2-fuel-supply",
+        "fluid": "n2",
+        "points": [
+          [
+            1262,
+            111
+          ],
+          [
+            1262,
+            100
+          ],
+          [
+            1010,
+            100
+          ],
+          [
+            1010,
+            168
+          ]
+        ]
+      },
+      {
+        "id": "p-fuel-leg",
+        "fluid": "n2",
+        "points": [
+          [
+            1010,
+            168
+          ],
+          [
+            1010,
+            250
+          ],
+          [
+            1010,
+            312
+          ],
+          [
+            1010,
+            336
+          ],
+          [
+            1010,
+            372
+          ],
+          [
+            1010,
+            400
+          ]
+        ],
+        "flowWhen": [
+          "SV-FBB"
+        ]
+      },
+      {
+        "id": "p-rv3",
+        "fluid": "n2",
+        "points": [
+          [
+            1010,
+            250
+          ],
+          [
+            1047,
+            250
+          ]
+        ]
+      },
+      {
+        "id": "p-b3",
+        "fluid": "n2",
+        "points": [
+          [
+            1010,
+            372
+          ],
+          [
+            1046,
+            372
+          ]
+        ]
+      },
+      {
         "id": "p-fuel-vent",
         "fluid": "vent",
         "points": [
           [
-            1000,
+            1010,
             336
           ],
           [
-            1168,
+            820,
             336
           ]
         ],
@@ -1917,178 +2227,65 @@
         ]
       },
       {
-        "id": "p-dewar",
-        "fluid": "lox",
-        "points": [
-          [
-            100,
-            650
-          ],
-          [
-            100,
-            606
-          ]
-        ]
-      },
-      {
-        "id": "p-fill",
-        "fluid": "lox",
-        "points": [
-          [
-            100,
-            606
-          ],
-          [
-            400,
-            606
-          ]
-        ],
-        "flowWhen": [
-          "SV-LOX-FILL"
-        ]
-      },
-      {
-        "id": "p-lox-drop",
-        "fluid": "lox",
-        "points": [
-          [
-            400,
-            568
-          ],
-          [
-            400,
-            606
-          ],
-          [
-            400,
-            662
-          ]
-        ]
-      },
-      {
-        "id": "p-lox-run",
-        "fluid": "lox",
-        "points": [
-          [
-            400,
-            662
-          ],
-          [
-            460,
-            662
-          ],
-          [
-            700,
-            662
-          ]
-        ],
-        "flowWhen": [
-          "MV-LOX"
-        ]
-      },
-      {
-        "id": "p-gox-purge",
-        "fluid": "lox",
-        "points": [
-          [
-            680,
-            662
-          ],
-          [
-            680,
-            500
-          ]
-        ],
-        "flowWhen": [
-          "MV-LOX"
-        ]
-      },
-      {
-        "id": "p-fuel-drop",
-        "fluid": "fuel",
-        "points": [
-          [
-            1000,
-            568
-          ],
-          [
-            1000,
-            662
-          ]
-        ]
-      },
-      {
-        "id": "p-fuel-run",
-        "fluid": "fuel",
-        "points": [
-          [
-            1000,
-            662
-          ],
-          [
-            960,
-            662
-          ],
-          [
-            700,
-            662
-          ]
-        ],
-        "flowWhen": [
-          "MV-F"
-        ]
-      },
-      {
-        "id": "p-injector",
-        "fluid": "lox",
-        "points": [
-          [
-            700,
-            662
-          ],
-          [
-            700,
-            672
-          ]
-        ],
-        "flowWhen": [
-          "MV-LOX",
-          "MV-F"
-        ]
-      },
-      {
-        "id": "p-purge-hdr",
+        "id": "p-purge-feed",
         "fluid": "purge",
         "points": [
           [
-            1180,
-            852
+            1010,
+            312
           ],
           [
-            960,
-            852
+            1190,
+            312
           ],
           [
-            460,
-            852
+            1260,
+            312
+          ],
+          [
+            1300,
+            312
+          ],
+          [
+            1300,
+            868
+          ],
+          [
+            862,
+            868
+          ],
+          [
+            555,
+            868
           ]
         ]
       },
       {
-        "id": "p-purge-lox",
+        "id": "p-rv5",
         "fluid": "purge",
         "points": [
           [
-            460,
-            852
+            1190,
+            312
           ],
           [
-            460,
-            662
+            1190,
+            337
           ]
-        ],
-        "flowWhen": [
-          "SV-LOXPURGE"
+        ]
+      },
+      {
+        "id": "p-b6-vent",
+        "fluid": "purge",
+        "points": [
+          [
+            1260,
+            312
+          ],
+          [
+            1260,
+            418
+          ]
         ]
       },
       {
@@ -2096,12 +2293,16 @@
         "fluid": "purge",
         "points": [
           [
-            960,
-            852
+            862,
+            868
           ],
           [
-            960,
-            662
+            862,
+            700
+          ],
+          [
+            730,
+            700
           ]
         ],
         "flowWhen": [
@@ -2109,17 +2310,24 @@
         ]
       },
       {
-        "id": "p-gox-hdr",
+        "id": "p-purge-lox",
         "fluid": "purge",
         "points": [
           [
-            1180,
-            852
+            555,
+            868
           ],
           [
-            1270,
-            852
+            555,
+            700
+          ],
+          [
+            670,
+            700
           ]
+        ],
+        "flowWhen": [
+          "SV-LOXPURGE"
         ]
       },
       {
@@ -2127,12 +2335,12 @@
         "fluid": "pneu",
         "points": [
           [
-            640,
-            209
+            620,
+            207
           ],
           [
-            640,
-            253
+            620,
+            254
           ]
         ]
       },
@@ -2141,17 +2349,246 @@
         "fluid": "pneu",
         "points": [
           [
-            640,
-            319
+            620,
+            314
           ],
           [
-            640,
+            620,
             380
           ],
           [
-            862,
+            690,
+            380
+          ],
+          [
+            830,
             380
           ]
+        ]
+      },
+      {
+        "id": "p-mb-vent",
+        "fluid": "pneu",
+        "points": [
+          [
+            690,
+            380
+          ],
+          [
+            690,
+            468
+          ]
+        ],
+        "flowWhen": [
+          "SV-MBV"
+        ]
+      },
+      {
+        "id": "p-fill",
+        "fluid": "lox",
+        "points": [
+          [
+            80,
+            668
+          ],
+          [
+            80,
+            640
+          ],
+          [
+            155,
+            640
+          ],
+          [
+            350,
+            640
+          ]
+        ],
+        "flowWhen": [
+          "SV-LOX-FILL"
+        ]
+      },
+      {
+        "id": "p-b1",
+        "fluid": "lox",
+        "points": [
+          [
+            155,
+            640
+          ],
+          [
+            155,
+            612
+          ]
+        ]
+      },
+      {
+        "id": "p-rv4",
+        "fluid": "lox",
+        "points": [
+          [
+            155,
+            640
+          ],
+          [
+            155,
+            676
+          ]
+        ]
+      },
+      {
+        "id": "p-b2",
+        "fluid": "lox",
+        "points": [
+          [
+            312,
+            640
+          ],
+          [
+            312,
+            614
+          ]
+        ]
+      },
+      {
+        "id": "p-lox-drop",
+        "fluid": "lox",
+        "points": [
+          [
+            350,
+            568
+          ],
+          [
+            350,
+            640
+          ]
+        ]
+      },
+      {
+        "id": "p-lox-run",
+        "fluid": "lox",
+        "points": [
+          [
+            350,
+            640
+          ],
+          [
+            530,
+            640
+          ],
+          [
+            670,
+            640
+          ],
+          [
+            670,
+            700
+          ]
+        ],
+        "flowWhen": [
+          "MV-LOX"
+        ]
+      },
+      {
+        "id": "p-gox-vent",
+        "fluid": "vent",
+        "points": [
+          [
+            530,
+            640
+          ],
+          [
+            530,
+            540
+          ]
+        ],
+        "flowWhen": [
+          "SV-GOX-PURGE"
+        ]
+      },
+      {
+        "id": "p-lox-inj",
+        "fluid": "lox",
+        "points": [
+          [
+            670,
+            700
+          ],
+          [
+            670,
+            740
+          ]
+        ],
+        "flowAny": [
+          "MV-LOX",
+          "SV-LOXPURGE"
+        ]
+      },
+      {
+        "id": "p-fuel-drop",
+        "fluid": "fuel",
+        "points": [
+          [
+            1010,
+            568
+          ],
+          [
+            1010,
+            640
+          ]
+        ]
+      },
+      {
+        "id": "p-b4",
+        "fluid": "fuel",
+        "points": [
+          [
+            1010,
+            640
+          ],
+          [
+            1090,
+            640
+          ]
+        ]
+      },
+      {
+        "id": "p-fuel-run",
+        "fluid": "fuel",
+        "points": [
+          [
+            1010,
+            640
+          ],
+          [
+            730,
+            640
+          ],
+          [
+            730,
+            700
+          ]
+        ],
+        "flowWhen": [
+          "MV-F"
+        ]
+      },
+      {
+        "id": "p-fuel-inj",
+        "fluid": "fuel",
+        "points": [
+          [
+            730,
+            700
+          ],
+          [
+            730,
+            740
+          ]
+        ],
+        "flowAny": [
+          "MV-F",
+          "SV-FPURGE"
         ]
       }
     ]

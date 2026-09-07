@@ -68,8 +68,9 @@ const SYMBOLS = {
     svgEl('circle', { cx: 0, cy: 0, r: 8, class: 'sym-fill' }),
     svgEl('line', { x1: -8, y1: 0, x2: 8, y2: 0, class: 'sym-line-thin' }),
     stem(-18),
-    svgEl('path', { d: 'M-13,-30 A13,10 0 0 1 13,-30 Z', class: 'sym-fill' }),
-    svgEl('line', { x1: -13, y1: -30, x2: 13, y2: -30, class: 'sym-line' })
+    // The actuator dome sits directly on the end of the stem.
+    svgEl('path', { d: 'M-13,-18 A13,10 0 0 1 13,-18 Z', class: 'sym-fill' }),
+    svgEl('line', { x1: -13, y1: -18, x2: 13, y2: -18, class: 'sym-line' })
   ),
 
   /** Manual (hand) valve: bowtie + handwheel bar. */
@@ -93,10 +94,21 @@ const SYMBOLS = {
     svgEl('path', { d: 'M-4,-9 L-7,0 L-1,0 L-4,9 L7,-2 L1,-2 L4,-9 Z', class: 'sym-spark' })
   ),
 
-  /** Check valve: flow-direction triangle against a seat bar (diode form). */
+  /**
+   * Check valve: flow-direction triangle against a seat bar (diode form).
+   * Deliberately small. It marks where backflow is blocked; nobody acts on it.
+   */
   'check-valve': () => svgEl('g', {},
-    svgEl('path', { d: 'M-13,-12 L-13,12 L11,0 Z', class: 'sym-fill' }),
-    svgEl('line', { x1: 11, y1: -12, x2: 11, y2: 12, class: 'sym-line' })
+    svgEl('path', { d: 'M-9,-8 L-9,8 L7,0 Z', class: 'sym-fill' }),
+    svgEl('line', { x1: 7, y1: -8, x2: 7, y2: 8, class: 'sym-line' })
+  ),
+
+  /** Pressure relief valve: small bowtie with a spring on the stem. */
+  'relief-valve': () => svgEl('g', {},
+    bowtie(26, 16),
+    svgEl('line', { x1: 0, y1: 0, x2: 0, y2: -9, class: 'sym-line' }),
+    svgEl('path', { d: 'M0,-9 L-5,-12 L5,-16 L-5,-20 L5,-24 L0,-27', class: 'sym-line-thin' }),
+    svgEl('line', { x1: -6, y1: -27, x2: 6, y2: -27, class: 'sym-line' })
   ),
 
   /** Pressure regulator: valve body + diaphragm dome + adjusting screw. */
@@ -156,10 +168,18 @@ const SYMBOLS = {
     svgEl('path', { d: 'M12,-13 L3,-13 L3,13 L12,13', class: 'sym-line', fill: 'none' })
   ),
 
-  /** Line terminator with a caption ("TO ACTUATORS"). */
-  terminator: () => svgEl('g', {},
-    svgEl('path', { d: 'M-10,-9 L6,0 L-10,9 Z', class: 'sym-fill' })
-  ),
+  /**
+   * Off-drawing connector: a flag with the caption INSIDE it, on its own
+   * background. The old form printed the caption straight over whatever
+   * happened to be behind the arrow, which on a drawing this dense was
+   * usually a pipe. `rot: 180` points the flag left.
+   */
+  terminator: (c) => {
+    const hw = flagWidth(c.label) / 2;
+    return svgEl('g', {},
+      svgEl('path', { d: `M${-hw},-10 L${hw - 9},-10 L${hw},0 L${hw - 9},10 L${-hw},10 Z`, class: 'sym-flag' })
+    );
+  },
 
   /** Hatched structural mount. */
   'thrust-mount': (c) => {
@@ -198,19 +218,41 @@ const SYMBOLS = {
     );
   },
 
-  /** Composite-overwrapped pressure vessel (gas bottle). */
+  /**
+   * Composite-overwrapped pressure vessel (gas bottle).
+   *
+   * `count` draws that many bottles side by side inside `w`, joined by a
+   * shared manifold with one stub up from the centre — a bottle bank, drawn
+   * as the one it is. A bank's pipe starts at (x, y - h/2 - 24).
+   */
   bottle: (c) => {
-    const w = c.w ?? 90, h = c.h ?? 170;
-    const hw = w / 2, hh = h / 2, cap = hw;
-    const body = `M${-hw},${-hh + cap}
-                  A${hw},${cap} 0 0 1 ${hw},${-hh + cap}
-                  L${hw},${hh - cap}
-                  A${hw},${cap} 0 0 1 ${-hw},${hh - cap} Z`;
-    return svgEl('g', {},
-      svgEl('rect', { x: -7, y: -hh - 14, width: 14, height: 18, class: 'sym-fill' }),
-      svgEl('path', { d: body, class: 'sym-vessel' }),
-      svgEl('path', { d: body, class: 'sym-vessel-stroke' })
-    );
+    const n = Math.max(1, Math.round(c.count ?? 1));
+    const W = c.w ?? 90, h = c.h ?? 170, hh = h / 2;
+    const gap = n > 1 ? 8 : 0;
+    const w = (W - gap * (n - 1)) / n, hw = w / 2, cap = hw;
+    const g = svgEl('g', {});
+    for (let i = 0; i < n; i++) {
+      const cx = -W / 2 + hw + i * (w + gap);
+      const body = `M${cx - hw},${-hh + cap}
+                    A${hw},${cap} 0 0 1 ${cx + hw},${-hh + cap}
+                    L${cx + hw},${hh - cap}
+                    A${hw},${cap} 0 0 1 ${cx - hw},${hh - cap} Z`;
+      g.append(
+        n > 1
+          ? svgEl('rect', { x: cx - 5, y: -hh - 12, width: 10, height: 16, class: 'sym-fill' })
+          : svgEl('rect', { x: -7, y: -hh - 14, width: 14, height: 18, class: 'sym-fill' }),
+        svgEl('path', { d: body, class: 'sym-vessel' }),
+        svgEl('path', { d: body, class: 'sym-vessel-stroke' })
+      );
+    }
+    if (n > 1) {
+      const first = -W / 2 + hw, last = W / 2 - hw;
+      g.append(
+        svgEl('line', { x1: first, y1: -hh - 16, x2: last, y2: -hh - 16, class: 'sym-line' }),
+        svgEl('line', { x1: 0, y1: -hh - 16, x2: 0, y2: -hh - 24, class: 'sym-line' })
+      );
+    }
+    return g;
   },
 
   /** Thrust chamber: injector, chamber barrel, converging-diverging nozzle. */
@@ -299,36 +341,87 @@ export function renderComponent(c) {
     return g;
   }
 
-  const body = svgEl('g', { transform: c.rot ? `rotate(${c.rot})` : null });
+  const transforms = [];
+  if (c.rot) transforms.push(`rotate(${c.rot})`);
+  if (c.scale && c.scale !== 1) transforms.push(`scale(${c.scale})`);
+  const body = svgEl('g', { transform: transforms.length ? transforms.join(' ') : null });
   body.append(draw(c));
   g.append(body);
 
+  // A flag carries its caption inside itself, nudged away from the point.
+  if (c.type === 'terminator') {
+    if (c.label) {
+      g.append(svgText(c.label, {
+        x: c.rot === 180 ? 4 : -4, y: 3.5,
+        class: 'pid-flag-text',
+        'text-anchor': 'middle',
+      }));
+    }
+    return g;
+  }
+
   // Labels live outside the rotated group so they always read horizontally.
-  const labelY = labelOffsetFor(c);
+  // `labelSide` puts them beside the symbol instead of under it, for a
+  // symbol sitting on a vertical line where "under" means "on the pipe".
+  const side = c.labelSide || 'bottom';
+  const pos = labelPosition(side, c.labelOffset ?? defaultLabelOffset(c, side));
+  const lines = String(c.label ?? '').split('\n').length;
   if (c.label) {
     g.append(svgText(c.label, {
-      x: 0, y: labelY,
+      x: pos.x,
+      // Side labels are centred on the symbol as a block, not hung from it.
+      y: side === 'left' || side === 'right' ? pos.y - (lines - 1) * 5.5 : pos.y,
       class: 'pid-label',
-      'text-anchor': 'middle',
+      'text-anchor': pos.anchor,
       'line-height': 11,
     }));
   }
   if (c.sub) {
-    const lines = String(c.label ?? '').split('\n').length;
     g.append(svgText(c.sub, {
-      x: 0, y: labelY + lines * 11,
+      x: pos.x, y: pos.y + lines * 11,
       class: 'pid-sublabel',
-      'text-anchor': 'middle',
+      'text-anchor': pos.anchor,
       'line-height': 10,
     }));
   }
   return g;
 }
 
+/** Where a label anchors for each side, at `offset` from the symbol centre. */
+function labelPosition(side, offset) {
+  switch (side) {
+    case 'right': return { x: offset, y: 4, anchor: 'start' };
+    case 'left': return { x: -offset, y: 4, anchor: 'end' };
+    case 'top': return { x: 0, y: -offset, anchor: 'middle' };
+    default: return { x: 0, y: offset, anchor: 'middle' };
+  }
+}
+
+function defaultLabelOffset(c, side) {
+  if (side === 'bottom') return labelOffsetFor(c);
+  if (side === 'top') return 16;
+  switch (c.type) {
+    case 'check-valve': return 16;
+    case 'vent-stack': return 18;
+    default: return 22;
+  }
+}
+
+/** Width of a terminator flag: enough for its longest line, plus the point. */
+function flagWidth(label) {
+  const longest = Math.max(0, ...String(label ?? '').split('\n').map((l) => l.length));
+  return Math.max(30, longest * 6.1 + 22);
+}
+
 function labelOffsetFor(c) {
   switch (c.type) {
     case 'tank': return -(c.h ?? 220) / 2 + 34;
-    case 'bottle': return 6;
+    case 'bottle': return (c.count ?? 1) > 1 ? (c.h ?? 170) / 2 + 16 : 6;
+    case 'check-valve': return 20;
+    case 'relief-valve': return 22;
+    case 'venturi': return 26;
+    case 'regulator': return 24;
+    case 'filter': return 26;
     case 'engine': return (c.h ?? 260) + 78;   // below the exhaust plume
     case 'thrust-mount': return -16;
     case 'vent-stack': return -22;
@@ -372,8 +465,18 @@ export function renderValve(valve, groupColor) {
   // matches a valve in front of them with no translation step in between.
   // Falls back to the GC-4 id rather than going blank if a valve has no tag;
   // the id stays reachable on hover either way.
-  g.append(svgText(p.tag || valve.id, { x: 0, y: 42, class: 'pid-label strong', 'text-anchor': 'middle' }));
-  g.append(svgText('', { x: 0, y: 53, class: 'pid-valve-state', id: `pvs-${valve.id}`, 'text-anchor': 'middle' }));
+  //
+  // A valve on a vertical line gets its label BESIDE the symbol, on the side
+  // away from the actuator: under it would be on the pipe. rot 90 puts the
+  // actuator on the right, rot -90 on the left; `labelSide` overrides.
+  const rot = p.rot ?? 0;
+  const side = p.labelSide
+    || (rot === 90 ? 'left' : (rot === -90 || rot === 270) ? 'right' : 'bottom');
+  const lx = side === 'right' ? 34 : side === 'left' ? -34 : 0;
+  const anchor = side === 'right' ? 'start' : side === 'left' ? 'end' : 'middle';
+  const ly = side === 'bottom' ? 42 : 2;
+  g.append(svgText(p.tag || valve.id, { x: lx, y: ly, class: 'pid-label strong', 'text-anchor': anchor }));
+  g.append(svgText('', { x: lx, y: ly + 11, class: 'pid-valve-state', id: `pvs-${valve.id}`, 'text-anchor': anchor }));
 
   // Coil state as MEASURED, not as commanded.
   //

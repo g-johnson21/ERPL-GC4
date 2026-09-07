@@ -311,6 +311,22 @@ body.shift-armed .pid-valve[data-needs-shift="true"] .pid-hit {
 
 /* --------------------------------------------------------------- text --- */
 
+/* Every caption on the drawing carries a halo in the stage colour. A label
+   frequently lands on a pipe -- a valve tag on a vertical run, a caption on
+   a header -- and without the halo it is printed straight over the line and
+   has to be read through it. `paint-order: stroke` paints the halo UNDER the
+   glyphs, so the letterforms stay crisp. */
+.pid-label,
+.pid-sublabel,
+.pid-valve-state,
+.pid-title,
+.pid-flag-text {
+  paint-order: stroke;
+  stroke: var(--surface);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+
 .pid-label {
   fill: var(--text-muted);
   font-family: var(--mono);
@@ -329,3 +345,20 @@ body.shift-armed .pid-valve[data-needs-shift="true"] .pid-hit {
   letter-spacing: .02em;
 }
 .pid-title.muted { fill: var(--text-muted); }
+
+/* Off-drawing connector flag: the caption sits INSIDE the flag, on the
+   flag's own fill, so it never competes with what is drawn behind it. */
+.sym-flag {
+  fill: var(--surface-3);
+  stroke: var(--text-muted);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+}
+.pid-flag-text {
+  fill: var(--text);
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .03em;
+  stroke: var(--surface-3);
+}

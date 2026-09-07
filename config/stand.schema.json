@@ -353,6 +353,10 @@
               "tag": {
                 "type": "string",
                 "description": "Tag stencilled on the hardware (S1, PB2...), drawn above the symbol so a valve on screen can be matched to one on the stand."
+              },
+              "labelSide": {
+                "enum": ["bottom", "left", "right"],
+                "description": "Which side of the symbol the tag sits on. Defaults to bottom for a horizontal valve and to the side away from the actuator for a vertical one (rot 90: left, rot -90: right)."
               }
             }
           }
@@ -885,6 +889,7 @@
                   "filter",
                   "venturi",
                   "check-valve",
+                  "relief-valve",
                   "burst-disk",
                   "vent-stack",
                   "drain",
@@ -920,6 +925,24 @@
               },
               "rot": {
                 "type": "number"
+              },
+              "scale": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "description": "Draws the symbol at this multiple of its native size. Labels are not scaled."
+              },
+              "labelSide": {
+                "enum": ["bottom", "left", "right", "top"],
+                "description": "Which side of the symbol the label sits on. Default bottom; use left/right for a symbol on a vertical line, where bottom is on the pipe."
+              },
+              "labelOffset": {
+                "type": "number",
+                "description": "Distance from the symbol centre to the label, overriding the per-symbol default."
+              },
+              "count": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "bottle: draw this many bottles side by side inside w, sharing one manifold. The pipe starts at (x, y - h/2 - 24)."
               },
               "fluid": {
                 "type": "string",
@@ -1030,6 +1053,13 @@
                   "type": "string"
                 },
                 "description": "Valve ids that must ALL be open for the flow animation to run."
+              },
+              "flowAny": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Valve ids of which at least ONE must be open for the flow animation to run, in addition to flowWhen. For a line fed from two places, e.g. an injector leg carrying propellant or purge gas."
               }
             }
           }

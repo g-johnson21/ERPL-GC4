@@ -119,8 +119,26 @@ thermocouples yellow, load cells purple — so the instrument types separate at 
 glance without reading a single tag. Alarm state still repaints the bubble on
 top of that: knowing a channel is a thermocouple matters less than knowing it
 is in danger. Tanks show liquid level from their load cells. Lines animate when
-propellant is actually flowing through them. The engine grows an exhaust plume
-scaled to chamber pressure.
+propellant is actually flowing through them; the two injector legs animate for
+propellant through the run valve *or* gas through the purge valve, since both
+feed the same pipe. The engine grows an exhaust plume scaled to chamber pressure.
+
+**The drawing follows `Draco V4.02.pdf`**, the stand's own P&ID. Each GN2 bus
+has its own two-bottle bank and filter — the LOX bus and the fuel bus are not
+cross-connected. The purge manifold is regulated off the fuel GN2 leg through
+R1, with its own relief and isolation valve, and enters each injector leg
+*downstream* of the run valve, venturi and main check valve, through its own
+check valve. Check valves (C1–C7), relief valves with their setpoints (RV1–RV5)
+and the manual ball valves (B1–B6) are drawn where they sit on the stand, small
+and unclickable, so an operator can read the drawing against the hardware
+without a second document open. PB1, PB3, PB5 and PB6 are pneumatic ball
+valves, not solenoids, and draw as such. The muscle bus ends in a flag reading
+`PB1-PB6` rather than one green line to every actuator.
+
+Every caption on the drawing carries a halo in the stage colour, so a tag on a
+vertical run or a name along a header reads cleanly instead of being printed
+through the pipe behind it. Off-drawing connectors are flags with the caption
+inside, on their own fill.
 
 Scroll to zoom, drag to pan, `0` to reset. The **padlock** button in the toolbar
 freezes the view so a stray scroll or drag during a test cannot move the
@@ -910,13 +928,37 @@ Actions: `valve`, `bangbang` (`target: "*"` hits every controller), `log`,
 
 `pid.components` are the static symbols, `pid.pipes` are polylines between
 `[x, y]` points. A coordinate shared by two or more pipes is automatically dotted
-as a tee. `flowWhen` lists the valves that must all be open for a line to animate:
+as a tee — so a tee has to be a *vertex* of the header it sits on, not a point
+somewhere along a segment. `flowWhen` lists the valves that must all be open
+for a line to animate; `flowAny` lists valves of which at least one must be,
+for a line fed from two places:
 
 ```json
 { "id": "p-fuel-run", "fluid": "fuel",
   "points": [[470,510],[470,790],[1150,790],[1150,620],[1240,620]],
   "flowWhen": ["MV-F"] }
+
+{ "id": "p-fuel-inj", "fluid": "fuel",
+  "points": [[730,700],[730,740]],
+  "flowAny": ["MV-F", "SV-FPURGE"] }
 ```
+
+Symbol types: `tank`, `bottle`, `engine`, `regulator`, `filter`, `venturi`,
+`check-valve`, `relief-valve`, `burst-disk`, `vent-stack`, `drain`, `qd`,
+`terminator`, `thrust-mount`, `valve-manual`, `text`, `logo`. Every component
+takes `rot`, and:
+
+- **`labelSide`** — `left`, `right` or `top` instead of the default below. Use
+  it for anything on a vertical line, where "below" means "on the pipe".
+  `labelOffset` overrides the distance. A valve's `pid` block takes `labelSide`
+  too; a vertical valve (`rot: 90` / `-90`) defaults to the side away from its
+  actuator.
+- **`scale`** — draws the symbol smaller or larger without touching its label.
+  The manual valves on the stand are `valve-manual` at `0.7`.
+- **`count`** on a `bottle` — draws a bank of that many bottles inside `w`,
+  sharing one manifold. The pipe starts at `(x, y - h/2 - 24)`.
+- A **`terminator`** is a flag with its `label` drawn inside it; `rot: 180`
+  points it left. Its width follows the caption.
 
 Add a service by adding a key to `pid.fluids` — it gets a colour, a line width,
 and a legend entry automatically.
@@ -1058,7 +1100,7 @@ becomes a sensor reading.
 ### Where the names come from
 
 `sensor_config.xlsx` at the repo root is the master naming source, and
-`Draco V4.00.pdf` is the drawing those names appear on. Sensor ids in
+`Draco V4.02.pdf` is the drawing those names appear on. Sensor ids in
 `stand.json` are the **P&ID tag** (`PT4`, `TC1`, `LC4`), because that is what
 the diagram labels and what an operator reads off the stand.
 
