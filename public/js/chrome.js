@@ -772,10 +772,8 @@ function controllerCard(c) {
 }
 
 /**
- * Collapsed by default, with the live values summarised on the closed row —
- * the limits matter constantly but are changed rarely, so they must be
- * readable at a glance without four more input boxes competing with the
- * setpoint for attention.
+ * Start expanded so every setting is available on the control screen.
+ * Operators can still collapse the limits, with live values on the summary.
  */
 function limitsPanel(c, sensor) {
   const details = el('details.bb-limits', {
@@ -910,7 +908,7 @@ function limitSummary(rt, sensor) {
 
 const LIMITS_OPEN_KEY = 'gc4-bb-limits-open';
 function limitsOpen() {
-  try { return localStorage.getItem(LIMITS_OPEN_KEY) === 'true'; } catch { return false; }
+  try { return localStorage.getItem(LIMITS_OPEN_KEY) !== 'false'; } catch { return true; }
 }
 function saveLimitsOpen(open) {
   try { localStorage.setItem(LIMITS_OPEN_KEY, String(open)); } catch { /* ignore */ }
