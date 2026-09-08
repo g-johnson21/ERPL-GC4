@@ -46,12 +46,21 @@ node server/index.js                    # simulator, port 8080
 node server/index.js --port=9000        # different port
 node server/index.js --driver=udp --host=192.168.1.50
 node server/index.js --config=config/stand-b.json
+node server/index.js --allow-remote-control # allow other computers to control
 node server/index.js --no-spectator     # control port only
 ```
 
-The banner prints a LAN URL as well as localhost — open that on a second laptop
-or a tablet and you have a second operator station. Every station sees identical
-state; the server is the single authority.
+**GC control is local-only by default**, bound to `127.0.0.1`. Add
+`--allow-remote-control` at startup to allow a second laptop or tablet to act
+as an operator station. With npm, use `npm start -- --allow-remote-control`
+(or `npm run stand -- --allow-remote-control` for hardware). Every station sees
+identical state; the server is the single authority.
+
+The spectator server remains accessible from other computers by default.
+`--bind` (or `GC_BIND`, default `0.0.0.0`) selects its network interface and,
+only with `--allow-remote-control`, the control server's interface too.
+Neither `--bind` nor `GC_BIND` alone enables remote control.
+Omit the flag (or use `--allow-remote-control=false`) to keep control local.
 
 It also prints a second, clearly labelled address on the next port up. That one
 is the [spectator view](#spectator-view): the Data page, read-only, safe to hand
@@ -651,7 +660,7 @@ printed in the banner under its own heading:
 
 ```
   Local      http://localhost:8080
-  Network    http://10.33.186.144:8080
+  Control    local-only (use --allow-remote-control for network access)
   ----------------------------------------------------------
   Spectator  read-only Data page — safe to share
              http://localhost:8081
@@ -697,15 +706,15 @@ node server/index.js --spectator-port=9090   # somewhere else
 node server/index.js --no-spectator          # off entirely
 ```
 
-`GC_SPECTATOR_PORT` does the same as the flag. It is on by default because an
-address only gets shared if it is printed every time, and it exposes strictly
-less than the control port already does on the same interfaces. If the port is
+`GC_SPECTATOR_PORT` does the same as the flag. The spectator listener is on the
+network by default while the control listener stays on the host computer.
+If the spectator port is
 taken the server says so and carries on — a port collision costs the crowd
 their screen, not the operator their stand.
 
 > The spectator port is a **courtesy barrier, not a security boundary**. There
-> is no authentication anywhere in GC4, and the control port is still on the
-> same network. It stops the honest accident — a leaned-on trackpad, a curious
+> is no authentication anywhere in GC4. The control port is on the network
+> only when started with `--allow-remote-control`. It stops the honest accident — a leaned-on trackpad, a curious
 > click, a phone in someone's pocket — which is the failure that actually
 > happens on a test day. Put the stand on a network you trust.
 

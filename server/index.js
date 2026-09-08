@@ -5,7 +5,8 @@
  *   node server/index.js                      simulator (default), port 8080
  *   node server/index.js --driver=udp --host=192.168.1.50
  *   node server/index.js --driver=serial --port-name=COM4 --baud=921600
- *   node server/index.js --port=8080 --bind=0.0.0.0 --config=config/stand.json
+ *   node server/index.js --port=8080 --config=config/stand.json
+ *   node server/index.js --allow-remote-control  allow network operator stations
  *   node server/index.js --spectator-port=9090   read-only view elsewhere
  *   node server/index.js --no-spectator          control port only
  *
@@ -32,6 +33,9 @@ const PUBLIC_DIR = path.join(ROOT, 'public');
 const args = parseArgs(process.argv.slice(2));
 const PORT = Number(args.port ?? process.env.GC_PORT ?? 8080);
 const BIND = args.bind ?? process.env.GC_BIND ?? '0.0.0.0';
+// A network bind setting alone must never expose control: opt in each launch.
+const ALLOW_REMOTE_CONTROL = args['allow-remote-control'] === true || args['allow-remote-control'] === 'true';
+const CONTROL_BIND = ALLOW_REMOTE_CONTROL ? BIND : '127.0.0.1';
 const CONFIG_PATH = path.resolve(ROOT, args.config ?? 'config/stand.json');
 const DRIVER_NAME = args.driver ?? process.env.GC_DRIVER ?? 'simulator';
 
@@ -39,9 +43,9 @@ const DRIVER_NAME = args.driver ?? process.env.GC_DRIVER ?? 'simulator';
  * The read-only viewing port — see spectator.js.
  *
  * On by default, one above the control port, because the address only gets
- * shared if it is printed in the banner every time. It exposes strictly less
- * than the control port already does on the same interfaces, so defaulting it
- * on widens nothing; `--no-spectator` (or `--spectator-port=0`) turns it off.
+ * shared if it is printed in the banner every time. It remains network-facing
+ * even when control is local-only; `--no-spectator` (or `--spectator-port=0`)
+ * turns it off.
  */
 const SPECTATOR_PORT = args['no-spectator'] || args.spectator === 'false'
   ? 0
@@ -252,14 +256,16 @@ if (SPECTATOR_PORT > 0) {
   else spectatorServer.on('error', (err) => console.error(`  [spectator] ${err.message}`));
 }
 
-server.listen(PORT, BIND, () => {
-  const ips = localAddresses();
+server.listen(PORT, CONTROL_BIND, () => {
+  const ips = localAddresses().filter((ip) => BIND === '0.0.0.0' || BIND === '::' || BIND === ip);
   const banner = [
     '',
     `  ${configStore.get().ui.brand}  —  ${configStore.get().meta.standName}`,
     `  ${'-'.repeat(58)}`,
     `  Local      http://localhost:${PORT}`,
-    ...ips.map((ip) => `  Network    http://${ip}:${PORT}`),
+    ...(ALLOW_REMOTE_CONTROL
+      ? ips.map((ip) => `  Network    http://${ip}:${PORT}`)
+      : ['  Control    local-only (use --allow-remote-control for network access)']),
     // Listed apart from the control URLs, and labelled, so the address that
     // gets texted to whoever is watching is not the one with the valves on it.
     ...(spectatorReady
