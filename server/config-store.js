@@ -407,6 +407,9 @@ export function validateConfig(c) {
     const where = `autosequences[${i}]`;
     if (!s.id) { err(`${where}: missing id`); continue; }
     if (seqIds.has(s.id)) err(`${where}: duplicate sequence id "${s.id}"`);
+    if (s.usePandaAutosequencer !== undefined && typeof s.usePandaAutosequencer !== 'boolean') {
+      err(`${where}: usePandaAutosequencer must be a boolean`);
+    }
     seqIds.add(s.id);
     for (const [j, step] of (s.steps || []).entries()) {
       const sw = `${where}.steps[${j}]`;

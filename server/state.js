@@ -186,6 +186,8 @@ export class StandController extends EventEmitter {
     this.armed = armed;
     this.armedAt = Date.now();
 
+    if (!armed && this.sequencer.active?.panda) this.sequencer.stop('Stand disarmed', source);
+
     // Mirror ARM to hardware that keeps its own arm latch (the PANDA board),
     // so a disarmed stand cannot actuate even if a command somehow bypasses
     // the interlocks above. Never let a driver fault block the DISARM path.
@@ -232,6 +234,9 @@ export class StandController extends EventEmitter {
     // driving everything to a known state, and a board-owned valve reasserting
     // itself afterwards is visible in the heartbeat.
     if (!opts.internal) {
+      if (this.sequencer.ownsValve(id)) {
+        return { ok: false, error: `${valve.name} is driven by the Panda autosequencer — stop the sequence first` };
+      }
       const owner = this.bangbang.ownedValves().get(id);
       if (owner) {
         return {
@@ -300,6 +305,7 @@ export class StandController extends EventEmitter {
   }
 
   safeAll(source = 'operator') {
+    if (this.sequencer.active?.panda) this.sequencer.stop('Safe all actuators', source);
     // A driver fault here fails identically for every valve, so collapse the
     // repeats into one line: thirteen copies of the same error buries the
     // rest of the startup log without adding information.

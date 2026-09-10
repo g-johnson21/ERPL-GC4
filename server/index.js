@@ -366,6 +366,10 @@ async function handleApi(req, res, pathname, url) {
       return sendJson(res, result.ok ? 200 : 409, withState(result));
     }
 
+    case 'POST /api/sequence/panda/config': {
+      const result = await stand.sequencer.sendToPanda(body.id, who);
+      return sendJson(res, result.ok ? 200 : 409, { ...result, state: stand.snapshot() });
+    }
     case 'POST /api/sequence/start': {
       const result = stand.sequencer.start(body.id, who);
       return sendJson(res, result.ok ? 200 : 409, withState(result));

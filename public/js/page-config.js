@@ -225,8 +225,35 @@ function renderSeqEditor() {
       el('div.toggle-row', {},
         toggleField('Requires ARM', seq.requiresArm !== false, (v) => { seq.requiresArm = v; markDirty(); }),
         toggleField('Confirm before running', seq.confirm !== false, (v) => { seq.confirm = v; markDirty(); }),
-        toggleField('Hide from sidebar', seq.hidden === true, (v) => { seq.hidden = v; markDirty(); renderSeqList(); })
-      )
+        toggleField('Hide from sidebar', seq.hidden === true, (v) => { seq.hidden = v; markDirty(); renderSeqList(); }),
+        toggleField('Use Panda Autosequencer', seq.usePandaAutosequencer === true, (v) => {
+          seq.usePandaAutosequencer = v;
+          markDirty();
+          renderSeqEditor();
+        })
+      ),
+      seq.usePandaAutosequencer ? el('div', { style: { marginTop: '10px' } },
+        el('button.btn.accent', {
+          text: 'Send autosequence config to Panda',
+          onclick: async (e) => {
+            if (dirty) {
+              toast('Save & Apply your changes before sending the config to Panda', 'warn');
+              return;
+            }
+            const button = e.currentTarget;
+            button.disabled = true;
+            button.textContent = 'Waiting for Panda confirmation…';
+            try {
+              const result = await bus.post('/api/sequence/panda/config', { id: seq.id });
+              if (result.ok) toast(`Panda confirmed the config for ${seq.name}`, 'ok');
+            } finally {
+              button.disabled = false;
+              button.textContent = 'Send autosequence config to Panda';
+            }
+          },
+        }),
+        el('p', { text: 'Save & Apply, then send before running. Panda stores one sequence at a time. Supports valve steps only; momentary actuators use the GC sequencer. Run requires ARM. Stop disarms and safes the stand. Abort conditions are still checked by GC.' })
+      ) : null
     ),
 
     el('div.card', { style: { marginTop: '12px' } },

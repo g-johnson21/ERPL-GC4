@@ -199,6 +199,10 @@ export class BangBangBank {
     const cfg = this.stand.configStore.controller(id);
     const rt = this.runtime.get(id);
     if (!cfg || !rt) return { ok: false, error: `Unknown controller "${id}"` };
+    if ((patch.enabled || patch.vent || patch.ventAuto) &&
+        [cfg.valve, cfg.ventValve].some((valve) => this.stand.sequencer?.ownsValve?.(valve))) {
+      return { ok: false, error: 'Stop the Panda autosequence before enabling bang-bang control of its valves' };
+    }
     if (!rt.side) {
       return { ok: false, error: `${cfg.name || id}: no board side configured (set "side" to "L" or "F")` };
     }

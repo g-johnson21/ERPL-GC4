@@ -1033,6 +1033,21 @@ channel to a typo is the one outcome not worth risking.
 
 ### Writing an autosequence
 
+In the Autosequences editor, **Use Panda Autosequencer** selects board execution
+for that sequence and reveals **Send autosequence config to Panda**. Save & Apply
+first, then send; GC waits for the firmware's `SEQ_ACK` and verifies the complete
+echo before allowing Run (`f`). Panda stores one sequence in RAM, so send again
+after selecting another sequence, changing its valve steps, or losing the link.
+
+This uses `panda-firmware-main`'s `s<channel><coil-state>.<delay-ms>` CSV protocol:
+delays follow each action, with a channel-zero wait for an initial delay. Normally
+open valves use inverted coil states. The packet must fit 255 bytes and each gap
+must fit 99,999 ms. Only valve steps are supported; momentary actuators and other
+step actions require the GC sequencer. Abort conditions remain GC checks.
+Panda execution requires ARM; **Stop disarms and safes the stand**, because the
+firmware's cancellation command is `r`. Completion and step progress come from
+Panda's reports. This option requires a connected Panda driver (`panda` or `stand`).
+
 Use the **Autosequences** tab on the Config page — no JSON required. The format
 below is what it produces, for reference or for editing by hand.
 

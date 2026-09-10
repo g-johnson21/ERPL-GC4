@@ -153,6 +153,10 @@ export class CompositeDriver {
     return this.devices.find((d) => !d.failed && typeof d.driver.bbEnable === 'function')?.driver || null;
   }
 
+  sequenceDevice() {
+    return this.devices.find((d) => !d.failed && typeof d.driver.sequenceUpload === 'function')?.driver || null;
+  }
+
   bbConfig(side, cfg) { return this.bbCall((d) => d.bbConfig(side, cfg)); }
   bbVent(side, cfg) { return this.bbCall((d) => d.bbVent(side, cfg)); }
   bbMdot(side, cfg) { return this.bbCall((d) => d.bbMdot(side, cfg)); }

@@ -962,7 +962,7 @@ function renderSequenceList() {
       // stand run a timeline, and starting one by mis-clicking a list is how
       // a purge fires during a fill.
       dataset: { style: seq.style, seqId: seq.id, needsShift: 'true' },
-      title: `${seq.description || seq.name}\nHold SHIFT and click to run.`,
+      title: `${seq.description || seq.name}\n${seq.usePandaAutosequencer ? 'Runs on Panda. Stop disarms and safes the stand.\n' : ''}Hold SHIFT and click to run.`,
       onclick: (e) => runSequence(seq, e),
     },
       el('span.seq-dot'),

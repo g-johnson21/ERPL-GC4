@@ -695,6 +695,11 @@
             ],
             "description": "How the editor presents step times. Steps are always STORED as absolute t; 'relative' only changes how you type them in (as the gap from the previous step)."
           },
+          "usePandaAutosequencer": {
+            "type": "boolean",
+            "default": false,
+            "description": "Run valve steps on Panda after explicitly sending and confirming the config. Requires ARM. Stop disarms and safes the stand."
+          },
           "abortConditions": {
             "type": "array",
             "description": "Evaluated every tick while the sequence runs. Any trip aborts the stand.",

@@ -170,6 +170,8 @@ export class PandaDriver {
     this.ptOffsets = { L: null, F: null };
     this.ptTareConfirmedAt = 0;
     this.ptTareError = null;
+    this.sequence = { command: null, phase: 'idle', nextItem: 0, error: null };
+    this.sequencePending = null;
   }
 
   async init(config) {
@@ -200,8 +202,9 @@ export class PandaDriver {
     this.port.on('error', (err) => {
       console.error('[panda] error:', err.message);
       this.connected = false;
+      this.sequence.command = null;
     });
-    this.port.on('close', () => { this.connected = false; });
+    this.port.on('close', () => { this.connected = false; this.sequence.command = null; });
 
     this.watchdog = setInterval(() => {
       if (Date.now() - this.lastRxAt > RX_STALE_MS) this.connected = false;
@@ -242,10 +245,15 @@ export class PandaDriver {
   }
 
   onLine(line) {
+    // A link interruption invalidates RAM config knowledge, including resets.
+    if (this.lastRxAt && Date.now() - this.lastRxAt > RX_STALE_MS) this.sequence.command = null;
     this.lastRxAt = Date.now();
     if (!this.firstRxAt) this.firstRxAt = this.lastRxAt;
     this.connected = true;
     this.rxCount++;
+
+    if (line.startsWith('SEQ_')) return this.onSequenceLine(line);
+    if (line.startsWith('Panda Initialized!')) this.sequence.command = null;
 
     // Prefix first, comma last. A board reporting a single channel sends
     // "p0.188" with no comma at all, and a CFG_PUSH event carries commas in
@@ -679,6 +687,77 @@ export class PandaDriver {
 
   // ------------------------------------------------------------ outbound ----
 
+  sequenceStatus() {
+    return { ...this.sequence, connected: this.connected && Date.now() - this.lastRxAt <= RX_STALE_MS,
+      pending: Boolean(this.sequencePending) };
+  }
+
+  async sequenceUpload(command) {
+    if (this.sequencePending || ['starting', 'running'].includes(this.sequence.phase)) {
+      return { ok: false, error: 'Panda sequence is running or an upload is pending' };
+    }
+    if (!this.sequenceStatus().connected) return { ok: false, error: 'Panda is not connected' };
+    this.sequence = { command: null, phase: 'idle', nextItem: 0, error: null };
+    return new Promise((resolve) => {
+      const finish = (result) => {
+        clearTimeout(timer);
+        this.sequencePending = null;
+        resolve(result);
+      };
+      const timer = setTimeout(() => finish({ ok: false, error: 'Panda did not acknowledge the sequence config; send it again' }), 3000);
+      this.sequencePending = { command, finish };
+      try {
+        if (!this.send(command)) finish({ ok: false, error: 'Panda serial port is not writable' });
+      } catch (err) { finish({ ok: false, error: err.message }); }
+    });
+  }
+
+  sequenceStart(command) {
+    const status = this.sequenceStatus();
+    if (!status.connected || status.pending || status.command !== command || ['starting', 'running'].includes(status.phase)) {
+      return { ok: false, error: 'Send this sequence config to Panda and wait for confirmation before running' };
+    }
+    this.sequence = { command, phase: 'starting', nextItem: 0, error: null };
+    try {
+      const result = this.bbSend(() => 'f');
+      if (!result.ok) this.sequence.phase = 'idle';
+      return result;
+    } catch (err) {
+      this.sequence.phase = 'idle';
+      return { ok: false, error: err.message };
+    }
+  }
+
+  onSequenceLine(line) {
+    const ack = /^SEQ_ACK:count=(\d+),raw=(.+)$/.exec(line);
+    if (ack) {
+      const pending = this.sequencePending;
+      const matches = pending && ack[2] === pending.command && Number(ack[1]) === pending.command.split(',').length;
+      this.sequence.command = matches ? ack[2] : null;
+      pending?.finish(matches ? { ok: true, command: ack[2] } : { ok: false, error: 'Panda echoed a different sequence config' });
+    } else if (line.startsWith('SEQ_ERROR:')) {
+      this.sequence.error = line.slice(10).trim();
+      this.sequence.phase = 'error';
+      this.sequence.command = null;
+      this.sequencePending?.finish({ ok: false, error: this.sequence.error });
+    } else if (line.startsWith('SEQ_EXEC_START:')) {
+      if (this.sequence.phase === 'starting') this.sequence.phase = 'running';
+    } else if (line.startsWith('SEQ_STEP:')) {
+      const step = /^SEQ_STEP:index=(\d+),/.exec(line);
+      if (step && ['starting', 'running'].includes(this.sequence.phase)) {
+        this.sequence.phase = 'running';
+        this.sequence.nextItem = Number(step[1]) + 1;
+      }
+    } else if (line === 'SEQ_EXEC_COMPLETE') {
+      if (['starting', 'running'].includes(this.sequence.phase)) this.sequence.phase = 'complete';
+    } else if (line.startsWith('SEQ_ABORT:')) {
+      this.sequence.phase = 'aborted';
+    } else if (line.startsWith('SEQ_READY:') && line.slice(10) !== this.sequence.command) {
+      this.sequence.command = null;
+    }
+    this.onEvent(line, line.startsWith('SEQ_ERROR:') ? 'error' : 'info');
+  }
+
   send(line) {
     if (!this.port?.writable) return false;
     this.port.write(line + '\n');
@@ -711,6 +790,7 @@ export class PandaDriver {
   }
 
   safeAll() {
+    this.sequence.phase = 'aborted';
     // Stop the regulator before dropping the outputs. 'r' triggers the
     // firmware's own forceSafe() across both sides, but a side left in SUS
     // would resume the moment the board is re-armed, so say it explicitly
