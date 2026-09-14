@@ -203,6 +203,11 @@
         "armTimeoutWarningSeconds": {
           "type": "number",
           "minimum": 0
+        },
+        "controlPin": {
+          "type": "string",
+          "pattern": "^([0-9]{4,12})?$",
+          "description": "PIN a browser must enter before the control port serves any page or API. 4–12 digits; \"\" runs the port open. Sessions last 24 h or until the server restarts, and repeated wrong guesses lock the address out. The spectator port never asks for it. --pin / GC_PIN on the command line override this field."
         }
       }
     },
@@ -554,7 +559,7 @@
           },
           "abortAbove": {
             "type": "number",
-            "description": "HOST SUPERVISORY, no board equivalent. Either the board's PT or this controller's sensor above this latches a stand-wide ABORT and sends a per-side abort. Omit for no threshold. Starting value only: adjustable from the actuation screens while armed."
+            "description": "HOST SUPERVISORY, no board equivalent. Either the board's PT or this controller's sensor above this latches a stand-wide ABORT and sends a per-side abort. Omit for no threshold. SET HERE ONLY: it is not on the bang-bang card and /api/controller refuses it, because a knob sitting among board-enforced settings read as though the board were holding this one too. Takes effect on a config reload."
           },
           "side": {
             "type": "string",
@@ -774,6 +779,18 @@
                 },
                 "deadband": {
                   "type": "number"
+                },
+                "maxOpenMs": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 120000,
+                  "description": "Bang-bang: maximum duration of each valve opening in milliseconds. 0 disables the pulse limit; omit to leave unchanged."
+                },
+                "minIntervalMs": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 120000,
+                  "description": "Bang-bang: minimum dwell between valve state transitions in milliseconds. 0 disables dwell; omit to leave unchanged."
                 },
                 "message": {
                   "type": "string"

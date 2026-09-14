@@ -340,6 +340,8 @@ function describeStep(s) {
       if (s.enabled !== undefined) bits.push(s.enabled ? 'enable' : 'disable');
       if (s.setpoint !== undefined) bits.push(`sp ${s.setpoint}`);
       if (s.deadband !== undefined) bits.push(`db ${s.deadband}`);
+      if (s.maxOpenMs !== undefined) bits.push(`max open ${s.maxOpenMs} ms`);
+      if (s.minIntervalMs !== undefined) bits.push(`dwell ${s.minIntervalMs} ms`);
       // Board overrides. Not offered in the editor above, but a hand-written
       // step may carry them and the timeline must not render them as nothing.
       if (s.vent !== undefined) bits.push(s.vent ? 'vent OPEN' : 'vent closed');
@@ -417,7 +419,8 @@ function stepRow(seq, step, index, relative) {
     onchange: (e) => {
       step.action = e.target.value;
       // Drop fields that no longer apply so the saved JSON stays clean.
-      for (const k of ['target', 'state', 'enabled', 'setpoint', 'deadband', 'message']) delete step[k];
+      for (const k of ['target', 'state', 'enabled', 'setpoint', 'deadband',
+                       'maxOpenMs', 'minIntervalMs', 'message']) delete step[k];
       if (step.action === 'valve') {
         step.target = draft.valves?.[0]?.id;
         step.state = 'closed';
@@ -509,7 +512,15 @@ function settingCell(step) {
         el('option', { value: 'false', selected: step.enabled === false ? '' : null, text: 'Disable' })
       ),
       optionalNumber(step, 'setpoint', `Setpoint${units ? ` (${units})` : ''}`),
-      optionalNumber(step, 'deadband', 'Deadband ±')
+      optionalNumber(step, 'deadband', 'Deadband ±'),
+      optionalNumber(step, 'maxOpenMs', 'Max open (ms)', {
+        min: 0, max: 120000, step: 1, width: '136px',
+        title: 'Maximum duration of each valve opening, in milliseconds. Blank = no change; 0 = no limit.',
+      }),
+      optionalNumber(step, 'minIntervalMs', 'Dwell (ms)', {
+        min: 0, max: 120000, step: 1, width: '136px',
+        title: 'Minimum dwell between valve state transitions, in milliseconds. Blank = no change; 0 = no dwell.',
+      })
     );
   }
 
@@ -527,20 +538,27 @@ function settingCell(step) {
 }
 
 /** A number input that removes the key entirely when left blank. */
-function optionalNumber(step, key, placeholder) {
+function optionalNumber(step, key, placeholder, options = {}) {
   return el('input', {
     type: 'number',
     class: 'cell-input mono',
-    style: { width: '104px' },
+    style: { width: options.width ?? '104px' },
     placeholder,
-    title: placeholder,
+    title: options.title ?? placeholder,
+    'aria-label': placeholder,
+    min: options.min,
+    max: options.max,
+    step: options.step,
     value: step[key] ?? '',
     onchange: (e) => {
       const raw = e.target.value.trim();
       if (raw === '') delete step[key];
       else {
         const v = Number(raw);
-        if (Number.isFinite(v)) step[key] = v;
+        if (Number.isFinite(v) &&
+            (options.min === undefined || v >= options.min) &&
+            (options.max === undefined || v <= options.max) &&
+            (options.step !== 1 || Number.isInteger(v))) step[key] = v;
         else { e.target.value = step[key] ?? ''; return; }
       }
       markDirty();
@@ -748,6 +766,8 @@ function generalTab() {
       numberField('CSV rate (Hz)', rec.rateHz, (v) => { rec.rateHz = v; markDirty(); }, false, 1, 500),
       textField('Recording directory', rec.directory, (v) => { rec.directory = v; markDirty(); }),
       textField('Default test name', rec.defaultTestName, (v) => { rec.defaultTestName = v; markDirty(); }),
+      textField('Control PIN (4–12 digits, blank = none)', safety.controlPin,
+        (v) => { safety.controlPin = v.trim(); markDirty(); }),
       numberField('Tank height (in)', tankLevel.heightIn ?? 70,
         (v) => { tankLevel.heightIn = v; markDirty(); }, false, 1, 500),
       numberField('Tank level smoothing (s)', tankLevel.smoothingSeconds ?? 5,

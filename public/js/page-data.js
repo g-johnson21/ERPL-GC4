@@ -295,17 +295,26 @@ function buildTable(host, groups) {
   // bang-bang transducer, and it is sized for the longer of the two.
   const widths = ['20%', '92px', '112px', '58px', '128px', '96px', '96px', '120px', '76px', '84px'];
   if (tare) widths.push('108px');
-  const cols = el('colgroup');
-  for (const w of widths) cols.append(el('col', { style: { width: w } }));
-  table.append(cols);
-
   // Description first, tag second — the same order as the cards, so switching
   // views does not mean re-learning where to look.
   const headers = ['Description', 'Tag', 'Group', 'Value', 'Rate', 'Min', 'Max', 'Range', 'Ch', 'Status'];
   if (tare) headers.push('Tare');
+  // Columns a phone does without: the group is the banner row above, the
+  // range and channel are reference, and the status is already the colour
+  // of the value. `opt` is what the narrow-screen rules in components.css
+  // hide.
+  const optional = new Set(['Group', 'Range', 'Ch', 'Status']);
+  const colClass = (h) => optional.has(h) ? 'opt' : '';
+  const cols = el('colgroup');
+  widths.forEach((w, i) => cols.append(el('col', { class: colClass(headers[i]), style: { width: w } })));
+  table.append(cols);
+
   table.append(el('thead', {}, el('tr', {},
     headers.map((h) =>
-      el('th', { text: h, class: ['Value', 'Rate', 'Min', 'Max', 'Ch'].includes(h) ? 'num' : '' })
+      el('th', {
+        text: h,
+        class: [['Value', 'Rate', 'Min', 'Max', 'Ch'].includes(h) ? 'num' : '', colClass(h)].join(' ').trim(),
+      })
     )
   )));
 
@@ -322,14 +331,14 @@ function buildTable(host, groups) {
       tbody.append(el('tr', { id: `tr-${s.id}` },
         el('td', { style: { fontWeight: '650' }, text: s.name }),
         el('td.mono.muted', { text: s.id }),
-        el('td.muted', { text: group.label }),
+        el('td.muted.opt', { text: group.label }),
         el('td.num', { id: `tv-${s.id}`, text: '––––' }),
         el('td.num.s-rate', { id: `trate-${s.id}`, dataset: { dir: 'flat' }, text: '' }),
         el('td.num.muted', { id: `tmin-${s.id}`, text: '––' }),
         el('td.num.muted', { id: `tmax-${s.id}`, text: '––' }),
-        el('td.mono.muted', { text: `${s.min} … ${s.max} ${s.units}` }),
-        el('td.num.muted', { text: channelLabel(s), title: channelTitle(s) }),
-        el('td', { id: `ts-${s.id}`, text: '–' }),
+        el('td.mono.muted.opt', { text: `${s.min} … ${s.max} ${s.units}` }),
+        el('td.num.muted.opt', { text: channelLabel(s), title: channelTitle(s) }),
+        el('td.opt', { id: `ts-${s.id}`, text: '–' }),
         tare ? el('td.tare-cell', {}, tareControls(s)) : null
       ));
     }
@@ -393,7 +402,7 @@ function update() {
       $(`#tmax-${sensor.id}`).textContent = fmtValue(stats.max, sensor.decimals);
       const st = $(`#ts-${sensor.id}`);
       st.textContent = status.toUpperCase();
-      st.className = `st-${status}`;
+      st.className = `st-${status} opt`;
     }
   }
 }

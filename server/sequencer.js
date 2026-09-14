@@ -197,10 +197,13 @@ export class Sequencer {
       case 'bangbang': {
         // Whatever the controller lets an operator retune from the control
         // screen, a sequence step may also set — otherwise a step could not
-        // reproduce a configuration an operator can dial in by hand.
+        // reproduce a configuration an operator can dial in by hand. The
+        // converse holds too, which is why `abortAbove` is absent: it is not on
+        // the screen either, and a countdown that moved the stand-wide abort
+        // threshold on its way past would be the least visible way to do it.
         const patch = {};
         for (const key of ['enabled', 'setpoint', 'deadband', 'maxOpenMs', 'minIntervalMs',
-                           'maxOpenSeconds', 'abortAbove', 'ventTrigger', 'ventAuto',
+                           'maxOpenSeconds', 'ventTrigger', 'ventAuto',
                            'vent', 'abort']) {
           if (step[key] !== undefined) patch[key] = step[key];
         }

@@ -55,6 +55,17 @@ export function mountHeader(activePage) {
       'aria-label': 'Toggle theme',
       onclick: () => { toggleTheme(); syncThemeIcon(); },
     }),
+    // Lock the station: end this browser's session and go back to the PIN
+    // prompt. Only where there is a PIN to come back through — a lock that
+    // reopens on the next click is a lie.
+    bus.auth?.required
+      ? el('button.icon-btn#lock-btn', {
+          title: 'Lock this station — the PIN will be needed to return (other stations stay unlocked)',
+          'aria-label': 'Lock this station',
+          html: icon('lock'),
+          onclick: () => bus.lock(),
+        })
+      : null,
     // Nothing to toggle when there is no sidebar to toggle.
     spectator ? null : el('button.icon-btn#sidebar-toggle', {
       title: 'Show / hide control sidebar (\\)',
@@ -650,7 +661,8 @@ function controllerCard(c) {
     min: c.setpointMin,
     max: c.setpointMax,
     step: c.setpointStep,
-    onchange: (e) => commitNumber(e.target, c.setpointMin, c.setpointMax, (v) => bus.setController(c.id, { setpoint: v })),
+    dataset: { configKey: 'setpoint' },
+    oninput: (e) => stageControllerInput(c, e.target),
   });
 
   const deadbandInput = el('input', {
@@ -660,7 +672,8 @@ function controllerCard(c) {
     min: c.deadbandMin,
     max: c.deadbandMax,
     step: 1,
-    onchange: (e) => commitNumber(e.target, c.deadbandMin, c.deadbandMax, (v) => bus.setController(c.id, { deadband: v })),
+    dataset: { configKey: 'deadband' },
+    oninput: (e) => stageControllerInput(c, e.target),
   });
 
   // Gated on `click`, not `change`: a change event carries no modifier keys,
@@ -680,7 +693,19 @@ function controllerCard(c) {
     style: group?.color ? { '--group-color': group.color } : {},
   },
     el('div.bb-head', {},
-      el('span.bb-name', { text: c.name }),
+      el('span.bb-name', { text: c.name, title: c.name }),
+      el('span.bb-sub', {
+        id: `bb-src-${c.id}`,
+        title: 'The board regulates on its OWN transducer. The DAQ channel below it is a\n'
+             + 'second sensor on the same tank, and the two can legitimately disagree.',
+        text: `board PT → ${c.valve}`,
+      }),
+      el('button.tare-chip.bb-push', {
+        id: `bb-push-${c.id}`, text: 'PUSH\nCONFIG', disabled: true,
+        'aria-label': 'Push config to Panda',
+        title: 'Push config to Panda — send the pending settings for this controller together.',
+        onclick: () => pushControllerConfig(c),
+      }),
       // Which board bus this is. The letter is the one that goes on the wire,
       // so an operator reading a raw command log can match them up.
       el('span.bb-side', {
@@ -688,28 +713,19 @@ function controllerCard(c) {
         title: c.side
           ? `The board's ${c.side === 'L' ? 'LOX' : 'Fuel'} bus. Commands go out as B${c.side}/b${c.side}/x${c.side}.`
           : 'No board side configured — this controller cannot be pushed to the board.',
-      })
-    ),
-    el('div.bb-sub', {},
-      el('span', {
-        id: `bb-src-${c.id}`,
-        title: 'The board regulates on its OWN transducer. The DAQ channel below it is a\n'
-             + 'second sensor on the same tank, and the two can legitimately disagree.',
-        text: `board PT → ${c.valve}`,
       }),
-      // Zeroing the board's own transducer. It sits here, on the line that
-      // names that transducer, rather than with the DAQ tares on the Data
-      // page — this is a different sensor, it lives in the board's EEPROM,
-      // and it is the number the regulator acts on.
-      el('button.tare-chip#bb-tare-' + c.id, {
-        text: 'TARE',
-        onclick: () => bus.setController(c.id, { ptTare: true }),
-      }),
-      el('button.tare-chip.clear.hidden#bb-untare-' + c.id, {
-        text: '✕',
-        title: "Clear this side's offset. The other side is left alone.",
-        onclick: () => bus.setController(c.id, { ptTareClear: true }),
-      })
+      el('div.bb-config-tools', {},
+        // This tare zeros the board's own transducer, which the regulator uses.
+        el('button.tare-chip#bb-tare-' + c.id, {
+          text: 'TARE',
+          onclick: () => bus.setController(c.id, { ptTare: true }),
+        }),
+        el('button.tare-chip.clear.hidden#bb-untare-' + c.id, {
+          text: '✕',
+          title: "Clear this side's offset. The other side is left alone.",
+          onclick: () => bus.setController(c.id, { ptTareClear: true }),
+        })
+      )
     ),
     el('div.bb-readout', {},
       // Reserved width keeps the units label and the state badge from
@@ -735,6 +751,11 @@ function controllerCard(c) {
       el('div', {}, el('label.field', { for: `bb-db-${c.id}`, text: 'Deadband ±' }), deadbandInput)
     ),
     limitsPanel(c, sensor),
+    el('div.bb-config-actions', {},
+      el('span.bb-config-status', {
+        id: `bb-config-status-${c.id}`, text: 'No pending changes', role: 'status',
+      })
+    ),
     // The single most consequential control on the card — it hands a tank to
     // a regulator — and it used to be the smallest thing on it, a 34px switch
     // indistinguishable from the auto-vent checkbox two rows up. Full width,
@@ -785,7 +806,15 @@ function limitsPanel(c, sensor) {
   details.append(
     el('summary', {},
       el('span.bb-lim-title', { text: 'Limits & trips' }),
-      el('span.bb-lim-sum', { id: `bb-limsum-${c.id}`, text: '' })
+      // The summary still reports `abort`, which no longer has a box below it.
+      // That is the point: the threshold is a live trip and an operator has to
+      // be able to read what it is set to, but it is not something to retune
+      // from the actuation screen -- see LIMIT_FIELDS.
+      el('span.bb-lim-sum', {
+        id: `bb-limsum-${c.id}`,
+        text: '',
+        title: 'The abort threshold is set in stand.json, not here.',
+      })
     ),
     el('div.bb-lim-grid', {},
       LIMIT_FIELDS.map((f) => {
@@ -804,26 +833,11 @@ function limitsPanel(c, sensor) {
             max: f.max,
             step: f.step,
             placeholder: f.nullable ? 'off' : undefined,
-            onchange: (e) => commitControllerField(c, f.key, e.target, { nullable: f.nullable }),
+            dataset: { configKey: f.key, nullable: String(Boolean(f.nullable)) },
+            oninput: (e) => stageControllerInput(c, e.target),
           })
         );
-      }),
-      el('div', {},
-        el('label.field', {
-          for: `bb-abortAbove-${c.id}`,
-          title: 'GROUND STATION — no board equivalent.\n'
-               + 'Either transducer above this latches a stand-wide ABORT and aborts this side.\n'
-               + 'Needs the link. Leave empty for no threshold.',
-          text: `Abort above (${sensor?.units || ''})`,
-        }),
-        el('input', {
-          type: 'number',
-          id: `bb-abortAbove-${c.id}`,
-          placeholder: 'off',
-          step: 1,
-          onchange: (e) => commitControllerField(c, 'abortAbove', e.target, { nullable: true }),
-        })
-      )
+      })
     ),
     // Arming auto-vent is a checkbox rather than a number, because it is a
     // yes/no decision about whether the board may vent a tank unprompted.
@@ -835,11 +849,8 @@ function limitsPanel(c, sensor) {
       el('input', {
         type: 'checkbox',
         id: `bb-ventAuto-${c.id}`,
-        onchange: (e) => {
-          bus.setController(c.id, { ventAuto: e.target.checked }).then((res) => {
-            if (!res.ok) e.target.checked = !e.target.checked;
-          });
-        },
+        dataset: { configKey: 'ventAuto' },
+        onchange: (e) => stageControllerInput(c, e.target),
       }),
       el('span', { text: 'Board may auto-vent' })
     ),
@@ -850,11 +861,8 @@ function limitsPanel(c, sensor) {
       el('input', {
         type: 'checkbox',
         id: `bb-predictive-${c.id}`,
-        onchange: (e) => {
-          bus.setController(c.id, { predictive: e.target.checked }).then((res) => {
-            if (!res.ok) e.target.checked = !e.target.checked;
-          });
-        },
+        dataset: { configKey: 'predictive' },
+        onchange: (e) => stageControllerInput(c, e.target),
       }),
       el('span.track'),
       el('span', { text: 'Predictive valve shutoff' })
@@ -863,34 +871,68 @@ function limitsPanel(c, sensor) {
   return details;
 }
 
-/**
- * Send one limit to the server and let the server's answer stand.
- *
- * The server owns the bounds and the cross-check between the pulse limit and
- * the leak trip, so a rejected edit is snapped back to the running value
- * rather than left on screen looking applied.
- */
-function commitControllerField(c, key, input, { nullable = false } = {}) {
-  const text = input.value.trim();
-  let value;
-  if (nullable && text === '') {
-    value = null;
-  } else {
-    value = Number(text);
-    if (!Number.isFinite(value)) {
-      toast('Enter a number', 'error');
-      input.value = runtimeField(c.id, key);
-      return;
-    }
-  }
-  bus.setController(c.id, { [key]: value }).then((res) => {
-    if (!res.ok) input.value = runtimeField(c.id, key);
-  });
+// Drafts stay in this card, separate from runtime telemetry. Only edited fields
+// are sent, so a sequence or another operator can still update untouched values.
+function controllerConfigInputs(c) {
+  return [...$(`#bb-card-${c.id}`).querySelectorAll('[data-config-key]')];
 }
 
-function runtimeField(id, key) {
-  const v = bus.state?.controllers?.[id]?.[key];
-  return v === null || v === undefined ? '' : v;
+function stageControllerInput(c, input) {
+  input.dataset.dirty = 'true';
+  updateControllerDraft(c);
+}
+
+function updateControllerDraft(c) {
+  const card = $(`#bb-card-${c.id}`);
+  if (!card) return;
+  const pending = controllerConfigInputs(c).some((input) => input.dataset.dirty === 'true');
+  const pushing = card.dataset.pushing === 'true';
+  const button = $(`#bb-push-${c.id}`);
+  button.disabled = !pending || pushing || !bus.state?.controllers?.[c.id]?.side;
+  button.textContent = pushing ? 'PUSHING…' : 'PUSH\nCONFIG';
+  const status = $(`#bb-config-status-${c.id}`);
+  status.textContent = pushing ? 'Sending settings…' : pending ? 'Pending changes — not pushed' : 'No pending changes';
+  status.dataset.pending = String(pending);
+}
+
+async function pushControllerConfig(c) {
+  const card = $(`#bb-card-${c.id}`);
+  if (card.dataset.pushing === 'true') return;
+  const inputs = controllerConfigInputs(c);
+  const edited = inputs.filter((input) => input.dataset.dirty === 'true');
+  if (!edited.length) return;
+  const patch = {};
+  for (const input of edited) {
+    const key = input.dataset.configKey;
+    if (input.type === 'checkbox') {
+      patch[key] = input.checked;
+    } else if (input.dataset.nullable === 'true' && input.value === '' && !input.validity.badInput) {
+      patch[key] = null;
+    } else {
+      // Keep invalid drafts visible and send nothing until the whole batch is
+      // valid. Cross-field checks (pulse/trip, auto-vent) remain on the server.
+      if (input.value.trim() === '' || !Number.isFinite(input.valueAsNumber) ||
+          input.validity.rangeUnderflow || input.validity.rangeOverflow || input.validity.badInput) {
+        toast(`Enter a valid ${key} within the field's limits`, 'error');
+        input.focus();
+        return;
+      }
+      patch[key] = input.valueAsNumber;
+    }
+  }
+  card.dataset.pushing = 'true';
+  updateSidebar();
+  try {
+    const res = await bus.setController(c.id, patch);
+    if (res.ok) {
+      for (const input of edited) delete input.dataset.dirty;
+      toast(`${c.name}: config sent to Panda`, 'success');
+    }
+    // A refusal keeps the draft intact so the operator can correct and retry.
+  } finally {
+    delete card.dataset.pushing;
+    updateSidebar();
+  }
 }
 
 /** One-line rendering of the limits, for the collapsed summary row. */
@@ -912,14 +954,6 @@ function limitsOpen() {
 }
 function saveLimitsOpen(open) {
   try { localStorage.setItem(LIMITS_OPEN_KEY, String(open)); } catch { /* ignore */ }
-}
-
-function commitNumber(input, min, max, apply) {
-  const v = Number(input.value);
-  if (!Number.isFinite(v)) { toast('Enter a number', 'error'); return; }
-  const clamped = Math.min(max ?? Infinity, Math.max(min ?? -Infinity, v));
-  if (clamped !== v) input.value = clamped;
-  apply(clamped);
 }
 
 // ------------------------------------------------------------- SEQUENCES --
@@ -1193,35 +1227,33 @@ function updateSidebar() {
       needle.style.left = `${Math.max(0, Math.min(100, ((needleAt - lo) / span) * 100))}%`;
     }
 
-    const sp = $(`#bb-sp-${c.id}`);
-    if (sp && document.activeElement !== sp) sp.value = rt.setpoint;
-    const db = $(`#bb-db-${c.id}`);
-    if (db && document.activeElement !== db) db.value = rt.deadband;
-
-    // Limits are mirrored the same way as the setpoint: never overwrite the
-    // box someone is typing in, so a sequence step or a second operator
-    // changing the value cannot yank a half-typed number away.
-    for (const key of ['maxOpenMs', 'minIntervalMs', 'maxOpenSeconds', 'abortAbove', 'ventTrigger']) {
-      const input = $(`#bb-${key}-${c.id}`);
-      if (input && document.activeElement !== input) input.value = runtimeField(c.id, key);
+    // Preserve edited fields across every telemetry frame, including after
+    // focus moves to another setting. Untouched fields continue to track live
+    // settings. Freeze the config inputs only while their request is in flight.
+    const card = $(`#bb-card-${c.id}`);
+    const pushing = card?.dataset.pushing === 'true';
+    if (card) for (const input of controllerConfigInputs(c)) {
+      input.disabled = pushing;
+      if (input.dataset.dirty === 'true' || document.activeElement === input) continue;
+      const value = rt[input.dataset.configKey];
+      if (input.type === 'checkbox') input.checked = Boolean(value);
+      else input.value = value ?? '';
     }
-    const ventAuto = $(`#bb-ventAuto-${c.id}`);
-    if (ventAuto && document.activeElement !== ventAuto) ventAuto.checked = Boolean(rt.ventAuto);
+    updateControllerDraft(c);
 
     const pred = $(`#bb-predictive-${c.id}`);
     if (pred && document.activeElement !== pred) {
-      pred.checked = Boolean(rt.predictive);
       // The board refuses `e<side>1` while disarmed, so the control mirrors
       // that: unavailable when it could only be turned ON, always available
       // when it could be turned OFF. Same shape as the enable toggle above.
-      pred.disabled = !rt.side || (!s.armed && !rt.predictive);
+      pred.disabled = pushing || !rt.side || (!s.armed && !pred.checked);
       const row = $(`#bb-predrow-${c.id}`);
       if (row) {
         row.title = rt.predictive
           ? `The board is closing ${c.valve} on predicted overshoot rather than at the band edge.\n`
-            + 'Click to return it to plain hysteresis.'
+            + 'Uncheck and push config to return it to plain hysteresis.'
           : s.armed
-            ? 'Let the board close the press valve early, on where the pressure is headed,\n'
+            ? 'Check and push config to let the board close the press valve early, on where the pressure is headed,\n'
               + 'so the rise after it shuts lands inside the band instead of above it.'
             : 'The board only accepts this while the stand is ARMED.';
       }
@@ -1310,6 +1342,9 @@ export async function bootPage(pageId, { sidebar = true } = {}) {
   setShiftRequired(bus.config.ui?.requireShiftToActuate !== false);
   document.title = `${bus.config.ui.brand} · ${pageLabel(pageId)}`;
 
+  // Named on <body> so the stylesheet can lay a spectator page out
+  // differently — a one-link nav is not worth a row on a phone.
+  document.body.classList.toggle('spectator', bus.spectator);
   mountHeader(pageId);
 
   const body = el('div.app-body');

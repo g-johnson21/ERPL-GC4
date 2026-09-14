@@ -15,6 +15,24 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { bus } from './bus.js';
 
+test('a controller config batch returns the command response and refreshes state', async (t) => {
+  const previousState = bus.state;
+  const state = { controllers: { 'bb-ox': { setpoint: 500, deadband: 20 } } };
+  const patch = { setpoint: 500, deadband: 20 };
+  t.mock.method(globalThis, 'fetch', async (path, options) => {
+    assert.equal(path, '/api/controller');
+    assert.deepEqual(JSON.parse(options.body), { id: 'bb-ox', ...patch });
+    return { status: 200, json: async () => ({ ok: true, state }) };
+  });
+  try {
+    const result = await bus.setController('bb-ox', patch);
+    assert.equal(result.ok, true);
+    assert.equal(bus.state, state);
+  } finally {
+    bus.state = previousState;
+  }
+});
+
 /** N seconds of samples at 20 Hz, ending now, on a straight line of `slope`. */
 function ramp(slope, { seconds = 3, start = 500, hz = 20 } = {}) {
   const now = Date.now();

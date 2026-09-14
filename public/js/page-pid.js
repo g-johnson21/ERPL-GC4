@@ -108,10 +108,15 @@ for (const valve of bus.config.valves) {
   if (!valve.pid) continue;
   const group = bus.group(valve.group);
   const node = renderValve(valve, group?.color || '#64748b');
-  node.addEventListener('click', (e) => onValveActivate(valve, e));
-  node.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onValveActivate(valve, e); }
-  });
+  if (bus.spectator) {
+    node.removeAttribute('tabindex');
+    node.setAttribute('role', 'img');
+  } else {
+    node.addEventListener('click', (e) => onValveActivate(valve, e));
+    node.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onValveActivate(valve, e); }
+    });
+  }
   layerValves.append(node);
 }
 
@@ -127,6 +132,7 @@ for (const sensor of bus.config.sensors) {
 
 /** Commands fire immediately, and away from safe needs SHIFT — see page-grid.js. */
 function onValveActivate(valve, event) {
+  if (bus.spectator) return;
   const current = bus.valveState(valve.id);
   const next = current === 'open' ? 'closed' : 'open';
   const gate = bus.canCommand(valve.id, next);
@@ -273,6 +279,7 @@ function buildToolbar() {
  * bang-bang loop regulates on moves.
  */
 function levelTareChips() {
+  if (bus.spectator) return [];
   if (!P.components.some((c) => c.type === 'tank' && c.level)) return [];
   return [
     el('button.tare-chip#pid-level-tare', {
@@ -441,13 +448,13 @@ applyView();
 
 function wireSimControls() {
   const sim = bus.sim;
-  if (!sim || simWired || bus.spectator) return;
+  if (!sim || simWired) return;
   simWired = true;
-  stage.classList.add('sim-live');
+  if (!bus.spectator) stage.classList.add('sim-live');
 
   for (const [id, hand] of Object.entries(sim.manual || {})) {
     const node = componentNode(id);
-    if (!node) continue;
+    if (!node || bus.spectator) continue;
     node.classList.add('sim-manual');
     node.setAttribute('tabindex', '0');
     node.setAttribute('role', 'button');
@@ -463,15 +470,16 @@ function wireSimControls() {
   for (const [id, reg] of Object.entries(sim.regulators || {})) {
     const node = componentNode(id);
     if (!node) continue;
+    // Set pressures remain visible on the read-only drawing.
+    const comp = P.components.find((c) => c.id === id);
+    const y = comp?.type === 'bottle' ? 18 : 36;
+    node.append(svgText('', { id: `simreg-${id}`, x: 0, y, class: 'pid-sublabel sim-set', 'text-anchor': 'middle' }));
+    if (bus.spectator) continue;
     node.classList.add('sim-reg');
     node.setAttribute('tabindex', '0');
     node.setAttribute('role', 'button');
     node.append(svgEl('title', {}, document.createTextNode(
       `${id} — ${reg.name}\nSimulator: click to set the pressure`)));
-    // The set pressure, drawn under the symbol's own label.
-    const comp = P.components.find((c) => c.id === id);
-    const y = comp?.type === 'bottle' ? 18 : 36;
-    node.append(svgText('', { id: `simreg-${id}`, x: 0, y, class: 'pid-sublabel sim-set', 'text-anchor': 'middle' }));
     const act = (e) => openRegulatorPopover(id, e);
     node.addEventListener('click', act);
     node.addEventListener('keydown', (e) => {
@@ -481,7 +489,7 @@ function wireSimControls() {
 
   // Say so on the legend, where a first-time operator looks for what the
   // colours mean and will look for what the clickable grey symbols mean.
-  $('.pid-legend')?.append(el('span.lg.sim-note', {}, el('i.sim-dot'), 'SIM: hand valves and regulators are live — click them'));
+  if (!bus.spectator) $('.pid-legend')?.append(el('span.lg.sim-note', {}, el('i.sim-dot'), 'SIM: hand valves and regulators are live — click them'));
 }
 
 function componentNode(id) {
@@ -613,11 +621,12 @@ function update() {
     if (label) label.textContent = state === 'open' ? valve.openLabel : valve.closedLabel;
 
     const next = state === 'open' ? 'closed' : 'open';
-    const gate = bus.canCommand(valve.id, next);
-    node.dataset.locked = String(!gate.ok);
+    const gate = bus.spectator ? { ok: false } : bus.canCommand(valve.id, next);
+    node.dataset.locked = String(!bus.spectator && !gate.ok);
     // Lights up while SHIFT is held — the same guard the Control Grid uses.
     node.dataset.needsShift = String(gate.ok && next !== valve.safeState);
 
+    node.setAttribute('aria-label', `${valve.name || valve.id}: ${state}`);
     updateCoil(valve, state);
   }
 

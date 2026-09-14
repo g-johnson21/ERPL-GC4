@@ -21,7 +21,7 @@
       "height": 19,
       "alt": "ERPL"
     },
-    "accent": "#1239d3",
+    "accent": "#1310d5",
     "defaultTheme": "dark",
     "gridColumns": 4,
     "sparklineSeconds": 60,
@@ -68,7 +68,9 @@
     "requireArmToActuate": true,
     "autoDisarmAfterSeconds": 0,
     "abortSequenceId": "seq-abort",
-    "armTimeoutWarningSeconds": 600
+    "armTimeoutWarningSeconds": 600,
+    "requireDisarmToEditConfig": false,
+    "controlPin": ""
   },
   "valveGroups": [
     {
@@ -370,32 +372,6 @@
     }
   ],
   "sensors": [
-    {
-      "id": "PT0",
-      "name": "Chamber",
-      "abbrev": "PT0",
-      "kind": "pressure",
-      "group": "misc",
-      "units": "psi",
-      "channel": 1,
-      "decimals": 1,
-      "min": 0,
-      "max": 1500,
-      "warnHigh": 1200,
-      "dangerHigh": 1380,
-      "calibration": {
-        "slope": 1,
-        "offset": 0
-      },
-      "pid": {
-        "x": 800,
-        "y": 840,
-        "lead": [
-          714,
-          812
-        ]
-      }
-    },
     {
       "id": "PT1",
       "name": "LOX GN2",
@@ -777,6 +753,32 @@
       }
     },
     {
+      "id": "PT0",
+      "name": "Chamber",
+      "abbrev": "PT0",
+      "kind": "pressure",
+      "group": "misc",
+      "units": "psi",
+      "channel": 1,
+      "decimals": 1,
+      "min": 0,
+      "max": 1500,
+      "warnHigh": 1200,
+      "dangerHigh": 1380,
+      "calibration": {
+        "slope": 1,
+        "offset": 0
+      },
+      "pid": {
+        "x": 800,
+        "y": 840,
+        "lead": [
+          714,
+          812
+        ]
+      }
+    },
+    {
       "id": "LC2",
       "name": "TLCB",
       "abbrev": "TLCB",
@@ -906,8 +908,8 @@
     },
     {
       "id": "TC4",
-      "name": "GOX External",
-      "abbrev": "GOXEXT",
+      "name": "Venturi",
+      "abbrev": "VENTURI",
       "kind": "temperature",
       "group": "temp",
       "units": "°F",
@@ -930,8 +932,8 @@
     },
     {
       "id": "TC5",
-      "name": "Chamber",
-      "abbrev": "CHAMBER",
+      "name": "Spare 5",
+      "abbrev": "TC5",
       "kind": "temperature",
       "group": "temp",
       "units": "°F",
@@ -946,8 +948,8 @@
     },
     {
       "id": "TC6",
-      "name": "Spare 6",
-      "abbrev": "TC6",
+      "name": "Fuel BB Solenoid",
+      "abbrev": "FUEL BB",
       "kind": "temperature",
       "group": "temp",
       "units": "°F",
@@ -962,8 +964,8 @@
     },
     {
       "id": "TC7",
-      "name": "Spare 7",
-      "abbrev": "TC7",
+      "name": "LOX BB Solenoid",
+      "abbrev": "LOX BB",
       "kind": "temperature",
       "group": "temp",
       "units": "°F",
@@ -978,8 +980,8 @@
     },
     {
       "id": "TC8",
-      "name": "Spare 8",
-      "abbrev": "TC8",
+      "name": "Chamber",
+      "abbrev": "CHAMBER",
       "kind": "temperature",
       "group": "temp",
       "units": "°F",
@@ -1098,11 +1100,12 @@
       ],
       "abortConditions": [],
       "hidden": false,
-      "duration": 1
+      "duration": 1,
+      "usePandaAutosequencer": false
     },
     {
       "id": "seq-hotfire",
-      "name": "HOT FIRE",
+      "name": "HOT FIRE (7.5s)",
       "abbrev": "HOT FIRE",
       "description": "Full burn. Pre-purge, ox lead, 5 s burn, cutoff and post-purge. This stand has no igniter channel — ignition is external.",
       "style": "danger",
@@ -1138,6 +1141,24 @@
           "state": "open"
         },
         {
+          "t": 1.5,
+          "action": "bangbang",
+          "target": "bb-fuel",
+          "setpoint": 870,
+          "deadband": 10,
+          "maxOpenMs": 500,
+          "minIntervalMs": 100
+        },
+        {
+          "t": 1.5,
+          "action": "bangbang",
+          "target": "bb-ox",
+          "setpoint": 904,
+          "deadband": 10,
+          "maxOpenMs": 500,
+          "minIntervalMs": 100
+        },
+        {
           "t": 8,
           "action": "log",
           "message": "CUTOFF"
@@ -1153,6 +1174,12 @@
           "action": "valve",
           "target": "MV-F",
           "state": "closed"
+        },
+        {
+          "t": 8.5,
+          "action": "bangbang",
+          "target": "*",
+          "enabled": false
         },
         {
           "t": 8.7,
@@ -1186,7 +1213,8 @@
       ],
       "hidden": false,
       "duration": 11.7,
-      "timeMode": "relative"
+      "timeMode": "absolute",
+      "usePandaAutosequencer": false
     },
     {
       "id": "seq-detank",
@@ -1561,6 +1589,30 @@
           "t": 0,
           "action": "log",
           "message": "Sequence start"
+        },
+        {
+          "t": 0,
+          "action": "valve",
+          "target": "SV-FPURGE",
+          "state": "open"
+        },
+        {
+          "t": 0,
+          "action": "valve",
+          "target": "SV-LOXPURGE",
+          "state": "open"
+        },
+        {
+          "t": 2,
+          "action": "valve",
+          "target": "SV-LOXPURGE",
+          "state": "closed"
+        },
+        {
+          "t": 2,
+          "action": "valve",
+          "target": "SV-FPURGE",
+          "state": "closed"
         }
       ],
       "hidden": false,
@@ -1578,25 +1630,146 @@
       "steps": [
         {
           "t": 0,
-          "action": "log",
-          "message": "Sequence start"
-        },
-        {
-          "t": 0,
           "action": "valve",
           "target": "SV-FBB",
           "state": "open"
         },
         {
-          "t": 0.2,
+          "t": 1,
+          "action": "valve",
+          "target": "SV-FBB",
+          "state": "closed"
+        },
+        {
+          "t": 2,
+          "action": "valve",
+          "target": "SV-FBB",
+          "state": "open"
+        },
+        {
+          "t": 3,
           "action": "valve",
           "target": "SV-FBB",
           "state": "closed"
         }
       ],
-      "timeMode": "relative",
+      "timeMode": "absolute",
+      "hidden": true,
+      "duration": 3,
+      "usePandaAutosequencer": true
+    },
+    {
+      "id": "seq-hotfire-copy",
+      "name": "HOT FIRE (5s)",
+      "abbrev": "HOT FIRE",
+      "description": "Full burn. Pre-purge, ox lead, 5 s burn, cutoff and post-purge. This stand has no igniter channel — ignition is external.",
+      "style": "danger",
+      "requiresArm": true,
+      "confirm": true,
+      "abortConditions": [],
+      "steps": [
+        {
+          "t": 0,
+          "action": "log",
+          "message": "HOT FIRE ARMED"
+        },
+        {
+          "t": 0,
+          "action": "log",
+          "message": "T-0.5 OX LEAD"
+        },
+        {
+          "t": 0,
+          "action": "valve",
+          "target": "MV-LOX",
+          "state": "open"
+        },
+        {
+          "t": 0.5,
+          "action": "log",
+          "message": "T-0 FUEL RUNLINE OPEN"
+        },
+        {
+          "t": 0.5,
+          "action": "valve",
+          "target": "MV-F",
+          "state": "open"
+        },
+        {
+          "t": 1.5,
+          "action": "bangbang",
+          "target": "bb-fuel",
+          "setpoint": 870,
+          "deadband": 10,
+          "maxOpenMs": 500,
+          "minIntervalMs": 100
+        },
+        {
+          "t": 1.5,
+          "action": "bangbang",
+          "target": "bb-ox",
+          "setpoint": 904,
+          "deadband": 10,
+          "maxOpenMs": 500,
+          "minIntervalMs": 100
+        },
+        {
+          "t": 5.5,
+          "action": "log",
+          "message": "CUTOFF"
+        },
+        {
+          "t": 5.5,
+          "action": "valve",
+          "target": "MV-LOX",
+          "state": "closed"
+        },
+        {
+          "t": 6,
+          "action": "valve",
+          "target": "MV-F",
+          "state": "closed"
+        },
+        {
+          "t": 6,
+          "action": "bangbang",
+          "target": "*",
+          "enabled": false
+        },
+        {
+          "t": 6.2,
+          "action": "valve",
+          "target": "SV-FPURGE",
+          "state": "open"
+        },
+        {
+          "t": 6.2,
+          "action": "valve",
+          "target": "SV-LOXPURGE",
+          "state": "open"
+        },
+        {
+          "t": 9.2,
+          "action": "valve",
+          "target": "SV-FPURGE",
+          "state": "closed"
+        },
+        {
+          "t": 9.2,
+          "action": "valve",
+          "target": "SV-LOXPURGE",
+          "state": "closed"
+        },
+        {
+          "t": 9.2,
+          "action": "log",
+          "message": "HOT FIRE COMPLETE"
+        }
+      ],
       "hidden": false,
-      "duration": 0.2
+      "timeMode": "relative",
+      "usePandaAutosequencer": false,
+      "duration": 9.2
     }
   ],
   "recording": {
@@ -1870,7 +2043,7 @@
         "x": 620,
         "y": 172,
         "w": 84,
-        "h": 70,
+        "h": 84,
         "label": "AIR COMP"
       },
       {

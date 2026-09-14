@@ -149,6 +149,10 @@ function normalizeConfig(c) {
   // to enforce unconditionally. See the PUT /api/config route.
   cfg.safety.requireDisarmToEditConfig ??= false;
   cfg.safety.autoDisarmAfterSeconds ??= 0;
+  // The PIN a browser has to give before the control port serves it anything.
+  // Empty runs the port open. Enforced in server/auth.js; the spectator port
+  // never sees this section at all.
+  cfg.safety.controlPin ??= '';
 
   cfg.valveGroups ??= [];
   cfg.sensorGroups ??= [];
@@ -440,6 +444,10 @@ export function validateConfig(c) {
 
   if (c.safety?.abortSequenceId && !seqIds.has(c.safety.abortSequenceId)) {
     err(`safety.abortSequenceId "${c.safety.abortSequenceId}" is not a defined autosequence`);
+  }
+  if (c.safety?.controlPin !== undefined
+      && (typeof c.safety.controlPin !== 'string' || !/^(\d{4,12})?$/.test(c.safety.controlPin))) {
+    err('safety.controlPin must be a string of 4–12 digits, or "" to run the control port without a PIN');
   }
 
   for (const [i, p] of (c.pid?.pipes || []).entries()) {

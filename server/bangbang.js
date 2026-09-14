@@ -117,15 +117,15 @@ export class BangBangBank {
         predictive: prev ? prev.predictive : (c.predictive ?? false),
         // Host supervisory trips. No board equivalent exists for either.
         maxOpenSeconds: prev?.maxOpenSeconds ?? c.maxOpenSeconds ?? 0,
+        // Straight from the file every time, unlike the settings above it.
+        // Nothing can change this one at runtime any more, so there is no
+        // operator edit to preserve across a reload — and preserving `prev`
+        // here would mean an edit to stand.json silently failed to take, which
+        // is now the only way this value is set at all.
+        //
         // null, not 0: 0 is a legitimate abort threshold, so "no threshold"
         // needs its own value.
-        //
-        // Tested on `prev` rather than on `prev?.abortAbove`, because `??`
-        // cannot tell a runtime value of null from an absent one. Written the
-        // short way, an operator who turned the threshold OFF would have it
-        // silently switched back on by the next config reload — the one
-        // failure mode in this file that hands you a surprise abort.
-        abortAbove: prev ? prev.abortAbove : (c.abortAbove ?? null),
+        abortAbove: c.abortAbove ?? null,
 
         // --- handshake and supervision bookkeeping ---
         configPushedAt: prev?.configPushedAt ?? null,
@@ -191,9 +191,10 @@ export class BangBangBank {
    * Apply an operator or sequence change. Returns {ok, error}.
    *
    * Accepts `enabled`, `setpoint`, `deadband`, the duty-cycle limits, the vent
-   * settings, `abortAbove`, and the two overrides `vent` and `abort`. Anything
-   * rejected leaves the controller exactly as it was — a half-applied patch is
-   * a regulator nobody configured.
+   * settings, and the two overrides `vent` and `abort`. NOT `abortAbove`,
+   * which is a file setting — see below. Anything rejected leaves the
+   * controller exactly as it was — a half-applied patch is a regulator nobody
+   * configured.
    */
   set(id, patch = {}, source = 'operator') {
     const cfg = this.stand.configStore.controller(id);
@@ -239,15 +240,25 @@ export class BangBangBank {
       };
     }
 
-    let abortAbove = rt.abortAbove;
+    // NOT SETTABLE FROM HERE. The threshold is a file setting: it comes from
+    // stand.json and changes only on a config reload.
+    //
+    // It used to be a box on the bang-bang card, beside settings the PANDA
+    // board enforces -- which read as though the board were enforcing this one
+    // too. It is not: the board's protocol has no abort threshold, and this
+    // trip runs entirely on the ground station (see checkAbortThreshold). A
+    // number an operator can retune mid-test, on a panel that implies the
+    // board is holding it, is the wrong shape for the one control here that
+    // latches a stand-wide ABORT.
+    //
+    // Refused loudly rather than ignored: a caller that thinks it moved the
+    // abort limit and did not is worse off than one told it cannot.
     if (patch.abortAbove !== undefined) {
-      if (patch.abortAbove === null || patch.abortAbove === '') {
-        abortAbove = null;                       // threshold removed
-      } else {
-        const v = Number(patch.abortAbove);
-        if (!Number.isFinite(v)) return { ok: false, error: 'abortAbove must be a number, or null to disable it' };
-        abortAbove = v;
-      }
+      return {
+        ok: false,
+        error: 'abortAbove is set in stand.json, not from the control screen — ' +
+               'it is a ground-station trip, and the board holds no equivalent',
+      };
     }
 
     let ventTrigger = rt.ventTrigger;
@@ -265,20 +276,30 @@ export class BangBangBank {
       return { ok: false, error: 'Auto-vent needs a vent trigger pressure' };
     }
 
+    // An operator can submit all card settings together. Validate the whole
+    // config batch before mutating runtime or sending any of it to the board.
+    let setpoint = rt.setpoint;
+    if (patch.setpoint !== undefined) {
+      const v = Number(patch.setpoint);
+      if (!Number.isFinite(v)) return { ok: false, error: 'setpoint must be a number' };
+      setpoint = clamp(v, cfg.setpointMin, cfg.setpointMax);
+    }
+    let deadband = rt.deadband;
+    if (patch.deadband !== undefined) {
+      const v = Number(patch.deadband);
+      if (!Number.isFinite(v) || v <= 0) return { ok: false, error: 'deadband must be > 0' };
+      deadband = clamp(v, cfg.deadbandMin, cfg.deadbandMax);
+    }
+    if (patch.predictive !== undefined && Boolean(patch.predictive) && !this.stand.armed) {
+      return { ok: false, error: `${cfg.name}: predictive cutoff can only be enabled while the stand is ARMED` };
+    }
+
     // --- values the board will be told about ---
     const before = boardConfig(rt);
     const beforeVent = { trigger: rt.ventTrigger, auto: rt.ventAuto };
 
-    if (patch.setpoint !== undefined) {
-      const v = Number(patch.setpoint);
-      if (!Number.isFinite(v)) return { ok: false, error: 'setpoint must be a number' };
-      rt.setpoint = clamp(v, cfg.setpointMin, cfg.setpointMax);
-    }
-    if (patch.deadband !== undefined) {
-      const v = Number(patch.deadband);
-      if (!Number.isFinite(v) || v <= 0) return { ok: false, error: 'deadband must be > 0' };
-      rt.deadband = clamp(v, cfg.deadbandMin, cfg.deadbandMax);
-    }
+    rt.setpoint = setpoint;
+    rt.deadband = deadband;
 
     // Retuning a limit mid-test has to be as traceable as opening a valve: the
     // event log and the CSV are what a post-test review reads.
@@ -288,10 +309,6 @@ export class BangBangBank {
         changes.push(`${key} ${rt[key]}${LIMITS[key].units} -> ${limits[key]}${LIMITS[key].units}`);
         rt[key] = limits[key];
       }
-    }
-    if (abortAbove !== rt.abortAbove) {
-      changes.push(`abortAbove ${rt.abortAbove ?? 'off'} -> ${abortAbove ?? 'off'}`);
-      rt.abortAbove = abortAbove;
     }
     if (ventTrigger !== rt.ventTrigger || ventAuto !== rt.ventAuto) {
       changes.push(`vent ${rt.ventTrigger ?? 'off'}/${rt.ventAuto ? 'auto' : 'manual'} -> ${ventTrigger ?? 'off'}/${ventAuto ? 'auto' : 'manual'}`);
@@ -406,9 +423,6 @@ export class BangBangBank {
     // a sequence — because the safe direction never is.
     if (patch.predictive !== undefined) {
       const want = Boolean(patch.predictive);
-      if (want && !this.stand.armed) {
-        return { ok: false, error: `${cfg.name}: predictive cutoff can only be enabled while the stand is ARMED` };
-      }
       const res = this.driverCall(rt, () => this.driver.bbPredictive(rt.side, want));
       if (!res.ok) return { ok: false, error: `Predictive cutoff failed: ${res.error}` };
       rt.predictive = want;

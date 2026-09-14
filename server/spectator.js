@@ -14,10 +14,9 @@
  *   - the only API routes that exist are the read-only snapshots plus the
  *     telemetry stream — /api/valve, /api/arm and PUT /api/config are not
  *     merely unreachable, they are absent;
- *   - every HTML request lands on the Data page, so there is no Control Grid,
- *     no P&ID and no config editor to navigate to;
- *   - the config the page receives is trimmed (see spectatorConfig) — the
- *     wiring, interlocks, autosequences and P&ID never leave the control port.
+ *   - Data and a read-only P&ID are the only pages served;
+ *   - config includes drawing metadata, but omits wiring, interlocks and
+ *     autosequences.
  *
  * The client is told it is a spectator (`ui.spectator`) so it can drop the
  * tare buttons and the recording control rather than render controls whose
@@ -35,18 +34,16 @@ const ASSET_DIRS = new Set(['css', 'js', 'img']);
 /**
  * What a spectator's browser is told about the stand.
  *
- * Everything the Data page draws, and nothing else. The omissions are the
- * point: `valves`, `bangbang`, `autosequences`, `pid` and `safety` describe
- * how the stand is commanded, and a viewing screen has no use for them.
- * `sensors` stays whole — the cards render the channel and range straight off
- * it, and a transducer's span is not a secret.
- *
- * Empty arrays rather than missing keys, so a stray `config.valves.find(...)`
- * on a shared code path returns undefined instead of throwing.
+ * Data and P&ID display metadata only. Valve wiring and command policy stay
+ * on the control port; ids and geometry let the drawing follow live telemetry.
+ * Empty command arrays keep shared client lookups safe.
  */
 export function spectatorConfig(config) {
   const dataPage = config.ui?.pages?.find((p) => p.id === 'data')
     || { id: 'data', label: 'Data', href: '/', icon: 'gauge' };
+
+  const pidPage = config.ui?.pages?.find((p) => p.id === 'pid')
+    || { id: 'pid', label: 'P&ID', icon: 'schematic' };
 
   return {
     meta: {
@@ -62,9 +59,8 @@ export function spectatorConfig(config) {
       accent: config.ui?.accent,
       defaultTheme: config.ui?.defaultTheme,
       sparklineSeconds: config.ui?.sparklineSeconds,
-      // One page in the nav, because one page is all this port serves. The
-      // header builds its links from this list, so the trim is also the fix.
-      pages: [{ ...dataPage, href: '/' }],
+      pages: [{ ...dataPage, href: '/' }, { ...pidPage, href: '/pid.html' }],
+      tankLevel: config.ui?.tankLevel,
       spectator: true,
     },
     telemetry: {
@@ -73,8 +69,10 @@ export function spectatorConfig(config) {
     },
     sensorGroups: config.sensorGroups || [],
     sensors: config.sensors || [],
-    valves: [],
-    valveGroups: [],
+    pid: config.pid,
+    valves: (config.valves || []).map(({ id, name, type, group, pid, openLabel, closedLabel, normallyOpen, momentary }) =>
+      ({ id, name, type, group, pid, openLabel, closedLabel, normallyOpen, momentary })),
+    valveGroups: (config.valveGroups || []).map(({ id, label, color }) => ({ id, label, color })),
     bangbang: [],
     autosequences: [],
     safety: {},
@@ -122,6 +120,11 @@ function serveApi(req, res, pathname, { stand, openStream }) {
       return openStream(req, res);
     case '/api/config':
       return json(res, 200, spectatorConfig(stand.config));
+    // The control port asks for a PIN; this one never does, and it says so
+    // rather than 404ing, so the shared client boot does not log an error
+    // on every spectator's phone for asking.
+    case '/api/auth':
+      return json(res, 200, { required: false, authenticated: true });
     case '/api/state':
       return json(res, 200, stand.snapshot());
     case '/api/history':
@@ -139,13 +142,10 @@ function serveApi(req, res, pathname, { stand, openStream }) {
 }
 
 /**
- * Static files, restricted to what the Data page loads.
- *
- * Every HTML request resolves to data.html rather than 404ing, so a spectator
- * who types `/index.html` or follows a stale bookmark lands on the view they
- * are allowed to have instead of on an error page.
+ * Data and P&ID are the only HTML pages. Other bookmarks fall back to Data.
  */
 function serveStatic(res, pathname, { publicDir, dataPage, mime }) {
+  if (pathname === '/pid.html') return sendFile(res, path.join(publicDir, 'pid.html'), mime);
   if (pathname === '/' || pathname.endsWith('.html')) return sendFile(res, dataPage, mime);
 
   const rel = path.normalize(pathname).replace(/^(\.\.[/\\])+/, '');

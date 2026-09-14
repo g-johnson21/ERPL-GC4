@@ -62,15 +62,11 @@ const SYMBOLS = {
     svgEl('text', { x: 0, y: -19, class: 'sym-glyph' }, document.createTextNode('S'))
   ),
 
-  /** Ball valve: bowtie + ball at the seat, with pneumatic actuator. */
+  /** Pneumatic ball valve: bowtie + unmarked actuator box. */
   'valve-ball': () => svgEl('g', {},
     bowtie(),
-    svgEl('circle', { cx: 0, cy: 0, r: 8, class: 'sym-fill' }),
-    svgEl('line', { x1: -8, y1: 0, x2: 8, y2: 0, class: 'sym-line-thin' }),
-    stem(-18),
-    // The actuator dome sits directly on the end of the stem.
-    svgEl('path', { d: 'M-13,-18 A13,10 0 0 1 13,-18 Z', class: 'sym-fill' }),
-    svgEl('line', { x1: -13, y1: -18, x2: 13, y2: -18, class: 'sym-line' })
+    stem(-16),
+    svgEl('rect', { x: -11, y: -30, width: 22, height: 15, rx: 2, class: 'sym-fill' })
   ),
 
   /** Manual (hand) valve: bowtie + handwheel bar. */
@@ -111,14 +107,15 @@ const SYMBOLS = {
     svgEl('line', { x1: -6, y1: -27, x2: 6, y2: -27, class: 'sym-line' })
   ),
 
-  /** Pressure regulator: valve body + diaphragm dome + adjusting screw. */
+  /** Pressure regulator: bowtie + ball at the seat, with diaphragm dome. */
   regulator: () => svgEl('g', {},
-    bowtie(44, 26),
-    stem(-14),
-    svgEl('path', { d: 'M-16,-14 A16,13 0 0 1 16,-14 Z', class: 'sym-fill' }),
-    svgEl('line', { x1: -16, y1: -14, x2: 16, y2: -14, class: 'sym-line' }),
-    svgEl('line', { x1: 0, y1: -27, x2: 0, y2: -34, class: 'sym-line' }),
-    svgEl('line', { x1: -8, y1: -34, x2: 8, y2: -34, class: 'sym-line' })
+    bowtie(),
+    svgEl('circle', { cx: 0, cy: 0, r: 8, class: 'sym-fill' }),
+    svgEl('line', { x1: -8, y1: 0, x2: 8, y2: 0, class: 'sym-line-thin' }),
+    stem(-18),
+    // The diaphragm dome sits directly on the end of the stem.
+    svgEl('path', { d: 'M-13,-18 A13,10 0 0 1 13,-18 Z', class: 'sym-fill' }),
+    svgEl('line', { x1: -13, y1: -18, x2: 13, y2: -18, class: 'sym-line' })
   ),
 
   /** Inline filter / strainer. */

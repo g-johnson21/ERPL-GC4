@@ -18,6 +18,10 @@ physics model of the Draco LOX/ethanol stand, tag for tag from its P&ID, so you
 can exercise every screen, sequence and interlock before you ever touch
 hardware. See [The simulator](#the-simulator).
 
+The control port asks for a **PIN** first. The shipped `stand.json` uses
+`1234`; change it on the Config page's General tab before the address goes on
+a whiteboard. See [Control PIN](#control-pin).
+
 ---
 
 ## Contents
@@ -27,6 +31,7 @@ hardware. See [The simulator](#the-simulator).
 - [The control sidebar](#the-control-sidebar)
 - [Safety model](#safety-model) · [Shift to actuate](#shift-to-actuate)
 - [Spectator view](#spectator-view)
+- [Control PIN](#control-pin)
 - [The simulator](#the-simulator)
 - [Customizing for your stand](#customizing-for-your-stand)
 - [Connecting real hardware](#connecting-real-hardware)
@@ -63,8 +68,8 @@ Neither `--bind` nor `GC_BIND` alone enables remote control.
 Omit the flag (or use `--allow-remote-control=false`) to keep control local.
 
 It also prints a second, clearly labelled address on the next port up. That one
-is the [spectator view](#spectator-view): the Data page, read-only, safe to hand
-to whoever is watching.
+is the [spectator view](#spectator-view): Data and P&ID pages, read-only, safe to hand
+to whoever is watching — no PIN, and it lays itself out for a phone.
 
 Try this to see the whole system work:
 
@@ -194,8 +199,21 @@ when the drawing is what matters.
 
 ### Data (`/data.html`)
 
-Also the only page the [spectator view](#spectator-view) serves, read-only, on
+Also available alongside P&ID in the [spectator view](#spectator-view), read-only, on
 its own port.
+
+**On a phone it becomes a list.** Below 760 px wide the column grid is replaced
+by one column, group after group, that scrolls, and each card turns sideways:
+name, tag and window extremes stacked on the left, the reading at 26 px under
+them, the trace at a fixed size on the right, the range bar underneath. Group
+headings stick to the top as the list scrolls, so a card is never on screen
+without the column it belongs to. The header wraps into two rows — identity
+and the theme toggle on the first, the link and stand-state chips on their
+own row below — and the clock goes, because the phone has one. The Table view
+drops the Group, Range, Channel and Status columns there (the value is already
+coloured by status) and scrolls sideways for the rest. None of this is
+spectator-specific: an operator's Data page in a narrow window gets the same
+treatment.
 
 **Every channel on one screen, with nothing to scroll.** Each sensor group gets
 a full-height column, and the cards are sized so the longest column fills the
@@ -324,7 +342,8 @@ Three tabs:
   the rest of the sequence. Either way the file stores absolute times, so what
   the sequencer executes is unchanged.
 - **General** — the settings that change most often: branding, accent colour,
-  theme, grid density, loop and CSV rates, recording directory, ARM policy.
+  theme, grid density, loop and CSV rates, recording directory, ARM policy,
+  the control-port [PIN](#control-pin).
 - **Advanced (JSON)** — the raw file, for the P&ID layout and calibrations.
 
 All three edit one draft; an *Unsaved changes* chip appears as soon as you touch
@@ -469,6 +488,13 @@ that fails open.
 
 #### The panel
 
+Edit several settings, then click **PUSH CONFIG** on that controller's
+card to send them to Panda together. Setpoint, deadband, limits, auto-vent and predictive
+shutoff stay as local pending changes until pushed; incoming telemetry does not
+overwrite them. Rejected changes stay in the form for correction and retry.
+Enable/disable, tare, manual vent and abort still act immediately. Pending
+edits are local to this page and are discarded on navigation or reload.
+
 | Setting | Runs on | What it does |
 |---|---|---|
 | **Setpoint** | board | Target pressure |
@@ -479,17 +505,39 @@ that fails open.
 | **Board may auto-vent** | board | Arms that trigger. Off by default — venting a tank is not something to start doing because a field was left unset |
 | **Predictive valve shutoff** | board | `e<side><0/1>`. The board closes the press valve on the predicted overshoot rather than at the band edge. Off by default; **requires ARM** — see below |
 | **Leak trip** (s) | ground | The board reporting its press valve open this long without reaching setpoint tells the board to stop. `0` = no trip |
-| **Abort above** | ground | *Either* transducer above this latches a stand-wide ABORT and aborts the side. Empty = no threshold |
 
 `VENT` is a manual override (`v<side>`), independent of auto-vent and accepted
 by the board in any state. `ABORT SIDE` (`x<side>`) is **latched on the board**:
 nothing in the protocol clears it, so recovery needs a disarm/rearm or a power
 cycle. The card says so before you click it.
 
-The values in `stand.json` are the *starting* values: once the server is
-running these are runtime settings, and an edit survives a config hot-reload
-rather than being overwritten by the file. Every change is written to the event
-log and the CSV. Rules enforced server-side, which refuse an edit rather than
+##### The abort threshold is not on this panel
+
+`abortAbove` **is still a live trip** — every control tick, against both the
+board's transducer and the DAQ's, latching a stand-wide ABORT and aborting the
+side. It is simply not a control here. It is set in `stand.json`, `/api/controller`
+refuses it, and an autosequence `bangbang` step cannot touch it either.
+
+The reason is what a panel implies. Everything else in *Limits & trips* is
+either enforced by the board or a supervisory limit that only ever **stops**
+the regulator; the abort threshold is the one setting on the card that latches
+the whole stand. Sitting in a grid of board settings, it read as though the
+board were holding it, and the board holds no such thing — the protocol has no
+abort threshold at all, so if the serial link drops this trip stops being able
+to intervene while the board carries on regulating. A number with that much
+authority and that much dependence on the link is not a knob to retune between
+attempts.
+
+The collapsed summary row still reports it (`abort 1200 psi`), because a trip
+that can abort a test has to be readable at a glance even when it cannot be
+edited.
+
+The other values in `stand.json` are the *starting* values: once the server is
+running those are runtime settings, and an edit survives a config hot-reload
+rather than being overwritten by the file. `abortAbove` is the exception — with
+no runtime path left, it comes from the file on every reload, so editing
+`stand.json` is what changes it. Every change is written to the event log and
+the CSV. Rules enforced server-side, which refuse an edit rather than
 half-apply it:
 
 - **Max pulse must be shorter than the leak trip.** Otherwise the trip fires
@@ -531,7 +579,11 @@ While a side is live, **manual commands to its valves are refused**, with the
 controller named in the error. Taring its sensor is refused too.
 
 Autosequence `bangbang` steps can set the same fields, plus `vent` and `abort`.
-They deliberately **cannot** tare the board's transducer — see below.
+The panel and the steps stay in step on purpose, in both directions: a step can
+set anything an operator can dial in by hand, and nothing they cannot. So a
+step cannot set `abortAbove` either — a countdown that moved the stand-wide
+abort threshold on its way past would be the least visible way to do it. They
+deliberately **cannot** tare the board's transducer either — see below.
 
 #### Zeroing the board's own transducer
 
@@ -662,14 +714,16 @@ printed in the banner under its own heading:
   Local      http://localhost:8080
   Control    local-only (use --allow-remote-control for network access)
   ----------------------------------------------------------
-  Spectator  read-only Data page — safe to share
+  Spectator  read-only Data and P&ID — safe to share
              http://localhost:8081
              http://10.33.186.144:8081
 ```
 
 That second address serves the Data page and nothing else: every channel, live,
 at the same rate the operator sees, with a **SPECTATOR · VIEW ONLY** badge where
-the recording control sits on an operator station.
+the recording control sits on an operator station. It is built to be opened on
+a phone — the address gets texted around a test site — and the Data page
+[lays itself out for one](#data-datahtml).
 
 ### What makes it read-only
 
@@ -681,18 +735,20 @@ server with no mutating routes at all**:
 |---|---|---|
 | `POST` / `PUT` / anything but `GET` | routed | **403, before the path is read** |
 | `/api/state` `/api/history` `/api/stream` | yes | yes — the same broadcast, same frame |
-| `/api/config` | the whole stand | trimmed: sensors and branding only |
+| `/api/config` | the whole stand | trimmed: sensors, drawing metadata and branding |
 | `/api/events` | the event log | empty |
 | `/api/record/list` · `/api/record/download/…` | yes | 404 |
-| `/index.html` `/pid.html` `/config.html` | the real pages | all serve the Data page |
+| `/pid.html` | interactive P&ID | live read-only P&ID |
+| `/index.html` `/config.html` | the real pages | serve the Data page |
 
-The config a spectator's browser receives has no `valves`, no `bangbang`, no
-`autosequences`, no `pid` and no `safety` — so it never learns the valve ids or
-the interlock policy that a hand-written command would need. `ui.pages` is
-trimmed to the single Data entry, which is what leaves one link in the nav, and
-`ui.spectator` tells the client to drop the tare buttons, the sidebar, the
-recording control and the Escape-to-abort hotkey rather than render controls
-whose only outcome is a rejection.
+The spectator config includes the P&ID geometry, valve display metadata and
+sensors so the drawing shows live valve positions, pressures, pipe flow and
+tank levels. Valve wiring, bang-bang configuration, autosequences and safety
+policy remain omitted. Navigation offers Data and P&ID. Spectators can pan
+and zoom the drawing, but cannot actuate valves, adjust simulator controls,
+tare readings or change the stand. The shared client removes those controls,
+the operator sidebar and the Escape-to-abort hotkey; the server independently
+rejects every mutating request.
 
 Telemetry is the one thing shared verbatim: spectators join the same SSE
 broadcast set as the operator, so the numbers on the two screens are the same
@@ -712,11 +768,83 @@ If the spectator port is
 taken the server says so and carries on — a port collision costs the crowd
 their screen, not the operator their stand.
 
-> The spectator port is a **courtesy barrier, not a security boundary**. There
-> is no authentication anywhere in GC4. The control port is on the network
-> only when started with `--allow-remote-control`. It stops the honest accident — a leaned-on trackpad, a curious
-> click, a phone in someone's pocket — which is the failure that actually
-> happens on a test day. Put the stand on a network you trust.
+> The spectator port is a **courtesy barrier, not a security boundary**. It
+> stops the honest accident — a leaned-on trackpad, a curious click, a phone
+> in someone's pocket — which is the failure that actually happens on a test
+> day. When enabled with `--allow-remote-control`, network control is behind a [PIN](#control-pin),
+> which is a stronger courtesy and still not a security boundary. Put the
+> stand on a network you trust.
+
+---
+
+## Control PIN
+
+The control address is printed in the banner, and banners get read over
+shoulders. Before anyone can open the Control Grid, the P&ID, the Data page or
+the Config editor on the **control port**, the browser has to give the PIN in
+`safety.controlPin`:
+
+```json
+"safety": { "controlPin": "1234" }
+```
+
+Four to twelve digits. The shipped file uses `1234` — change it on the Config
+page (General tab, *Control PIN*) before a test; the change takes effect at the
+next login without a restart. An empty string runs the port open, and the
+banner says so in capitals:
+
+```
+  Access     control port asks for a PIN (safety.controlPin)
+```
+```
+  Access     NO PIN — anyone who can reach the control port can command the stand
+```
+
+A team that would rather not keep the PIN in a tracked file can pass it on the
+command line or in the environment instead, which overrides the config for as
+long as the process runs:
+
+```bash
+node server/index.js --pin=2468
+GC_PIN=2468 node server/index.js
+```
+
+### How it behaves
+
+- **Every page and every API route on the control port waits for a session.**
+  A browser without one is sent to `/login.html` and comes back to the page it
+  asked for afterwards; an API call without one gets a `401`, which the client
+  turns into the same trip. The only things served without a session are the
+  login page, the css/js/img it draws with, `GET /api/auth` (branding, and
+  whether a PIN is needed) and `POST /api/login`.
+- **A session is a cookie**, `HttpOnly`, held in server memory, good for 24
+  hours or until the server restarts. Each browser has its own; a second
+  operator station enters the PIN once too.
+- **The lock button** in the header (padlock, beside the theme toggle) ends this
+  browser's session and shows the prompt again — "I am stepping away from this
+  laptop". Other stations stay unlocked.
+- **Guessing is throttled per address.** Five misses lock that address out for
+  30 s, and every miss after that doubles the wait, up to 15 minutes. The prompt
+  counts it down rather than going dead. Every miss is in the event log with
+  the address it came from, so a run of them during a test is something the
+  operator sees happen:
+
+  ```
+  [warn] Wrong control PIN from 10.33.186.72 — locked out for 30 s  (access)
+  [info] Control console unlocked from 10.33.186.144  (access)
+  ```
+
+- **The spectator port never asks.** It cannot command the stand, so there is
+  nothing for a PIN to protect, and a viewing address that needs a code does
+  not get shared. Its trimmed config carries no `safety` section, so the PIN
+  never leaves the control port.
+
+### What it is not
+
+The PIN travels in plain HTTP on the stand's own network and lives in a JSON
+file the Config page edits. It stops the idle hand on a shared network and
+says who is expected at the console; it does not make GC4 safe to expose
+beyond the test site. Put the stand on a network you trust.
 
 ---
 
@@ -778,7 +906,8 @@ Other protections, all per-item configurable:
 - **Abort thresholds** — `abortAbove` on a controller and `abortConditions` on a
   sequence are evaluated every control tick. A controller's threshold watches
   *both* the board's transducer and the DAQ's, because they are two different
-  sensors on the same tank.
+  sensors on the same tank. `abortAbove` is **set in `stand.json` and nowhere
+  else** — see [the panel](#the-panel).
 - **One controller per valve** — while a board bang-bang side is live, manual
   and sequence commands to its valves are refused. Two command sources on one
   solenoid with no arbitration is the failure mode this replaced.
@@ -1495,6 +1624,7 @@ everything to a known safe state; a mis-keyed valve command does the opposite.
 ```
 server/
   index.js         HTTP, REST API, SSE telemetry stream, static files
+  auth.js          the control-port PIN gate: sessions, lockouts, the public routes
   spectator.js     the read-only viewing port — no mutating routes exist on it
   state.js         StandController — authoritative state, interlocks, tick loop
   config-store.js  load / validate / hot-reload, timestamped backups
@@ -1519,7 +1649,7 @@ config/
   hardware.json    Draco's wiring for --driver=stand — tracked
   hardware.example.json  the same, as a template for another stand
 public/
-  *.html           one page per window
+  *.html           one page per window; login.html is the PIN prompt
   js/bus.js        the only module that talks to the network
   js/chrome.js     shared header and control sidebar
   js/pid-symbols.js  ISA symbol library
@@ -1546,8 +1676,10 @@ rejected command can never leave a valve looking open when it is closed.
 | `POST` | `/api/arm` `/api/abort` `/api/abort/clear` | Stand state |
 | `POST` | `/api/valve` `/api/safe-all` | Actuation |
 | `POST` | `/api/tare` | Zero instrumentation: `{sensors:[…]}` or `{kind:"pressure"}`, plus `clear` to undo |
-| `POST` | `/api/controller` | Bang-bang: `enabled`, `setpoint`, `deadband`, `maxOpenMs`, `minIntervalMs`, `ventTrigger`, `ventAuto`, `maxOpenSeconds`, `abortAbove`, plus the overrides `vent` and `abort` |
+| `POST` | `/api/controller` | Bang-bang: `enabled`, `setpoint`, `deadband`, `maxOpenMs`, `minIntervalMs`, `ventTrigger`, `ventAuto`, `maxOpenSeconds`, plus the overrides `vent` and `abort`. **Not** `abortAbove` — that is a `stand.json` setting and is refused here |
 | `POST` | `/api/sequence/start` `/api/sequence/stop` | Autosequences |
+| `GET` | `/api/auth` | Whether the control port wants a PIN, whether this browser has a session, and the branding for the login page. Served without a session |
+| `POST` | `/api/login` `/api/logout` | `{pin}` sets the session cookie; 401 with `retryAfterMs` on a miss. Logout ends this browser's session |
 | `POST` | `/api/sim/valve` `/api/sim/regulator` | Simulator only: `{id, state}` or `{id, toggle:true}` for a hand valve, `{id, psi}` for a regulator. 409 on any other driver |
 | `POST` | `/api/record/start` `/api/record/stop` | Recording |
 | `GET` | `/api/record/list` `/api/record/download/:name` | Recorded files |
@@ -1555,7 +1687,8 @@ rejected command can never leave a valve looking open when it is closed.
 
 The [spectator port](#spectator-view) serves only the `GET` rows of that table,
 minus the recordings, and refuses every other method before it looks at the
-path.
+path. Every other row on the control port needs the [PIN](#control-pin)
+session cookie.
 
 ---
 
@@ -1579,6 +1712,11 @@ Unit tests cover the logic whose mistakes are silent on real hardware:
 - **NI-DAQ addressing** — sensor id to card and channel. A tare that lands on
   the wrong channel zeroes a transducer nobody was looking at and leaves the
   intended one reading as before, with nothing on screen to say so.
+- **The PIN gate** (`server/auth.test.js`) — that a wrong PIN never yields a
+  session, that the right one is refused during a lockout, that the lockout
+  grows and is per address, that sessions expire and a logout ends one, and
+  that the list of routes reachable without a session is exactly the login
+  page and what it needs.
 - **The spectator port** (`server/spectator.test.js`) — that every mutating
   method is refused, that the trimmed config carries no valve, controller,
   sequence or interlock, that the recordings and the control pages are not

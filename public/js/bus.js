@@ -23,7 +23,18 @@ class Bus {
   // ----------------------------------------------------------- lifecycle --
 
   async init() {
-    this.config = await fetch('/api/config').then((r) => r.json());
+    const cfgRes = await fetch('/api/config');
+    // The control port answers 401 until the PIN has been given. The login
+    // page brings the browser back here afterwards, so this is a detour,
+    // not a dead end.
+    if (cfgRes.status === 401) { this.toLogin(); await new Promise(() => {}); }
+    this.config = await cfgRes.json();
+
+    // Whether this port asks for a PIN, so the header can offer to lock the
+    // station again. The spectator port has no such route and no PIN.
+    try {
+      this.auth = await fetch('/api/auth').then((r) => (r.ok ? r.json() : null));
+    } catch { this.auth = null; }
 
     const limitSeconds = Math.max(this.config.ui.sparklineSeconds || 60, 120);
     this.historyLimit = Math.ceil(limitSeconds * (this.config.telemetry.streamRateHz || 20));
@@ -153,7 +164,38 @@ class Bus {
         this.connected = false;
         this.emit('connection', false);
       }
+      // An EventSource cannot say WHY it failed. If it is because the
+      // session ended, retrying forever shows LINK LOST for a stand that is
+      // fine — so ask, and go back to the PIN prompt if that is the answer.
+      this.probeAuth();
     });
+  }
+
+  /** Bounce to the login page, remembering where to come back to. */
+  toLogin() {
+    const here = location.pathname + location.search;
+    location.replace(`/login.html?next=${encodeURIComponent(here)}`);
+  }
+
+  /** Once every few seconds at most: is this browser's session still good? */
+  async probeAuth() {
+    const t = Date.now();
+    if (t - (this.lastAuthProbe || 0) < 5000) return;
+    this.lastAuthProbe = t;
+    try {
+      const auth = await fetch('/api/auth').then((r) => (r.ok ? r.json() : null));
+      if (auth?.required && !auth.authenticated) this.toLogin();
+    } catch { /* the server is down, not the session */ }
+  }
+
+  /**
+   * Lock this station: end the session and show the PIN prompt. Every other
+   * browser keeps its own session, so this is "I am stepping away from this
+   * laptop", not "nobody may command the stand".
+   */
+  async lock() {
+    try { await fetch('/api/logout', { method: 'POST' }); } catch { /* going to the prompt regardless */ }
+    this.toLogin();
   }
 
   pushHistory(snap) {
@@ -207,9 +249,9 @@ class Bus {
       return { ok: false, error: 'Spectator view is read-only' };
     }
 
-    let json;
+    let json, res;
     try {
-      const res = await fetch(path, {
+      res = await fetch(path, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -218,6 +260,13 @@ class Bus {
     } catch (err) {
       toast(`Command failed: ${err.message}`, 'error');
       return { ok: false, error: err.message };
+    }
+    // The session ended under this page — expired, or locked from the
+    // server. Nothing on screen can succeed now, so go and get a new one.
+    if (res.status === 401) {
+      toast('This station is locked — enter the PIN to continue', 'warn', 3000);
+      this.toLogin();
+      return { ok: false, error: json.error || 'PIN required' };
     }
     // The server returns a fresh snapshot with every command, so the UI
     // reflects the true post-command state without waiting for a frame.

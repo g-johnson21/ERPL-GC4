@@ -707,3 +707,146 @@ textarea { font-family: var(--mono); font-size: 12px; line-height: 1.5; resize: 
   .nav a span { display: none; }
   .sidebar { --sidebar-ops-w: 236px; --sidebar-bb-w: 284px; }
 }
+
+/* -------------------------------------------------------------- login page */
+
+/* The PIN prompt in front of the control port. One card, centred, built from
+   the same tokens as everything behind it so unlocking does not feel like
+   crossing into a different program. */
+.login-page {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 24px 16px;
+  position: relative;
+}
+.login-card {
+  width: min(360px, 100%);
+  padding: 26px 26px 20px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.login-brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.login-brand .org-logo { height: 19px; width: auto; display: block; }
+.login-brand .brand-mark { color: var(--accent); font-size: 15px; }
+.login-brand .brand-stand {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 9px;
+  border-left: 1px solid var(--border);
+  font-weight: 600;
+  font-size: 12.5px;
+  color: var(--text-muted);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.login-brand .stand-logo { height: 24px; width: auto; display: block; }
+.login-card h1 { margin: 0; font-size: 18px; letter-spacing: -0.01em; }
+.login-lead { margin: 0 0 6px; font-size: 13px; color: var(--text-muted); }
+/* Big, monospace, centred: a PIN is typed with one hand on a phone at a
+   pad, and the dots have to be countable. */
+.login-card input[type="password"] {
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 24px;
+  letter-spacing: .35em;
+  text-align: center;
+}
+.login-card .btn { padding: 11px 14px; font-size: 14px; letter-spacing: .04em; }
+.login-msg {
+  margin: 0;
+  min-height: 1.4em;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-align: center;
+  color: var(--text-muted);
+}
+.login-msg[data-kind="error"] { color: var(--danger); }
+.login-msg[data-kind="ok"] { color: var(--ok); }
+.login-foot {
+  margin: 4px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+.login-foot svg { flex: none; }
+.login-theme { position: absolute; top: 14px; right: 14px; }
+.login-card.shake { animation: shake .35s ease-in-out; }
+@keyframes shake {
+  20%, 60% { transform: translateX(-6px); }
+  40%, 80% { transform: translateX(6px); }
+}
+
+/* --------------------------------------------------------- narrow screens */
+
+/* A phone, held upright. The spectator address gets texted around a test
+   site and opened on whatever is in a pocket, so the Data page has to read
+   at 375px wide — the layout above is built for a laptop and gives a phone
+   six unreadable columns.
+
+   The header wraps into two rows: identity and controls on the first, the
+   link and stand-state chips on their own row below, where they have the
+   width they need. The clock goes; the phone has one. The body then takes
+   whatever height is left, measured with dvh so the browser's own toolbar
+   is not counted as page. */
+@media (max-width: 760px) {
+  body {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    height: 100dvh;
+  }
+  .app-header {
+    height: auto;
+    min-height: var(--header-h);
+    flex: none;
+    flex-wrap: wrap;
+    gap: 6px 8px;
+    padding: 6px 10px;
+  }
+  .app-header .clock { display: none; }
+  .app-header .brand .brand-stand { display: flex; }
+  .app-header .nav a span { display: none; }
+  /* A spectator's nav has one link, to the page it is already on. */
+  body.spectator .nav { display: none; }
+  .spectator-badge { margin-left: 0; padding: 4px 9px; font-size: 10px; }
+  .rec-control { display: none; }
+  .header-status {
+    order: 10;
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+  .header-status:empty { display: none; }
+  .app-body {
+    height: auto;
+    flex: 1;
+    min-height: 0;
+  }
+  .content { padding: 10px; }
+  .page-head { gap: 8px 10px; }
+  .page-head h1 { font-size: 16px; }
+}

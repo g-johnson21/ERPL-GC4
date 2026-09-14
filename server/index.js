@@ -9,6 +9,7 @@
  *   node server/index.js --allow-remote-control  allow network operator stations
  *   node server/index.js --spectator-port=9090   read-only view elsewhere
  *   node server/index.js --no-spectator          control port only
+ *   node server/index.js --pin=2468              control-port PIN, overriding safety.controlPin
  *
  * Zero npm dependencies — Node built-ins only, so it runs at the pad on a
  * laptop with no internet. Telemetry is pushed to browsers over Server-Sent
@@ -25,6 +26,7 @@ import { TapHub } from './tools/tap-hub.js';
 import { createDriver, driverNames } from './hal/index.js';
 import { StandController } from './state.js';
 import { createSpectatorServer } from './spectator.js';
+import { createAccessGate, safeNext, validPin, LOGIN_PAGE } from './auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -151,6 +153,24 @@ try {
 const stand = new StandController(configStore, driver, ROOT);
 standRef = stand;
 
+/**
+ * The PIN on the control port — see auth.js.
+ *
+ * From the command line or the environment first, so a team that does not
+ * want the PIN in a tracked file has somewhere else to put it; otherwise
+ * `safety.controlPin`, which the Config page edits and a hot reload picks
+ * up. The spectator listener is never behind it.
+ */
+const PIN_OVERRIDE = args.pin ?? process.env.GC_PIN;
+if (PIN_OVERRIDE !== undefined && !validPin(String(PIN_OVERRIDE))) {
+  console.error('\n  --pin / GC_PIN must be 4–12 digits (or empty to run without a PIN)\n');
+  process.exit(1);
+}
+const access = createAccessGate({
+  pin: PIN_OVERRIDE ?? configStore.get().safety.controlPin,
+  log: (level, message) => stand.log(level, message, 'access'),
+});
+
 try {
   await stand.start();
 } catch (err) {
@@ -171,6 +191,13 @@ stand.on('config-reload', (cfg, changed) => broadcast('config', {
   changed: changed || [],
   inPlace: (changed || []).every((k) => IN_PLACE_SECTIONS.has(k)),
 }));
+// A PIN edited on the Config page takes effect at the next login. A flag on
+// the command line stays in charge for as long as the process runs.
+stand.on('config-reload', (cfg) => {
+  if (PIN_OVERRIDE !== undefined) return;
+  try { access.setPin(cfg.safety.controlPin); }
+  catch (err) { stand.log('warn', `Control PIN not changed: ${err.message}`, 'access'); }
+});
 
 /**
  * Attach one browser to the telemetry broadcast.
@@ -217,6 +244,19 @@ const server = http.createServer(async (req, res) => {
   const pathname = decodeURIComponent(url.pathname);
 
   try {
+    // The PIN gate, ahead of routing. A page request without a session goes
+    // to the login page and comes back here afterwards; an API request gets
+    // a 401 the client turns into the same trip. Nothing below this line is
+    // reached without a session while a PIN is set.
+    if (access.enabled && !access.isPublic(req.method.toUpperCase(), pathname) && !access.authenticate(req)) {
+      if (pathname.startsWith('/api/')) {
+        return sendJson(res, 401, { ok: false, error: 'PIN required', login: LOGIN_PAGE });
+      }
+      const next = encodeURIComponent(safeNext(pathname + url.search));
+      res.writeHead(302, { Location: `${LOGIN_PAGE}?next=${next}`, 'Cache-Control': 'no-store' });
+      return res.end();
+    }
+
     if (pathname.startsWith('/api/')) {
       await handleApi(req, res, pathname, url);
     } else {
@@ -278,6 +318,11 @@ server.listen(PORT, CONTROL_BIND, () => {
         ]
       : []),
     `  Driver     ${driver.status.name}  (${driver.status.detail})`,
+    // The PIN itself is never printed: the banner is what gets read over a
+    // shoulder, which is the whole reason there is a PIN.
+    access.enabled
+      ? `  Access     control port asks for a PIN (${PIN_OVERRIDE !== undefined ? '--pin / GC_PIN' : 'safety.controlPin'})`
+      : '  Access     NO PIN — anyone who can reach the control port can command the stand',
     `  Config     ${path.relative(ROOT, CONFIG_PATH)}`,
     `  Recording  ${path.join(configStore.get().recording.directory)}/`,
     '',
@@ -295,6 +340,24 @@ async function handleApi(req, res, pathname, url) {
 
   // --- streaming ---
   if (route === 'GET /api/stream') return openStream(req, res);
+
+  // --- access ---
+  // What the login page needs: whether there is a PIN, whether this browser
+  // already has a session, and the branding to draw itself with. Nothing
+  // about the stand: this route answers before a PIN has been given.
+  if (route === 'GET /api/auth') {
+    const cfg = stand.config;
+    return sendJson(res, 200, {
+      required: access.enabled,
+      authenticated: !access.enabled || Boolean(access.authenticate(req)),
+      brand: cfg.ui.brand,
+      standName: cfg.meta.standName,
+      logo: cfg.ui.logo,
+      standLogo: cfg.meta.standLogo,
+      accent: cfg.ui.accent,
+      defaultTheme: cfg.ui.defaultTheme,
+    });
+  }
 
   // --- read-only ---
   if (route === 'GET /api/config') return sendJson(res, 200, stand.config);
@@ -326,6 +389,20 @@ async function handleApi(req, res, pathname, url) {
   const who = body.operator || 'operator';
 
   switch (route) {
+    case 'POST /api/login': {
+      if (!access.enabled) return sendJson(res, 200, { ok: true, required: false });
+      const result = access.login(body.pin, req.socket.remoteAddress);
+      if (!result.ok) return sendJson(res, 401, { ok: false, error: result.error, retryAfterMs: result.retryAfterMs });
+      res.setHeader('Set-Cookie', access.cookie(result.token));
+      return sendJson(res, 200, { ok: true });
+    }
+
+    case 'POST /api/logout': {
+      access.logout(access.tokenOf(req));
+      res.setHeader('Set-Cookie', access.clearCookie());
+      return sendJson(res, 200, { ok: true });
+    }
+
     case 'POST /api/arm':
       return sendJson(res, 200, withState(stand.setArmed(body.armed, who)));
 

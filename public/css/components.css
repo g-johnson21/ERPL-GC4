@@ -595,18 +595,22 @@
 }
 .bb-card:last-child { margin-bottom: 0; }
 .bb-head {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 70px max-content;
+  grid-template-areas: 'name push side' 'source push tare';
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 7px;
+  gap: 4px 3px;
+  margin-bottom: 8px;
 }
-.bb-name { font-size: 12px; font-weight: 700; }
-.bb-sub { font-family: var(--mono); font-size: 10px; color: var(--text-faint); }
+.bb-name { grid-area: name; font-size: 12px; font-weight: 700; }
+.bb-sub { grid-area: source; font-family: var(--mono); font-size: 10px; color: var(--text-faint); }
+.bb-name, .bb-sub { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Which of the board's two buses this controller is. The letter is the one
    that goes on the wire, so a raw command log can be matched to a card. */
 .bb-side {
+  grid-area: side;
+  justify-self: end;
   font-family: var(--mono);
   font-size: 9px;
   font-weight: 700;
@@ -618,17 +622,22 @@
   flex: none;
 }
 
-/* Flex, not block: the board-PT tare chip rides on the right of this line,
-   on the row that names the transducer it zeroes. */
-.bb-card .bb-sub {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: -4px 0 6px;
-  min-width: 0;
+/* The compact push button spans the title and source rows beside BUS/TARE,
+   so it never wraps into a new row or shifts the pressure readout down. */
+.bb-head .bb-push {
+  grid-area: push;
+  width: 70px;
+  height: 36px;
+  margin: 0;
+  padding: 2px 4px;
+  white-space: pre-line;
+  line-height: 1.3;
+  color: var(--text-muted);
+  background: var(--surface-2);
 }
-.bb-card .bb-sub > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.bb-card .bb-sub .tare-chip:disabled { opacity: .35; cursor: not-allowed; }
+.bb-config-tools { grid-area: tare; display: flex; align-items: center; justify-content: flex-end; gap: 3px; }
+.bb-config-tools .tare-chip { margin-left: 0; }
+.bb-head .tare-chip:disabled { opacity: .35; cursor: not-allowed; }
 
 /* The ground station's own reading of the same tank, and the gap. Small on
    purpose: it is a cross-check, not the number being regulated. */
@@ -727,6 +736,11 @@
 
 .bb-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 7px; }
 .bb-inputs .field { margin-bottom: 2px; }
+
+.bb-config-actions { display: grid; gap: 4px; margin-bottom: 8px; }
+.bb-config-status { font-size: 10px; color: var(--text-faint); }
+.bb-config-status[data-pending="true"] { color: var(--warn); }
+.bb-card input[data-dirty="true"] { border-color: var(--warn); }
 
 /* Duty-cycle limits and trips. When collapsed, the summary keeps the live
    values readable without opening the inputs. */
@@ -1383,3 +1397,72 @@ body.shift-armed .toggle.lg[data-needs-shift="true"] {
 /* The schematic's own hint is in pid.css: an `outline` on an SVG group does
    nothing useful, so the symbol lights its hit area instead. */
 body.shift-armed .pid-valve[data-needs-shift="true"] { outline: none; }
+
+/* --------------------------------------------- data page: narrow screens */
+
+/* The column grid is replaced by one list, group after group, that scrolls.
+   Each card turns sideways: name, tag and reading stacked on the left, the
+   trace on the right at a fixed size, the range bar underneath. The reading
+   is the biggest thing on the card because on a phone it is the only thing
+   anyone reads. Group headings stick as the list scrolls, so a card is
+   never on screen without the column it belongs to. */
+@media (max-width: 760px) {
+  .content.data-page > #data-body { overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  .sensor-columns {
+    display: flex;
+    flex-direction: column;
+    height: auto;
+    gap: 10px;
+  }
+  .sensor-column { gap: 6px; }
+  .sensor-column > .col-head {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    height: auto;
+    padding: 6px 2px 4px;
+    background: var(--bg);
+    font-size: 11px;
+  }
+  .sensor-column > .sensor-card {
+    height: auto;
+    min-height: 0;
+  }
+  .sensor-card {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 104px;
+    grid-template-areas:
+      "top   spark"
+      "sub   spark"
+      "value spark"
+      "bar   bar";
+    column-gap: 12px;
+    padding: 8px 10px 7px;
+  }
+  .sensor-card .s-top { grid-area: top; }
+  .sensor-card .s-sub { grid-area: sub; margin: 1px 0 2px; }
+  .sensor-card .s-value { grid-area: value; font-size: 26px; min-height: 30px; }
+  .sensor-card .s-units { font-size: 13px; }
+  .sensor-card .s-rate { font-size: 11px; }
+  .sensor-card .s-name { font-size: 14px; white-space: normal; line-height: 1.2; }
+  .sensor-card .s-id { font-size: 11px; }
+  .sensor-card .s-ch { font-size: 10px; }
+  /* One card to a row leaves room for the window extremes again. */
+  .sensor-card .s-stat { display: inline-flex; font-size: 10px; }
+  .sensor-card .s-spark {
+    grid-area: spark;
+    width: 104px;
+    height: auto;
+    min-height: 56px;
+    align-self: stretch;
+    margin: 0;
+  }
+  .sensor-card .s-bar { grid-area: bar; margin-top: 5px; height: 4px; }
+  .sensor-card .tare-chip { font-size: 10px; padding: 2px 7px; }
+
+  /* The table keeps the columns that answer "what is it reading" and drops
+     the reference ones — see the `opt` class in page-data.js. */
+  .data-table.fixed { table-layout: auto; }
+  .data-table .opt { display: none; }
+  .data-table th, .data-table td { padding: 6px 7px; }
+}

@@ -23,6 +23,7 @@ const CONFIG = {
   ui: {
     brand: 'GC',
     accent: '#1239d3',
+    tankLevel: { enabled: true, heightIn: 80, smoothingSeconds: 3 },
     pages: [
       { id: 'grid', label: 'Control Grid', href: '/index.html', icon: 'grid' },
       { id: 'pid', label: 'P&ID', href: '/pid.html', icon: 'schematic' },
@@ -34,7 +35,7 @@ const CONFIG = {
   safety: { requireArmToActuate: true },
   sensorGroups: [{ id: 'lox', label: 'LOX', color: '#38bdf8' }],
   sensors: [{ id: 'PT1', name: 'LOX Tank', group: 'lox', channel: 3, units: 'psi', min: 0, max: 1000 }],
-  valves: [{ id: 'MV-LOX', name: 'LOX Main', safeState: 'closed' }],
+  valves: [{ id: 'MV-LOX', name: 'LOX Main', safeState: 'closed', channel: 7, pid: { x: 100, y: 200 }, normallyOpen: false, openLabel: 'OPEN', closedLabel: 'CLOSED' }],
   valveGroups: [{ id: 'main', label: 'Main' }],
   bangbang: [{ id: 'BB-LOX', setpoint: 450 }],
   autosequences: [{ id: 'hotfire', label: 'HOT FIRE', steps: [] }],
@@ -68,15 +69,19 @@ async function serving() {
 test('the config a spectator receives carries no way to command the stand', () => {
   const cfg = spectatorConfig(CONFIG);
 
-  // Not "empty because the page ignores them" — absent from the wire. A
-  // spectator's browser never learns the valve ids, the interlock policy, the
-  // countdown timings or the P&ID that would let someone hand-craft a command.
-  assert.deepEqual(cfg.valves, []);
-  assert.deepEqual(cfg.valveGroups, []);
+  // Drawing metadata survives; wiring and actuation policy do not.
+  assert.equal(cfg.valves[0].id, 'MV-LOX');
+  assert.deepEqual(cfg.valves[0].pid, CONFIG.valves[0].pid);
+  assert.equal(cfg.valves[0].normallyOpen, false);
+  assert.equal(cfg.valves[0].openLabel, 'OPEN');
+  assert.equal(cfg.valves[0].channel, undefined);
+  assert.equal(cfg.valves[0].safeState, undefined);
+  assert.equal(cfg.valveGroups[0].id, 'main');
+  assert.deepEqual(cfg.ui.tankLevel, CONFIG.ui.tankLevel);
   assert.deepEqual(cfg.bangbang, []);
   assert.deepEqual(cfg.autosequences, []);
   assert.deepEqual(cfg.safety, {});
-  assert.equal(cfg.pid, undefined);
+  assert.deepEqual(cfg.pid, CONFIG.pid);
 
   // What the Data page draws does survive, or the window is blank.
   assert.deepEqual(cfg.sensors, CONFIG.sensors);
@@ -85,19 +90,21 @@ test('the config a spectator receives carries no way to command the stand', () =
   assert.equal(cfg.ui.brand, 'GC');
 });
 
-test('the nav offers only the page this port serves', () => {
+test('the nav offers Data and P&ID only', () => {
   const cfg = spectatorConfig(CONFIG);
   // The header builds its links straight from this list, so a Control Grid
   // entry here is a link a spectator can click.
-  assert.equal(cfg.ui.pages.length, 1);
+  assert.equal(cfg.ui.pages.length, 2);
   assert.equal(cfg.ui.pages[0].id, 'data');
   assert.equal(cfg.ui.pages[0].href, '/');
+  assert.equal(cfg.ui.pages[1].id, 'pid');
+  assert.equal(cfg.ui.pages[1].href, '/pid.html');
   assert.equal(cfg.ui.spectator, true);
 });
 
 test('a config with no data page still yields a usable one', () => {
   const cfg = spectatorConfig({ ...CONFIG, ui: { ...CONFIG.ui, pages: [{ id: 'grid', href: '/' }] } });
-  assert.equal(cfg.ui.pages.length, 1);
+  assert.equal(cfg.ui.pages.length, 2);
   assert.equal(cfg.ui.pages[0].id, 'data');
 });
 
@@ -111,6 +118,9 @@ test('every mutating method is refused, whatever it is addressed to', async (t) 
     ['POST', '/api/abort'],
     ['POST', '/api/safe-all'],
     ['POST', '/api/tare'],
+    ['POST', '/api/tank-level/tare'],
+    ['POST', '/api/sim/valve'],
+    ['POST', '/api/sim/regulator'],
     ['POST', '/api/sequence/start'],
     ['POST', '/api/record/start'],
     ['PUT', '/api/config'],
@@ -144,11 +154,16 @@ test('the read-only routes serve live stand data', async (t) => {
 
   const cfg = await (await s.get('/api/config')).json();
   assert.equal(cfg.ui.spectator, true);
-  assert.deepEqual(cfg.valves, []);
+  assert.equal(cfg.valves[0].id, 'MV-LOX');
+  assert.deepEqual(cfg.pid, CONFIG.pid);
 
   // Operator-facing, so it is shipped empty rather than 404ing — the client
   // treats an empty log as normal and a missing one as a fault to retry.
   assert.deepEqual(await (await s.get('/api/events')).json(), []);
+
+  // No PIN on this port, ever — and the client boot asks, so the answer is
+  // a plain "not required" rather than a 404 in every spectator's console.
+  assert.deepEqual(await (await s.get('/api/auth')).json(), { required: false, authenticated: true });
 });
 
 test('recorded test files are not reachable', async (t) => {
@@ -160,19 +175,30 @@ test('recorded test files are not reachable', async (t) => {
   }
 });
 
-test('every page a spectator can reach is the Data page', async (t) => {
+test('control pages fall back to Data while P&ID has its own tab', async (t) => {
   const s = await serving();
   t.after(() => s.close());
 
   // Including the control pages by name: a stale bookmark or a typed URL
   // lands on the view they are allowed to have, not on a 404 that reads like
   // the server is broken.
-  for (const route of ['/', '/index.html', '/pid.html', '/config.html', '/data.html']) {
+  for (const route of ['/', '/index.html', '/config.html', '/data.html']) {
     const res = await s.get(route);
     assert.equal(res.status, 200, route);
     const html = await res.text();
     assert.match(html, /page-data\.js/, `${route} should serve the Data page`);
     assert.doesNotMatch(html, /page-grid\.js|page-pid\.js|page-config\.js/, route);
+  }
+});
+
+test('the spectator P&ID page and its drawing assets are served', async (t) => {
+  const s = await serving();
+  t.after(() => s.close());
+  const res = await s.get('/pid.html');
+  assert.equal(res.status, 200);
+  assert.match(await res.text(), /page-pid\.js/);
+  for (const asset of ['/js/page-pid.js', '/js/pid-symbols.js', '/css/pid.css']) {
+    assert.equal((await s.get(asset)).status, 200, asset);
   }
 });
 

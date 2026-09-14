@@ -249,6 +249,7 @@
 /* -------------------------------------------------------------- valves --- */
 
 .pid-valve { cursor: pointer; outline: none; }
+body.spectator .pid-valve { cursor: default; pointer-events: none; }
 .pid-hit { fill: transparent; }
 .pid-valve:hover .sym-fill,
 .pid-valve:hover .sym-fill-strong { fill: var(--surface-3); }

@@ -479,6 +479,27 @@ test('the pulse/trip check judges the merged result, not one field at a time', (
   assert.equal(bank.get('bb-ox').maxOpenMs, 5000);
 });
 
+test('a config batch with invalid deadband leaves the setpoint and board untouched', () => {
+  const stand = makeStand({ setpoint: 470 });
+  const bank = new BangBangBank(stand);
+  const res = bank.set('bb-ox', { setpoint: 500, deadband: 0 });
+  assert.equal(res.ok, false);
+  assert.equal(bank.get('bb-ox').setpoint, 470);
+  assert.deepEqual(stand.driver.sent, []);
+});
+
+test('a config batch cannot partially apply when predictive shutoff requires ARM', () => {
+  const stand = makeStand({ setpoint: 470, maxOpenMs: 500 });
+  stand.armed = false;
+  const bank = new BangBangBank(stand);
+  const res = bank.set('bb-ox', { setpoint: 500, maxOpenMs: 1000, predictive: true });
+  assert.equal(res.ok, false);
+  assert.match(res.error, /ARMED/);
+  assert.equal(bank.get('bb-ox').setpoint, 470);
+  assert.equal(bank.get('bb-ox').maxOpenMs, 500);
+  assert.deepEqual(stand.driver.sent, []);
+});
+
 test('auto-vent needs somewhere to vent at', () => {
   const stand = makeStand();
   const bank = new BangBangBank(stand);
@@ -487,16 +508,44 @@ test('auto-vent needs somewhere to vent at', () => {
   assert.ok(stand.driver.sent.includes('VL650.0,1'));
 });
 
-test('a config reload keeps runtime settings, including a threshold turned OFF', () => {
+test('the abort threshold is a file setting and refuses to be set live', () => {
+  // It is a GROUND-STATION trip -- the board's protocol has no equivalent --
+  // and it latches a stand-wide ABORT. It used to be a box on the bang-bang
+  // card among settings the board enforces, which read as though the board
+  // held this one too. Now stand.json is the only place it is set.
   const stand = makeStand({ abortAbove: 700 });
   const bank = new BangBangBank(stand);
-  bank.set('bb-ox', { abortAbove: null, setpoint: 250 });
 
+  const res = bank.set('bb-ox', { abortAbove: null });
+  assert.equal(res.ok, false, 'refused, not silently ignored');
+  assert.match(res.error, /stand\.json/);
+  assert.equal(bank.get('bb-ox').abortAbove, 700, 'and the trip is untouched');
+
+  // A refused patch leaves the WHOLE controller alone: a caller that tried to
+  // set the threshold and a setpoint in one call must not get half of it.
+  assert.equal(bank.set('bb-ox', { abortAbove: 900, setpoint: 250 }).ok, false);
+  assert.equal(bank.get('bb-ox').setpoint, 100, 'no half-applied patch');
+});
+
+test('a config reload takes the file threshold, and keeps runtime settings', () => {
+  const stand = makeStand({ abortAbove: 700 });
+  const bank = new BangBangBank(stand);
+  bank.set('bb-ox', { setpoint: 250 });
+
+  // Editing stand.json and hot-reloading is now the ONLY way to move this, so
+  // a reload that failed to pick the new value up would leave the setting with
+  // no working path at all.
+  stand.cfg.abortAbove = 950;
   bank.sync();      // as a hot-reload would
 
-  assert.equal(bank.get('bb-ox').abortAbove, null,
-    'a threshold an operator turned off must not be switched back on by a reload');
-  assert.equal(bank.get('bb-ox').setpoint, 250);
+  assert.equal(bank.get('bb-ox').abortAbove, 950);
+  assert.equal(bank.get('bb-ox').setpoint, 250,
+    'settings an operator CAN retune still survive the reload');
+
+  // Including removing it outright.
+  stand.cfg.abortAbove = null;
+  bank.sync();
+  assert.equal(bank.get('bb-ox').abortAbove, null);
 });
 
 test('a board rejection is attributed to whatever was in flight', () => {
