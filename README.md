@@ -9,6 +9,13 @@ only, so it runs on a laptop at the pad with no internet and no install step.
 The serial-attached drivers (`serial`, `stand`) add `serialport`, and NI-DAQ
 acquisition needs Python with `nidaqmx`.
 
+On Windows, **double-click `Start GC-4.bat`**. A window opens to pick the
+driver, the ports and the config file, shows you the command it is about to
+run, and then starts the server and your browser. See
+[The startup window](#the-startup-window).
+
+From a terminal it is the same thing without the window:
+
 ```
 node server/index.js
 ```
@@ -45,6 +52,35 @@ a whiteboard. See [Control PIN](#control-pin).
 ## Quick start
 
 Requires Node 18+ (developed on 22).
+
+### The startup window
+
+`Start GC-4.bat`, in this folder, is the whole startup procedure for anyone who
+does not want to learn the flags. Double-click it and a window asks the four
+questions that actually change between runs:
+
+- **Driver** — the simulator, the real stand, or one device on its own. Picking
+  one shows only the fields it needs: the PANDA serial port for `stand`, a host
+  and port for `udp`, nothing at all for `simulator`.
+- **Network** — the web port, whether other computers may act as operator
+  stations, and whether the [spectator view](#spectator-view) is up.
+- **Stand configuration** — which `config/*.json` describes the stand, and
+  whether to override the [control PIN](#control-pin) for this run.
+- **Open a browser** when the server is listening.
+
+It shows the assembled command line before it runs, so the window is also how
+you learn what to type when you would rather type it. Launching opens a normal
+console with the startup banner and its addresses in it; `Ctrl+C` there shuts
+down and drives every actuator safe, exactly as it does from a terminal. If the
+server exits on the way up — a bad config, a board that is not there — the
+window stays open with the reason.
+
+Your choices are remembered in `config/launcher.settings.json` (untracked, and
+never the PIN). The window is [tools/gc-launcher.ps1](tools/gc-launcher.ps1);
+it builds a command line and nothing else, so anything it can start you can
+start by hand.
+
+### From a terminal
 
 ```bash
 node server/index.js                    # simulator, port 8080
@@ -1622,6 +1658,9 @@ everything to a known safe state; a mis-keyed valve command does the opposite.
 ## Architecture
 
 ```
+Start GC-4.bat     double-click entry point — opens the startup window
+tools/
+  gc-launcher.ps1  the startup window; builds a server/index.js command line
 server/
   index.js         HTTP, REST API, SSE telemetry stream, static files
   auth.js          the control-port PIN gate: sessions, lockouts, the public routes

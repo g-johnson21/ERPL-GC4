@@ -9,6 +9,10 @@ TRITON_*.csv
 # Timestamped config backups written on every save from the Config page.
 config/backups/
 
+# What the startup window (Start GC-4.bat) remembers for next time. Per-laptop
+# by nature — the COM port and the ports in use are not the same at every desk.
+config/launcher.settings.json
+
 node_modules/
 *.log
 .DS_Store
