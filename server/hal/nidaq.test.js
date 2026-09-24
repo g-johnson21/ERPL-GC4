@@ -178,13 +178,13 @@ test('sensorForLabel is the exact inverse of channelForSensor', () => {
 
 /**
  * Feed frames at a fixed spacing, controlling the clock the driver stamps
- * them with. `noteRx` reads `lastRxAt`, so setting it directly is the whole
+ * them with. `noteRx` reads `lastFrameAt`, so setting it directly is the whole
  * of the time travel needed — no fake timers.
  */
 function feed(driver, { startMs, count, periodMs, samples }) {
   for (let i = 0; i < count; i++) {
-    driver.lastRxAt = startMs + i * periodMs;
-    driver.noteRx({ channels: [{ samples: new Array(samples).fill(0) }] });
+    driver.lastFrameAt = startMs + i * periodMs;
+    driver.noteRx({ channels: [{ card: 'pt', samples: new Array(samples).fill(0) }] });
   }
 }
 
@@ -221,18 +221,63 @@ test('short reads lower the rate, because that is what a starved DAQ does', () =
   assert.equal(rx.sampleHz, 40);
 });
 
-test('the sample count comes from the longest channel in the frame', () => {
+test('each card is measured on its own, and the slowest clocked card headlines', () => {
   const d = makeDriver();
-  // Thermocouples report one sample per frame beside PTs reporting ten.
-  // Taking the shortest would report the stand as running at a tenth rate.
+  d.performance = { sample_rate_hz: 100, card_rates_hz: { pt: 100, lc: 1612.9 } };
+  // PT at 100 Hz, the 9237 coerced to ~1.6 kHz, TC converting every ~300 ms.
   for (let i = 0; i < 21; i++) {
-    d.lastRxAt = 1_000_000 + i * 100;
+    d.lastFrameAt = 1_000_000 + i * 100;
     d.noteRx({ channels: [
-      { card: 'tc', samples: [0] },
       { card: 'pt', samples: new Array(10).fill(0) },
+      { card: 'pt', samples: new Array(10).fill(0) },
+      { card: 'lc', samples: new Array(160).fill(0) },
+      { card: 'tc', samples: i % 3 === 0 ? [0] : [] },
     ] });
   }
-  assert.equal(d.rxRates().sampleHz, 100);
+  d.connected = true;
+  const rx = d.rxRates();
+  assert.equal(rx.cards.pt, 100, 'channels on one card are not summed');
+  assert.equal(rx.cards.lc, 1600);
+  assert.ok(Math.abs(rx.cards.tc - 3) < 0.6, `tc ${rx.cards.tc}`);
+  // The fast 9237 must not stand in for the whole DAQ.
+  assert.equal(d.status.rxSampleHz, 100);
+  assert.equal(d.status.sampleClockHz, 100);
+});
+
+test('frames with no samples report zero, not the frame rate', () => {
+  const d = makeDriver();
+  for (let i = 0; i < 21; i++) {
+    d.lastFrameAt = 1_000_000 + i * 100;
+    d.noteRx({ channels: [] });
+  }
+  d.connected = true;
+  assert.equal(d.rxRates().frameHz, 10);
+  assert.equal(d.status.rxSampleHz, 0);
+});
+
+test('a stalled PT card shows even while the load cells stream', () => {
+  const d = makeDriver();
+  for (let i = 0; i < 21; i++) {
+    d.lastFrameAt = 1_000_000 + i * 100;
+    d.noteRx({ channels: [
+      { card: 'pt', samples: [] },
+      { card: 'lc', samples: new Array(160).fill(0) },
+    ] });
+  }
+  assert.equal(d.rxRates().sampleHz, 0);
+  assert.equal(d.rxRates().headCard, 'pt');
+});
+
+test('thermocouples headline only when nothing clocked is reporting', () => {
+  const d = makeDriver();
+  for (let i = 0; i < 21; i++) {
+    d.lastFrameAt = 1_000_000 + i * 100;
+    d.noteRx({ channels: [{ card: 'tc', samples: i % 4 === 0 ? [0] : [] }] });
+  }
+  d.connected = true;
+  assert.equal(d.status.rxSampleHz, 2.5);
+  // The 9211 has no sample clock, so there is no nameplate to fall short of.
+  assert.equal(d.status.sampleClockHz, null);
 });
 
 test('the window forgets old frames, so a rate that drops is seen dropping', () => {
@@ -265,4 +310,73 @@ test('a disconnected device reports no rate at all', () => {
   // "NO LINK" would be a rate for a link that is not delivering anything.
   assert.equal(d.status.rxSampleHz, null);
   assert.equal(d.status.rxFrameHz, null);
+});
+
+// ------------------------------------------------------------- link state --
+
+/** Push one telemetry line through the real stdout parser. */
+function frame(driver, channels) {
+  driver.onStdout(JSON.stringify({ type: 'data', channels }) + '\n');
+}
+
+function withEvents(d) {
+  d.events = [];
+  d.onEvent = (message, level) => d.events.push({ message, level });
+  return d;
+}
+
+test('frames that carry no samples do not make the DAQ connected', () => {
+  const d = withEvents(makeDriver());
+  frame(d, []);
+  frame(d, [{ card: 'tc', channel: 0, status: 'ok', temp_f: 70, samples: [] }]);
+  assert.equal(d.connected, false);
+  assert.equal(d.lastRxAt, 0, 'the header ages from the last DATA, not the last frame');
+
+  frame(d, [{ card: 'pt', channel: 2, status: 'ok', pressure_psi: 10, samples: [0.01] }]);
+  assert.equal(d.connected, true);
+});
+
+test('data stopping while frames keep coming is reported as a disconnect', () => {
+  const d = withEvents(makeDriver());
+  frame(d, [{ card: 'pt', channel: 2, status: 'ok', pressure_psi: 10, samples: [0.01] }]);
+  const t0 = d.lastRxAt;
+
+  // The sidecar is still talking, just with nothing in it.
+  d.lastFrameAt = t0 + 2500;
+  d.checkData(t0 + 2500);
+  assert.equal(d.connected, false);
+  assert.match(d.status.lostReason, /no card is returning samples/);
+  assert.match(d.status.detail, /NO DATA/);
+  assert.equal(d.events.length, 1);
+  assert.equal(d.events[0].level, 'error');
+  assert.match(d.events[0].message, /DISCONNECTED/);
+
+  // The loss is logged once, not on every watchdog pass.
+  d.checkData(t0 + 5000);
+  assert.equal(d.events.length, 1);
+
+  frame(d, [{ card: 'pt', channel: 2, status: 'ok', pressure_psi: 10, samples: [0.01] }]);
+  assert.equal(d.connected, true);
+  assert.equal(d.status.lostReason, null);
+  assert.match(d.events.at(-1).message, /restored/);
+});
+
+test('a silent sidecar is told apart from silent cards', () => {
+  const d = withEvents(makeDriver());
+  frame(d, [{ card: 'pt', channel: 2, status: 'ok', pressure_psi: 10, samples: [0.01] }]);
+  d.checkData(d.lastRxAt + 2500);
+  assert.match(d.status.lostReason, /stopped responding/);
+});
+
+test('waitingSince is reported only until the first data arrives', () => {
+  const d = withEvents(makeDriver());
+  d.startedAt = 1_000_000;
+  assert.equal(d.status.waitingSince, 1_000_000);
+
+  frame(d, [{ card: 'pt', channel: 2, status: 'ok', pressure_psi: 10, samples: [0.01] }]);
+  assert.equal(d.status.waitingSince, null);
+
+  // Losing the link later ages from the last data, not from startup.
+  d.checkData(d.lastRxAt + 2500);
+  assert.equal(d.status.waitingSince, null);
 });

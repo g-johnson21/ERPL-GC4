@@ -275,6 +275,11 @@ class TcCard:
         self.actual_rate_hz = float(cfg.get('sampleClockHz', rate_hz or 100.0))
         self.lock = threading.Lock()
         self.latest = None
+        # Bumped on every completed read. The streamer re-sends the latest
+        # snapshot every pass (~10 Hz) but the 9211 only converts every
+        # ~350 ms, so this is what tells a new reading from a repeat.
+        self.seq = 0
+        self.sent_seq = 0
         self.thread = None
         self.running = False
 
@@ -310,6 +315,7 @@ class TcCard:
                     values = [row[0] if isinstance(row, list) else row for row in raw]
                 with self.lock:
                     self.latest = values
+                    self.seq += 1
             except Exception as exc:
                 note(f'[daq] tc read failed: {exc}')
                 with self.lock:
@@ -317,8 +323,13 @@ class TcCard:
                 time.sleep(0.5)
 
     def snapshot(self):
+        """(values, fresh) -- fresh is False when this reading was already sent."""
         with self.lock:
-            return list(self.latest) if self.latest else None
+            if not self.latest:
+                return None, False
+            fresh = self.seq != self.sent_seq
+            self.sent_seq = self.seq
+            return list(self.latest), fresh
 
     def convert(self, ch, degf):
         meta = self.cfg.get('channelMeta', {}).get(str(ch), {})
@@ -480,7 +491,7 @@ class Streamer:
                 channels.append(entry)
 
         if self.tc:
-            values = self.tc.snapshot()
+            values, fresh = self.tc.snapshot()
             if values:
                 for ch, degf in enumerate(values):
                     rawv, eng, status = self.tc.convert(ch, degf)
@@ -488,7 +499,11 @@ class Streamer:
                     channels.append({'card': 'tc', 'channel': ch, 'status': status,
                                      'raw': _finite(rawv), 'temp_f': _finite(eng),
                                      'tare': _finite(self.tc.tare[ch]),
-                                     'units': 'degF', 'samples': [_finite(rawv)]})
+                                     'units': 'degF',
+                                     # A repeat of the last conversion is not
+                                     # a new sample; the host's update rate
+                                     # must not count it.
+                                     'samples': [_finite(rawv)] if fresh else []})
 
         avg = sum(self.latency_ms) / len(self.latency_ms) if self.latency_ms else 0.0
         return {
@@ -498,6 +513,12 @@ class Streamer:
             'performance': {
                 'loop_index': self.loop_index,
                 'sample_rate_hz': self.rate_hz,
+                # What each card is actually clocked at (the 9237 coerces far
+                # above the configured rate), so the host can compare its
+                # measured per-card update rate against the right number.
+                # The 9211 has no clock and is omitted.
+                'card_rates_hz': {c.kind: round(float(getattr(c, 'actual_rate_hz', self.rate_hz)), 1)
+                                  for c in self.cards},
                 'avg_latency_ms': round(avg, 3),
                 'restarts': dict(self.restarts),
             },

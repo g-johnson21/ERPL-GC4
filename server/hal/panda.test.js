@@ -646,3 +646,52 @@ test('a silent board does not trip the no-watchdog warning', () => {
   assert.equal(events.length, 0);
 });
 
+
+// ------------------------------------------------------------- link state --
+
+function withEvents(d) {
+  d.events = [];
+  d.onEvent = (message, level) => d.events.push({ message, level });
+  return d;
+}
+
+test('telemetry stopping is reported once as a disconnect, with a reason', () => {
+  const d = withEvents(makeDriver());
+  d.onLine('p0.188');
+  assert.equal(d.connected, true);
+
+  d.checkLink(d.lastRxAt + 2500);
+  assert.equal(d.connected, false);
+  assert.match(d.status.lostReason, /no telemetry/);
+  const lost = d.events.filter((e) => /PANDA DISCONNECTED/.test(e.message));
+  assert.equal(lost.length, 1);
+  assert.equal(lost[0].level, 'error');
+
+  d.checkLink(d.lastRxAt + 9000);
+  assert.equal(d.events.filter((e) => /DISCONNECTED/.test(e.message)).length, 1);
+
+  d.onLine('p0.188');
+  assert.equal(d.connected, true);
+  assert.equal(d.status.lostReason, null);
+  assert.match(d.events.at(-1).message, /restored/);
+});
+
+test('a board that never speaks is reported after the startup grace', () => {
+  const d = withEvents(makeDriver());
+  d.portPath = 'COM7';
+  d.openedAt = 1_000_000;
+  d.checkLink(1_000_000 + 1000);
+  assert.equal(d.events.length, 0, 'not before the grace period');
+
+  d.checkLink(1_000_000 + 6000);
+  assert.match(d.status.lostReason, /no data from the board on COM7/);
+  d.checkLink(1_000_000 + 9000);
+  assert.equal(d.events.length, 1);
+});
+
+test('a closed port is a disconnect even if the link was never up', () => {
+  const d = withEvents(makeDriver());
+  d.fail('serial port COM7 closed');
+  assert.equal(d.events.length, 1);
+  assert.match(d.events[0].message, /PANDA DISCONNECTED — serial port COM7 closed/);
+});

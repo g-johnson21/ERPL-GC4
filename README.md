@@ -367,27 +367,51 @@ zeroed before a test. What a tare *is* refused for is covered in the
 
 Three tabs:
 
-- **Autosequences** — a full visual editor. Pick a sequence from the list, then
-  edit its name, style, ARM requirement and confirmation prompt; add, duplicate,
-  retime and delete steps in a table; and set abort conditions with a sensor,
-  comparison and threshold. A timeline shows every step laid out against the
-  clock, colour-coded by action — click a mark to jump to that row. Steps re-sort
-  themselves whenever you change a time, and valve steps are tagged `ARM` when
-  the valve they command needs the stand armed. **New**, **Duplicate** and
-  **Delete** manage whole sequences.
+- **Autosequences** — a timeline editor. Pick a sequence from the list on the
+  left; the editor shows it three ways at once:
 
-  Step times can be entered two ways, switchable per sequence:
+  - **Timeline.** One lane per actuator the sequence touches, time left to
+    right. A valve's open window is a green bar from the step that opens it to
+    the step that closes it, with its duration printed on it (red for igniters
+    and momentary actuators, blue for a regulating bang-bang controller). Before
+    a valve's first step its lane is dashed (it is wherever it was left); after
+    its last step the state is drawn faintly to the edge, so a sequence that
+    *ends* with something open is obvious. The **Milestones** lane carries log
+    messages, SAFE ALL, ABORT STATES, ABORT and END, each with a guide line down
+    through the lanes. SAFE ALL, ABORT STATES and the end of a momentary pulse
+    change valves without a step of their own; they show as hollow diamonds.
+    Anything after an END or ABORT step is hatched out, because it never runs.
+    Hover anywhere to read every lane's state at that instant in the gutter.
+  - **Script.** The same sequence as a countdown sheet: each time (`T+`) with
+    the gap since the previous one, then what happens at it.
+  - **Inspector.** Edits the selected step (time, gap from the previous step,
+    action, target, command), several selected steps at once, the sequence's
+    own settings (name, label, style, ARM, confirm, sidebar, Panda), or its
+    abort conditions.
 
-  | Mode | You type | Good for |
-  |---|---|---|
-  | **T+ from start** | seconds from T+0 | matching a written countdown |
-  | **Δ from previous** | the gap since the step before | "hold 2 s, then open the mains" |
+  Editing on the timeline:
 
-  Relative mode also prints each step's absolute `T+` beside the box, so you
-  always know where you are on the clock. Changing a gap shifts every later step
-  with it, preserving their spacing — retiming one step never silently rewrites
-  the rest of the sequence. Either way the file stores absolute times, so what
-  the sequencer executes is unchanged.
+  | Do | To |
+  |---|---|
+  | Drag a step | retime it. Snaps to the grid chosen in **SNAP**, and to other steps' times; hold **Alt** to drag freely |
+  | Double-click a lane | add the obvious step there (the valve toggles, the controller turns on or off, a milestone) |
+  | Drag across empty space, or Shift+click | select several steps; dragging any of them moves them all |
+  | Drag a lane's grip (☰, left of its name) | reorder the lanes. The lane lifts and follows the pointer and the others step aside; the order is saved with the sequence |
+  | **MOVE: RIPPLE** | moving a step carries every later step with it, keeping the gaps |
+  | ← / → | nudge the selection by the snap step (Shift ×10) |
+  | Del, Ctrl+D, Ctrl+Z / Ctrl+Y | delete, duplicate, undo / redo |
+  | Ctrl+wheel, **ZOOM** | zoom the timeline |
+  | ▶ **PREVIEW** (or Space) | sweep a playhead through in real time. Nothing is sent to the stand |
+
+  **+ Step** adds a step at the pinned time (click empty space on the timeline
+  to pin one), and **+ Actuator lane** adds a lane for a valve or controller the
+  sequence does not use yet. Steps that validate but are probably mistakes get an
+  amber outline and a note: a valve commanded to the state it is already in, a
+  bang-bang step that changes nothing, an ARM-only valve in a sequence that
+  does not require ARM, a step after END. While the stand is running the
+  sequence being edited, an amber playhead follows it live. Esc is **not** an
+  editor key: it is ABORT, on this page as on every other. The file stores
+  absolute times, so what the sequencer executes is unchanged.
 - **General** — the settings that change most often: branding, accent colour,
   theme, grid density, loop and CSV rates, recording directory, ARM policy,
   the control-port [PIN](#control-pin).

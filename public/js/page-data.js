@@ -15,6 +15,7 @@
 import { bus } from './bus.js';
 import { bootPage } from './chrome.js';
 import { $, el, clear, icon, fmtValue, fmtRate, normalize, valueWidthCh, toast } from './util.js';
+import { WINDOWS, drawTrace, statusColor, cssVar, windowChips } from './spark.js';
 
 const content = await bootPage('data', { sidebar: false });
 
@@ -22,8 +23,11 @@ const content = await bootPage('data', { sidebar: false });
  *  averaged over two minutes would say nothing about a pressurization ramp. */
 const RATE_SECONDS = 3;
 
-let mode = loadPref('gc4-data-mode', 'cards');
+// `table` was the name of the old plain table; the telemetry table replaced
+// it, so a saved preference for one opens the other.
+let mode = loadPref('gc4-data-mode', 'cards') === 'cards' ? 'cards' : 'telemetry';
 let windowSeconds = Number(loadPref('gc4-data-window', '60'));
+if (!WINDOWS.some((w) => w.s === windowSeconds)) windowSeconds = 60;
 
 // ------------------------------------------------------------------ shell --
 
@@ -31,19 +35,16 @@ content.append(
   el('div.page-head', {},
     el('h1', { text: 'Data' }),
     el('span.sub#data-sub', { text: channelSummary() }),
-    el('div', { style: { marginLeft: 'auto', display: 'flex', gap: '10px', alignItems: 'center' } },
-      el('label.field', { style: { margin: 0 }, text: 'Window' }),
-      el('select', {
-        style: { width: 'auto' },
-        onchange: (e) => { windowSeconds = Number(e.target.value); savePref('gc4-data-window', e.target.value); },
-      },
-        [15, 30, 60, 120].map((s) =>
-          el('option', { value: s, selected: s === windowSeconds ? '' : null, text: `${s}s` })
-        )
-      ),
+    el('div', { style: { marginLeft: 'auto', display: 'flex', gap: '14px', alignItems: 'center' } },
+      // The window scales every trend on the page and the MIN/MAX beside it.
+      windowChips(el, windowSeconds, (s) => {
+        windowSeconds = s;
+        savePref('gc4-data-window', String(s));
+        update();
+      }, 'Trend window — also the span MIN and MAX are taken over'),
       el('div.seg', {},
         el('button', { id: 'mode-cards', class: mode === 'cards' ? 'active' : '', text: 'Cards', onclick: () => setMode('cards') }),
-        el('button', { id: 'mode-table', class: mode === 'table' ? 'active' : '', text: 'Table', onclick: () => setMode('table') })
+        el('button', { id: 'mode-telemetry', class: mode === 'telemetry' ? 'active' : '', text: 'Telemetry', onclick: () => setMode('telemetry') })
       )
     )
   ),
@@ -68,9 +69,8 @@ function channelSummary() {
 function setMode(next) {
   mode = next;
   savePref('gc4-data-mode', next);
-  content.classList.toggle('table-mode', next === 'table');
   $('#mode-cards').classList.toggle('active', next === 'cards');
-  $('#mode-table').classList.toggle('active', next === 'table');
+  $('#mode-telemetry').classList.toggle('active', next === 'telemetry');
   build();
 }
 
@@ -92,11 +92,11 @@ function build() {
   const host = $('#data-body');
   clear(host);
   sparks.clear();
-  content.classList.toggle('table-mode', mode === 'table');
+  content.classList.toggle('table-mode', mode !== 'cards');
   renderedGroups = groupedSensors();
   rendered = renderedGroups.flatMap((g) => g.sensors);
   if (mode === 'cards') buildCards(host, renderedGroups);
-  else buildTable(host, renderedGroups);
+  else buildTelemetry(host, renderedGroups);
   update();
 }
 
@@ -281,71 +281,88 @@ function tareControls(sensor) {
   ];
 }
 
-function buildTable(host, groups) {
-  const wrap = el('div.table-wrap');
+/**
+ * The telemetry table: one row per channel, with the channel's recent history
+ * drawn inline between its name and its value.
+ *
+ *   Subsystem | Tag | Channel | ───trend─── | Value | Rate | Min | Max | Ch | Tare
+ *
+ * The trend takes the widest column on purpose. A value tells you where a
+ * channel is; the trace beside it tells you where it is going, and on a table
+ * of thirty rows that is what lets the eye find the one channel that is
+ * moving. Step channels -- a pressure that jumps when a valve cycles -- read
+ * as square waves, which is exactly how they should read.
+ *
+ * Rows are grouped (LOX, then Fuel, ...) and the subsystem column carries the
+ * group in the same quiet mono as the tag, with its colour as a small swatch,
+ * rather than a banner row: the table stays one uninterrupted list to scan.
+ */
+function buildTelemetry(host, groups) {
+  const wrap = el('div.table-wrap.telemetry-wrap');
   // Fixed layout: with `auto`, every column re-measures as readings change and
-  // the whole table twitches at 20 Hz.
-  const table = el('table.data-table.fixed');
+  // the whole table twitches at the stream rate.
+  const table = el('table.data-table.telemetry.fixed');
 
   // The Tare column goes entirely on a spectator view rather than standing
   // empty: a header over a column that can never hold anything reads as a
   // feature that failed to load.
   const tare = !bus.spectator;
-  // The Ch column carries "ch 12" for a DAQ channel and "board L" for a
-  // bang-bang transducer, and it is sized for the longer of the two.
-  const widths = ['20%', '92px', '112px', '58px', '128px', '96px', '96px', '120px', '76px', '84px'];
-  if (tare) widths.push('108px');
-  // Description first, tag second — the same order as the cards, so switching
-  // views does not mean re-learning where to look.
-  const headers = ['Description', 'Tag', 'Group', 'Value', 'Rate', 'Min', 'Max', 'Range', 'Ch', 'Status'];
-  if (tare) headers.push('Tare');
-  // Columns a phone does without: the group is the banner row above, the
-  // range and channel are reference, and the status is already the colour
-  // of the value. `opt` is what the narrow-screen rules in components.css
-  // hide.
-  const optional = new Set(['Group', 'Range', 'Ch', 'Status']);
-  const colClass = (h) => optional.has(h) ? 'opt' : '';
-  const cols = el('colgroup');
-  widths.forEach((w, i) => cols.append(el('col', { class: colClass(headers[i]), style: { width: w } })));
-  table.append(cols);
+  const cols = [
+    { h: 'Subsystem', w: '118px', cls: 'opt' },
+    { h: 'Tag', w: '72px' },
+    { h: 'Channel', w: '19%' },
+    { h: 'Trend', w: 'auto', cls: 'trend-col' },
+    { h: 'Value', w: '118px', num: true },
+    { h: 'Rate', w: '112px', num: true, cls: 'opt' },
+    { h: 'Min', w: '78px', num: true },
+    { h: 'Max', w: '78px', num: true },
+    { h: 'Ch', w: '70px', num: true, cls: 'opt' },
+  ];
+  if (tare) cols.push({ h: 'Tare', w: '96px' });
 
+  table.append(el('colgroup', {}, cols.map((c) => el('col', { class: c.cls || '', style: c.w === 'auto' ? {} : { width: c.w } }))));
   table.append(el('thead', {}, el('tr', {},
-    headers.map((h) =>
-      el('th', {
-        text: h,
-        class: [['Value', 'Rate', 'Min', 'Max', 'Ch'].includes(h) ? 'num' : '', colClass(h)].join(' ').trim(),
-      })
-    )
+    cols.map((c) => el('th', {
+      class: [c.num ? 'num' : '', c.cls || ''].join(' ').trim(),
+      text: c.h === 'Trend' ? `Trend · ${windowLabel()}` : c.h,
+      id: c.h === 'Trend' ? 'trend-head' : null,
+    }))
   )));
 
   const tbody = el('tbody');
   for (const group of groups) {
-    tbody.append(el('tr.group-row', { style: { '--group-color': group.color || '#64748b' } },
-      el('td', { colspan: headers.length },
-        el('span.group-swatch'),
-        group.label,
-        el('span.col-count', { text: String(group.sensors.length) })
-      )
-    ));
-    for (const s of group.sensors) {
-      tbody.append(el('tr', { id: `tr-${s.id}` },
-        el('td', { style: { fontWeight: '650' }, text: s.name }),
-        el('td.mono.muted', { text: s.id }),
-        el('td.muted.opt', { text: group.label }),
-        el('td.num', { id: `tv-${s.id}`, text: '––––' }),
-        el('td.num.s-rate', { id: `trate-${s.id}`, dataset: { dir: 'flat' }, text: '' }),
-        el('td.num.muted', { id: `tmin-${s.id}`, text: '––' }),
-        el('td.num.muted', { id: `tmax-${s.id}`, text: '––' }),
-        el('td.mono.muted.opt', { text: `${s.min} … ${s.max} ${s.units}` }),
-        el('td.num.muted.opt', { text: channelLabel(s), title: channelTitle(s) }),
-        el('td.opt', { id: `ts-${s.id}`, text: '–' }),
+    group.sensors.forEach((s, i) => {
+      const canvas = el('canvas.t-spark', { id: `tspark-${s.id}` });
+      sparks.set(s.id, canvas);
+      tbody.append(el('tr', {
+        id: `tr-${s.id}`,
+        class: i === 0 ? 'group-first' : '',
+        dataset: { status: 'stale' },
+        style: { '--group-color': group.color || '#64748b' },
+      },
+        el('td.t-sub.opt', {}, el('span.group-swatch'), el('span', { text: group.label })),
+        el('td.t-tag', { text: s.id }),
+        el('td.t-name', { text: s.name, title: s.name }),
+        el('td.t-trend', {}, canvas),
+        el('td.num.t-value', {},
+          el('span', { id: `tv-${s.id}`, text: '––––' }),
+          el('span.t-units', { text: s.units })
+        ),
+        el('td.num.s-rate.opt', { id: `trate-${s.id}`, dataset: { dir: 'flat' }, text: '' }),
+        el('td.num.t-stat', { id: `tmin-${s.id}`, text: '––' }),
+        el('td.num.t-stat', { id: `tmax-${s.id}`, text: '––' }),
+        el('td.num.t-stat.opt', { text: channelLabel(s), title: channelTitle(s) }),
         tare ? el('td.tare-cell', {}, tareControls(s)) : null
       ));
-    }
+    });
   }
   table.append(tbody);
   wrap.append(table);
   host.append(wrap);
+}
+
+function windowLabel() {
+  return WINDOWS.find((w) => w.s === windowSeconds)?.label ?? `${windowSeconds}s`;
 }
 
 // ----------------------------------------------------------------- update --
@@ -389,10 +406,10 @@ function update() {
 
       drawSpark(sensor, status);
     } else {
-      const cell = $(`#tv-${sensor.id}`);
-      if (!cell) continue;
-      cell.textContent = fmtValue(value, sensor.decimals);
-      cell.className = `num st-${status}`;
+      const row = $(`#tr-${sensor.id}`);
+      if (!row) continue;
+      row.dataset.status = status;
+      $(`#tv-${sensor.id}`).textContent = fmtValue(value, sensor.decimals);
 
       const rateCell = $(`#trate-${sensor.id}`);
       rateCell.textContent = rate.text;
@@ -400,12 +417,13 @@ function update() {
 
       $(`#tmin-${sensor.id}`).textContent = fmtValue(stats.min, sensor.decimals);
       $(`#tmax-${sensor.id}`).textContent = fmtValue(stats.max, sensor.decimals);
-      const st = $(`#ts-${sensor.id}`);
-      st.textContent = status.toUpperCase();
-      st.className = `st-${status} opt`;
+      drawSpark(sensor, status);
     }
   }
+  const head = $('#trend-head');
+  if (head) head.textContent = `Trend · ${windowLabel()}`;
 }
+
 
 /**
  * Reflect tare state: which channels offer the buttons, which are currently
@@ -463,74 +481,14 @@ function windowStats(id, seconds) {
 // --------------------------------------------------------------- sparkline --
 
 function drawSpark(sensor, status) {
-  const canvas = sparks.get(sensor.id);
-  if (!canvas || !canvas.isConnected) return;
-
-  const dpr = window.devicePixelRatio || 1;
-  const w = canvas.clientWidth, h = canvas.clientHeight;
-  if (!w || !h) return;
-  if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
-    canvas.width = w * dpr;
-    canvas.height = h * dpr;
-  }
-
-  const ctx = canvas.getContext('2d');
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, w, h);
-
-  const series = bus.history.get(sensor.id);
-  if (!series || series.v.length < 2) return;
-
-  const cutoff = Date.now() - windowSeconds * 1000;
-  let start = series.t.findIndex((t) => t >= cutoff);
-  if (start < 0) start = Math.max(0, series.t.length - 2);
-  const times = series.t.slice(start);
-  const values = series.v.slice(start);
-  if (values.length < 2) return;
-
-  // Autoscale to the window, with a floor so a flat line does not look noisy.
-  let lo = Math.min(...values), hi = Math.max(...values);
-  const pad = Math.max((hi - lo) * 0.12, Math.abs(hi) * 0.005, 0.5);
-  lo -= pad; hi += pad;
-  const span = hi - lo || 1;
-
-  const t0 = times[0], t1 = times[times.length - 1];
-  const tSpan = t1 - t0 || 1;
-  const px = (i) => ((times[i] - t0) / tSpan) * w;
-  const py = (i) => h - ((values[i] - lo) / span) * h;
-
-  const color = getComputedStyle(document.documentElement)
-    .getPropertyValue(status === 'danger' ? '--danger' : status === 'warn' ? '--warn' : '--ok').trim() || '#4ade80';
-
-  ctx.beginPath();
-  ctx.moveTo(px(0), py(0));
-  for (let i = 1; i < values.length; i++) ctx.lineTo(px(i), py(i));
-
-  const fill = ctx.createLinearGradient(0, 0, 0, h);
-  fill.addColorStop(0, hexWithAlpha(color, 0.28));
-  fill.addColorStop(1, hexWithAlpha(color, 0));
-  ctx.save();
-  ctx.lineTo(px(values.length - 1), h);
-  ctx.lineTo(px(0), h);
-  ctx.closePath();
-  ctx.fillStyle = fill;
-  ctx.fill();
-  ctx.restore();
-
-  ctx.beginPath();
-  ctx.moveTo(px(0), py(0));
-  for (let i = 1; i < values.length; i++) ctx.lineTo(px(i), py(i));
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 1.4;
-  ctx.lineJoin = 'round';
-  ctx.stroke();
-}
-
-function hexWithAlpha(color, alpha) {
-  const m = /^#?([0-9a-f]{6})$/i.exec(color.trim());
-  if (!m) return color;
-  const n = parseInt(m[1], 16);
-  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
+  const alarm = status === 'danger' || status === 'warn';
+  // The table rows are short: no midline there, just the trace.
+  const inTable = mode !== 'cards';
+  drawTrace(sparks.get(sensor.id), bus.history.get(sensor.id), windowSeconds, {
+    color: statusColor(status),
+    fill: alarm,
+    grid: inTable ? null : cssVar('--border', '#232326'),
+  });
 }
 
 // ------------------------------------------------------------------ prefs --

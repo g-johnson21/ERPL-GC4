@@ -925,6 +925,8 @@
                 "enum": [
                   "tank",
                   "bottle",
+                  "dewar",
+                  "compressor",
                   "engine",
                   "regulator",
                   "filter",

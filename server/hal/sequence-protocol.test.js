@@ -18,8 +18,12 @@ test('an initial delay uses a non-actuating channel-zero command', () => {
 test('reject firmware truncation, invalid times and unsupported actions before sending', () => {
   for (const t of [-1, NaN, Infinity]) assert.throws(() => encodeSequence({ steps: [step(t)] }, valves), /time/);
   assert.throws(() => encodeSequence({ steps: [step(100)] }, valves), /99.999/);
-  assert.throws(() => encodeSequence({ steps: Array.from({ length: 26 }, (_, i) => step(i)) }, valves), /255-byte/);
-  assert.equal(encodeSequence({ steps: Array.from({ length: 25 }, (_, i) => step(i)) }, valves).command.length, 249);
+  assert.throws(() => encodeSequence({ steps: Array.from({ length: 52 }, (_, i) => step(i)) }, valves), /511-byte/);
+  assert.equal(encodeSequence({ steps: Array.from({ length: 51 }, (_, i) => step(i)) }, valves).command.length, 509);
+  // Every token is a fixed 9 bytes (5-digit zero-padded delay), so the
+  // 511-byte cap always binds before the 64-step cap can — this only checks
+  // that the step-count guard still fires its own message when it is hit.
+  assert.throws(() => encodeSequence({ steps: Array.from({ length: 65 }, (_, i) => step(i)) }, valves), /64 commands/);
   for (const action of ['bangbang', 'log', 'safeAll', 'abortStates', 'abort', 'end']) {
     assert.throws(() => encodeSequence({ steps: [{ ...step(0), action }] }, valves), /unsupported/);
   }

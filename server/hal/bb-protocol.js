@@ -17,7 +17,7 @@
  * the part we cannot test against hardware until we are at the pad.
  *
  * CASE CONVENTION (easy to get wrong, silently)
- *   Uppercase command letter = CONFIGURE   B / V / M
+ *   Uppercase command letter = CONFIGURE   B / V
  *   Lowercase command letter = ACTUATE     b / v / x / e
  *   Side in a COMMAND is uppercase         L / F
  *   Side in a HEARTBEAT is lowercase       l / f
@@ -70,14 +70,6 @@ export const PT_SIDE_OF_CHANNEL = { 0: 'L', 1: 'F' };
  * implementation that may be running somewhere and the two cost nothing to
  * accept together.
  *
- * STILL UNVERIFIED: every `mdot*` key below. GC-4 never sends the `M` command
- * (nothing in stand.json configures mass-flow scheduling), so no echo for it
- * has ever been seen. Expect these spellings to be wrong in the same way the
- * vent ones were, and check the "unrecognised key(s)" warning the first time
- * an `M` is pushed — that warning is how the vent mismatch surfaced.
- *
- * `rho` is sent in `M` but has no echo key at all, so the density the board is
- * using cannot be verified from the ground. Treat it as write-only.
  */
 export const CFG_PUSH_KEYS = {
   sp: ['setpoint', 'float'],
@@ -88,11 +80,6 @@ export const CFG_PUSH_KEYS = {
   avAuto: ['ventAuto', 'bool'],          // observed on hardware
   ventTrig: ['ventTrigger', 'float'],    // documented in §5.5; kept as an alias
   ventAuto: ['ventAuto', 'bool'],        // documented in §5.5; kept as an alias
-  mdot: ['mdotTarget', 'float'],
-  spMin: ['spMin', 'float'],
-  spMax: ['spMax', 'float'],
-  gain: ['mdotGain', 'float'],
-  mdotOn: ['mdotOn', 'bool'],
 };
 
 // ------------------------------------------------------------------ sides ---
@@ -127,12 +114,6 @@ export function encodeConfig(side, { setpoint, deadbandFull, waitMs = 0, maxOpen
 export function encodeVent(side, { trigger, auto }) {
   const c = requireSide(side);
   return `V${c}${f1(trigger)},${auto ? 1 : 0}`;
-}
-
-/** `M<side><mdot>,<sp_min>,<sp_max>,<gain>,<rho>,<enable01>` */
-export function encodeMdot(side, { target, spMin, spMax, gain, rho, enabled }) {
-  const c = requireSide(side);
-  return `M${c}${f3(target)},${f3(spMin)},${f3(spMax)},${f5(gain)},${f3(rho)},${enabled ? 1 : 0}`;
 }
 
 /** `b<side><0|1>` — enter or leave SUS. */
@@ -419,14 +400,6 @@ export function parseCommand(raw) {
     case 'V':
       if (!Number.isFinite(nums[0])) return null;
       return { kind: 'vent', side, trigger: nums[0], auto: parts[1] === '1' };
-    case 'M':
-      if (parts.length < 6 || !nums.slice(0, 5).every(Number.isFinite)) return null;
-      return {
-        kind: 'mdot', side,
-        target: nums[0], spMin: nums[1], spMax: nums[2],
-        gain: nums[3], rho: nums[4],
-        enabled: parts[5] === '1',
-      };
     case 'b':
       return rest === '0' || rest === '1' ? { kind: 'enable', side, on: rest === '1' } : null;
     case 'v':
@@ -512,8 +485,6 @@ function requireSide(side) {
 }
 
 function f1(v) { return num(v).toFixed(1); }
-function f3(v) { return num(v).toFixed(3); }
-function f5(v) { return num(v).toFixed(5); }
 function int(v) { return String(Math.round(num(v))); }
 function num(v) { const n = Number(v); return Number.isFinite(n) ? n : 0; }
 

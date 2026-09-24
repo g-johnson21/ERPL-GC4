@@ -49,6 +49,9 @@ export function mountHeader(activePage) {
       : recordingControl(),
     el('div.header-spacer'),
     el('div.header-status#header-status'),
+    // Hangs below the header when a hardware link is down. Positioned out of
+    // flow and click-through, so it never moves or covers a control.
+    el('div.link-alert#link-alert', { role: 'status', 'aria-live': 'assertive' }),
     el('span.clock#header-clock', { text: '--:--:--' }),
     el('button.icon-btn#theme-toggle', {
       title: 'Toggle light / dark theme (T)',
@@ -225,6 +228,57 @@ function updateHeaderStatus() {
   // header runs out of room for the ones that have no duplicate.
 
   host.append(...chips);
+  updateLinkAlert(s);
+}
+
+/**
+ * The disconnected-device warning strip under the header.
+ *
+ * The chip alone is a small change in a busy row, and a DAQ that stops
+ * delivering leaves every gauge frozen at a plausible value — the most
+ * dangerous kind of wrong. So a loss also gets a strip across the top of the
+ * page, in the operator's line of sight. It is pointer-events: none and
+ * positioned out of flow: it cannot swallow a click on a valve, shift the
+ * layout, or need dismissing before ARM or ABORT can be reached.
+ *
+ * Not shown while the browser itself has lost the server — LINK LOST already
+ * says so, and every device state in the snapshot is stale then anyway.
+ */
+function updateLinkAlert(s) {
+  const host = $('#link-alert');
+  if (!host) return;
+  const down = bus.connected ? (s.driver.devices || []).filter((d) => !d.connected) : [];
+  host.hidden = down.length === 0;
+
+  // Rows are rebuilt only when the set of down devices changes; the header
+  // refreshes every 250 ms and rebuilding would restart the pulse each time.
+  const sig = down.map((d) => `${d.key || d.name}:${d.required}`).join('|');
+  if (host.dataset.sig !== sig) {
+    host.dataset.sig = sig;
+    clear(host);
+    for (const dev of down) {
+      host.append(el(`div.link-alert-row.${dev.required ? 'danger' : 'warn'}`, {},
+        el('span.dot'),
+        el('strong', { text: `${(dev.key || dev.name || 'device').toUpperCase()} DISCONNECTED` }),
+        el('span.link-alert-why')
+      ));
+    }
+  }
+
+  down.forEach((dev, i) => {
+    const age = deviceAgeMs(dev, s);
+    const wait = waitingMs(dev, s);
+    const parts = [dev.lostReason || (age === null ? 'no data received since startup' : 'no data')];
+    if (age !== null) parts.push(`last data ${fmtAge(age)} ago`);
+    else if (wait !== null) parts.push(`waiting ${fmtAge(wait)}`);
+    // Readings are held at their last value rather than blanked, so say so —
+    // a steady gauge is exactly what a frozen one looks like.
+    // (Only once something has arrived — there is nothing to freeze before.)
+    if (age !== null && dev.name === 'nidaq') parts.push('sensor readings are frozen');
+    else if (age !== null && dev.name === 'panda') parts.push('valve states and board readings are frozen');
+    const why = host.children[i]?.querySelector('.link-alert-why');
+    if (why) why.textContent = parts.join(' · ');
+  });
 }
 
 function chip(text, kind = '', live = false) {
@@ -243,11 +297,18 @@ function chip(text, kind = '', live = false) {
 function linkChip(dev, snapshot) {
   const label = (dev.key || dev.name || 'link').toUpperCase();
   const age = deviceAgeMs(dev, snapshot);
+  // A device that has never delivered but knows when it started counts up
+  // from there: "waiting 14 s" separates a DAQ still configuring its cards
+  // from one that has been dead since boot.
+  const wait = age === null ? waitingMs(dev, snapshot) : null;
 
   let text, kind;
   if (dev.connected) {
     text = `${label} LIVE`;
     kind = 'ok';
+  } else if (wait !== null) {
+    text = `${label} ${fmtAge(wait)}`;
+    kind = dev.required ? 'danger' : 'warn';
   } else if (age === null) {
     text = `${label} NO LINK`;                 // never said anything
     kind = dev.required ? 'danger' : 'warn';
@@ -264,12 +325,19 @@ function linkChip(dev, snapshot) {
   // it. Only while connected — a rate printed next to an age would be a
   // number from before the link dropped.
   const rate = dev.connected && Number.isFinite(dev.rxSampleHz) ? dev.rxSampleHz : null;
-  if (rate !== null) node.append(el('span.chip-rate', { text: fmtHz(rate) }));
+  // The DAQ also carries its data age while LIVE. LIVE only means "within
+  // the 2 s timeout", and a stream arriving in half-second lumps looks
+  // exactly like a healthy one until the age is on screen.
+  const liveAge = dev.connected && dev.name === 'nidaq' && age !== null ? fmtAge(age) : null;
+  const extra = [rate !== null ? fmtHz(rate) : null, liveAge].filter(Boolean);
+  if (extra.length) node.append(el('span.chip-rate', { text: extra.join(' · ') }));
 
   node.title = [
     dev.detail || label,
     dev.required ? 'required device' : 'optional device',
-    age === null ? 'no data received since startup' : `last data ${fmtAge(age)} ago`,
+    age !== null ? `last data ${fmtAge(age)} ago`
+      : wait !== null ? `no data yet — waiting ${fmtAge(wait)} since acquisition started`
+      : 'no data received since startup',
     ...rateTitle(dev, rate),
   ].join('\n');
   return node;
@@ -291,7 +359,13 @@ function linkChip(dev, snapshot) {
  */
 function rateTitle(dev, rate) {
   if (rate === null) return [];
-  const lines = [`receiving ${fmtHz(rate)} — measured here, not reported by the device`];
+  const lines = [`updating at ${fmtHz(rate)} — measured here, not reported by the device`];
+  // Cards run on unrelated clocks, so each gets its own line; the headline
+  // is the slowest clocked one.
+  for (const c of dev.rxCards || []) {
+    lines.push(`  ${c.card.toUpperCase()}: ${fmtHz(c.hz)}`
+      + (Number.isFinite(c.clockHz) ? ` of ${fmtHz(c.clockHz)}` : ''));
+  }
   if (Number.isFinite(dev.rxFrameHz)) lines.push(`${dev.rxFrameHz.toFixed(2)} frames/s`);
   if (Number.isFinite(dev.sampleClockHz)) {
     const short = dev.sampleClockHz - rate;
@@ -309,8 +383,18 @@ function fmtHz(hz) {
 
 /** Age of a device's last frame in ms, or null if it has never sent one. */
 function deviceAgeMs(dev, snapshot) {
-  if (!dev.lastRxAt) return null;
-  const atSnapshot = Math.max(0, snapshot.t - dev.lastRxAt);
+  return sinceServerMs(dev.lastRxAt, snapshot);
+}
+
+/** How long a device that has never delivered has been waiting, or null. */
+function waitingMs(dev, snapshot) {
+  return dev.lastRxAt ? null : sinceServerMs(dev.waitingSince, snapshot);
+}
+
+/** Time since a server-clock timestamp, extended locally between snapshots. */
+function sinceServerMs(t, snapshot) {
+  if (!t) return null;
+  const atSnapshot = Math.max(0, snapshot.t - t);
   const sinceSnapshot = lastStateAt ? Math.max(0, Date.now() - lastStateAt) : 0;
   return atSnapshot + sinceSnapshot;
 }

@@ -15,7 +15,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  encodeConfig, encodeVent, encodeMdot, encodeEnable, encodeManualVent, encodeAbort,
+  encodeConfig, encodeVent, encodeEnable, encodeManualVent, encodeAbort,
   encodePredictive,
   encodeHeartbeat, encodeCfgPush,
   encodePtTare, encodePtTareClear, encodePtOffset,
@@ -40,12 +40,8 @@ test('a fractional setpoint survives — %.1f, not int()', () => {
   assert.equal(parseCommand(line).setpoint, 200.5);
 });
 
-test('V and M encode as the spec examples', () => {
+test('V encodes as the spec example', () => {
   assert.equal(encodeVent('L', { trigger: 250, auto: true }), 'VL250.0,1');
-  assert.equal(
-    encodeMdot('L', { target: 0.85, spMin: 150, spMax: 400, gain: 0.025, rho: 1141, enabled: true }),
-    'ML0.850,150.000,400.000,0.02500,1141.000,1'
-  );
 });
 
 test('actuation commands are lowercase, configuration is uppercase', () => {
@@ -325,7 +321,7 @@ test('predictive shutoff encodes as e<side><0|1>', () => {
   assert.equal(encodePredictive('L', true), 'eL1');
   assert.equal(encodePredictive('F', false), 'eF0');
   // Lowercase verb: it actuates a board behaviour rather than storing a
-  // configured number, so it belongs with b/v/x and not with B/V/M.
+  // configured number, so it belongs with b/v/x and not with B/V.
   assert.equal(encodePredictive('l', true)[0], 'e', 'the verb stays lowercase whatever case the side arrives in');
   assert.equal(encodePredictive('f', true), 'eF1', 'the side is upper-cased into command form');
   assert.throws(() => encodePredictive('X', true), /side must be/);

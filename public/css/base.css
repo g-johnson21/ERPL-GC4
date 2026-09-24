@@ -5,77 +5,115 @@
    ========================================================================== */
 
 :root {
-  /* Accent is overwritten at runtime from config.ui.accent */
-  --accent: #ff7a1a;
+  /* Accent is overwritten at runtime from config.ui.accent. In this design
+     it is a SIGNAL colour (focus, progress, the running sequence) -- never a
+     button fill. Primary buttons are neutral; see MODERN_GUI.md §2.2. */
+  --accent: #3b82f6;
   --accent-ink: #ffffff;
 
-  --bg: #f4f6f9;
+  /* Light theme: the same instrument-panel restraint as dark, inverted.
+     Zinc greys, hairlines, colour only where it means something. */
+  --bg: #fafafa;
   --surface: #ffffff;
-  --surface-2: #eaeef3;
-  --surface-3: #dde3ea;
-  --border: #ccd4de;
-  --border-strong: #a9b5c4;
-  --text: #10151c;
-  --text-muted: #5a6675;
-  --text-faint: #8a95a3;
+  --surface-2: #f4f4f5;
+  --surface-3: #e9e9ec;
+  --border: #e4e4e7;
+  --border-strong: #c8c8cf;
+  --text: #18181b;
+  --text-muted: #52525b;
+  --text-faint: #8e8e96;
 
-  --ok: #15803d;
-  --ok-bg: #dcfce7;
-  --warn: #b45309;
-  --warn-bg: #fef3c7;
-  --danger: #b91c1c;
-  --danger-bg: #fee2e2;
-  --info: #1d4ed8;
-  --info-bg: #dbeafe;
-  --idle: #64748b;
-  --idle-bg: #e2e8f0;
+  --ok: #16a34a;
+  --ok-bg: color-mix(in srgb, #16a34a 10%, transparent);
+  --warn: #c2780a;
+  --warn-bg: color-mix(in srgb, #c2780a 10%, transparent);
+  --danger: #dc2626;
+  --danger-bg: color-mix(in srgb, #dc2626 9%, transparent);
+  --info: #2563eb;
+  --info-bg: color-mix(in srgb, #2563eb 9%, transparent);
+  --idle: #71717a;
+  --idle-bg: color-mix(in srgb, #71717a 10%, transparent);
 
-  --shadow: 0 1px 2px rgb(16 21 28 / 8%), 0 4px 12px rgb(16 21 28 / 6%);
-  --shadow-lg: 0 8px 32px rgb(16 21 28 / 14%);
+  /* Nominal trace ink for sparklines and plots -- a desaturated indigo that
+     reads as "data", distinct from every state colour. */
+  --spark: #6366f1;
 
-  --radius: 8px;
-  --radius-sm: 5px;
-  --radius-lg: 12px;
+  /* Flat. Depth comes from hairlines and a step in surface tone, not blur. */
+  --shadow: none;
+  --shadow-lg: 0 16px 40px -12px rgb(0 0 0 / 22%);
 
-  --header-h: 52px;
-  /* The sidebar is two columns wide. Left holds ARM, the sequences and the
-     log; right holds the bang-bang cards. Both are sized so that neither
-     column has to scroll on a 1600x900 station -- see .sidebar below. The
-     media queries at the foot of this file override these two on `.sidebar`,
-     so the total is summed there rather than kept as a third token: a
-     custom property that contains var() is substituted where it is DECLARED,
-     so a `--sidebar-w` defined up here would keep the widths from up here. */
-  --sidebar-ops-w: 292px;
-  --sidebar-bb-w: 328px;
+  --radius: 4px;
+  --radius-sm: 2px;
+  --radius-lg: 6px;
 
-  --mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono", Consolas, monospace;
-  --sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --header-h: 40px;
+  /* The sidebar's two columns, at their DESIGN width: left holds ARM, the
+     sequences and the log; right holds the bang-bang cards. They are drawn at
+     these widths and then zoomed to fit the window -- see .sidebar below and
+     sidebar-fit.js -- so these never change with the screen. */
+  --sidebar-ops-w: 280px;
+  --sidebar-bb-w: 312px;
+
+  /* Two faces, two jobs: grotesk sans for UI and prose, monospace for every
+     tag, value, unit and timestamp. No web fonts are fetched -- a stand has
+     no internet -- so these resolve to whatever the station has installed. */
+  /* One type scale for the whole station. Seven steps, not nineteen: tiny
+     caps chips, eyebrows and units, secondary text, UI text, body, section
+     titles, page titles. Live values and the brand keep their own sizes --
+     they are data and identity, not text. Weights follow the same rule:
+     400 for text, 500 for emphasis and caps labels, 600 for live values,
+     700 only where the weight is the message (ABORT, ARMED). */
+  --fs-2xs: 9px;
+  --fs-xs: 10px;
+  --fs-sm: 11px;
+  --fs-md: 12px;
+  --fs-base: 13px;
+  --fs-lg: 15px;
+  --fs-xl: 20px;
+
+  --mono: "JetBrains Mono", "Geist Mono", "Cascadia Mono", "SF Mono", ui-monospace, Consolas, monospace;
+  --sans: "Inter", "Geist", "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
 }
 
+/* Dark: near-black, quiet, instrument-grade. No pure white text -- the
+   brightest ink is #e5e5e5, which is most of why it reads calm. */
 [data-theme="dark"] {
-  --bg: #0b0f14;
-  --surface: #141a22;
-  --surface-2: #1b232d;
-  --surface-3: #232d39;
-  --border: #2b3643;
-  --border-strong: #3d4a5a;
-  --text: #e7eef6;
-  --text-muted: #94a3b4;
-  --text-faint: #6b7889;
+  --bg: #0a0a0a;
+  --surface: #0f0f10;
+  --surface-2: #161618;
+  --surface-3: #1f1f22;
+  --border: #232326;
+  --border-strong: #34343a;
+  --text: #e5e5e5;
+  --text-muted: #a1a1a6;
+  --text-faint: #6b6b70;
 
-  --ok: #4ade80;
-  --ok-bg: #052e16;
-  --warn: #fbbf24;
-  --warn-bg: #3b2708;
-  --danger: #f87171;
-  --danger-bg: #450a0a;
-  --info: #60a5fa;
-  --info-bg: #0b2447;
-  --idle: #7c8ba0;
-  --idle-bg: #1e2833;
+  --ok: #22c55e;
+  --ok-bg: color-mix(in srgb, #22c55e 11%, transparent);
+  --warn: #f59e0b;
+  --warn-bg: color-mix(in srgb, #f59e0b 11%, transparent);
+  --danger: #ef4444;
+  --danger-bg: color-mix(in srgb, #ef4444 12%, transparent);
+  --info: #3b82f6;
+  --info-bg: color-mix(in srgb, #3b82f6 12%, transparent);
+  --idle: #6b6b70;
+  --idle-bg: color-mix(in srgb, #6b6b70 14%, transparent);
 
-  --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 4px 14px rgb(0 0 0 / 30%);
-  --shadow-lg: 0 8px 34px rgb(0 0 0 / 55%);
+  --spark: #818cf8;
+
+  --shadow: none;
+  --shadow-lg: 0 20px 50px -12px rgb(0 0 0 / 80%);
+}
+
+/* The eyebrow: the small caps label that sits over every group and value.
+   Shared by section titles, column heads and table headers. */
+.eyebrow {
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
 }
 
 * { box-sizing: border-box; }
@@ -87,8 +125,9 @@ html, body {
 
 body {
   font-family: var(--sans);
-  font-size: 14px;
+  font-size: var(--fs-base);
   line-height: 1.45;
+  letter-spacing: -0.003em;
   background: var(--bg);
   color: var(--text);
   -webkit-font-smoothing: antialiased;
@@ -96,7 +135,8 @@ body {
 }
 
 /* Theme swaps should not animate every element on load. */
-body.theme-ready * { transition: background-color .15s, border-color .15s, color .15s; }
+body.theme-ready * { transition: background-color .1s, border-color .1s, color .1s; }
+::selection { background: color-mix(in srgb, var(--accent) 35%, transparent); }
 
 /* ------------------------------------------------------------------ header */
 
@@ -104,9 +144,9 @@ body.theme-ready * { transition: background-color .15s, border-color .15s, color
   height: var(--header-h);
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 0 14px;
-  background: var(--surface);
+  gap: 12px;
+  padding: 0 12px;
+  background: var(--bg);
   border-bottom: 1px solid var(--border);
   position: relative;
   z-index: 40;
@@ -116,19 +156,19 @@ body.theme-ready * { transition: background-color .15s, border-color .15s, color
   display: flex;
   align-items: center;
   gap: 9px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: -0.01em;
   white-space: nowrap;
 }
 .brand .org-logo {
-  height: 19px;
+  height: 16px;
   width: auto;
   display: block;
   flex: none;
 }
 .brand .brand-mark {
   color: var(--accent);
-  font-size: 15px;
+  font-size: var(--fs-lg);
 }
 /* Stand badge, separated from the org mark by a hairline rule. */
 .brand .brand-stand {
@@ -138,14 +178,15 @@ body.theme-ready * { transition: background-color .15s, border-color .15s, color
   padding-left: 9px;
   margin-left: 1px;
   border-left: 1px solid var(--border);
-  font-weight: 600;
-  font-size: 12.5px;
-  color: var(--text-muted);
-  letter-spacing: .06em;
+  font-family: var(--mono);
+  font-weight: 500;
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+  letter-spacing: .08em;
   text-transform: uppercase;
 }
 .brand .stand-logo {
-  height: 24px;
+  height: 20px;
   width: auto;
   display: block;
   flex: none;
@@ -157,27 +198,29 @@ body.theme-ready * { transition: background-color .15s, border-color .15s, color
    find the room elsewhere. */
 .nav {
   display: flex;
-  gap: 2px;
-  margin-left: 6px;
+  gap: 0;
+  margin-left: 4px;
   flex: none;
+  align-self: stretch;
   overflow: hidden;
 }
+/* Flat text tabs. The active one is simply brighter ink with a hairline
+   under it -- no pill, no fill, no colour. */
 .nav a {
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 7px 13px;
-  border-radius: var(--radius-sm);
-  color: var(--text-muted);
+  gap: 6px;
+  padding: 0 11px;
+  color: var(--text-faint);
   text-decoration: none;
-  font-weight: 550;
-  font-size: 13px;
+  font-weight: 400;
+  font-size: var(--fs-md);
   white-space: nowrap;
+  box-shadow: inset 0 -1px 0 transparent;
 }
-.nav a:hover { background: var(--surface-2); color: var(--text); }
-.nav a.active { background: var(--surface-3); color: var(--text); }
-.nav a.active svg { color: var(--accent); }
-.nav svg { width: 15px; height: 15px; }
+.nav a:hover { color: var(--text-muted); }
+.nav a.active { color: var(--text); box-shadow: inset 0 -1px 0 var(--text); }
+.nav svg { width: 13px; height: 13px; opacity: .8; }
 
 .header-spacer { flex: 1; }
 
@@ -205,13 +248,13 @@ body.theme-ready * { transition: background-color .15s, border-color .15s, color
    than a truncated filename. */
 .rec-control .rec-new {
   flex: none;
-  gap: 7px;
-  padding: 6px 12px;
-  font-size: 12.5px;
-  font-weight: 650;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: var(--fs-md);
+  font-weight: 500;
   white-space: nowrap;
 }
-.rec-control .rec-halt { flex: none; padding: 6px 9px; }
+.rec-control .rec-halt { flex: none; padding: 4px 8px; }
 .rec-control .rec-halt svg { color: var(--danger); }
 
 /* Green dot and the file name, or grey and "Not Currently Logging". It is a
@@ -221,21 +264,23 @@ body.theme-ready * { transition: background-color .15s, border-color .15s, color
 .rec-indicator {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   flex: 0 1 auto;
   min-width: 0;
-  padding: 4px 10px;
-  border-radius: 100px;
+  padding: 3px 9px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border);
-  background: var(--bg);
-  color: var(--text-muted);
+  background: transparent;
+  color: var(--text-faint);
   font: inherit;
-  font-size: 11.5px;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  letter-spacing: .02em;
   cursor: pointer;
 }
 .rec-indicator:hover { border-color: var(--border-strong); color: var(--text); }
 .rec-indicator .rec-dot {
-  width: 9px; height: 9px;
+  width: 6px; height: 6px;
   border-radius: 50%;
   background: var(--idle);
   flex: none;
@@ -247,7 +292,7 @@ body.theme-ready * { transition: background-color .15s, border-color .15s, color
    name itself rendering left to right inside it. */
 .rec-indicator .rec-name {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--fs-sm);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -260,7 +305,7 @@ body.theme-ready * { transition: background-color .15s, border-color .15s, color
    dropped when the header runs out of room — the tooltip still carries it. */
 .rec-indicator .rec-meta {
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--fs-xs);
   color: var(--text-faint);
   white-space: nowrap;
   flex: none;
@@ -269,8 +314,8 @@ body.theme-ready * { transition: background-color .15s, border-color .15s, color
   .rec-indicator .rec-meta { display: none; }
 }
 .rec-indicator[data-active="true"] {
-  border-color: var(--ok);
-  background: var(--ok-bg);
+  border-color: color-mix(in srgb, var(--ok) 40%, var(--border));
+  background: transparent;
   color: var(--ok);
 }
 .rec-indicator[data-active="true"] .rec-dot {
@@ -289,10 +334,10 @@ body.theme-ready * { transition: background-color .15s, border-color .15s, color
   max-height: 60vh;
   overflow: auto;
   padding: 10px;
-  border-radius: var(--radius);
-  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-strong);
   background: var(--surface);
-  box-shadow: 0 14px 34px -12px rgb(0 0 0 / 55%);
+  box-shadow: var(--shadow-lg);
   z-index: 60;
 }
 .rec-files .section-title { margin-bottom: 7px; }
@@ -310,15 +355,17 @@ body.theme-ready * { transition: background-color .15s, border-color .15s, color
   gap: 7px;
   flex: none;
   margin-left: 8px;
-  padding: 5px 11px;
-  border-radius: 100px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: .04em;
+  padding: 3px 9px;
+  border-radius: var(--radius-sm);
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  letter-spacing: .08em;
+  text-transform: uppercase;
   white-space: nowrap;
-  background: var(--info-bg);
+  background: transparent;
   color: var(--info);
-  border: 1px solid transparent;
+  border: 1px solid color-mix(in srgb, var(--info) 40%, var(--border));
 }
 .spectator-badge svg { flex: none; }
 
@@ -334,51 +381,99 @@ body.theme-ready * { transition: background-color .15s, border-color .15s, color
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 10px;
-  border-radius: 100px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: .04em;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  letter-spacing: .08em;
   text-transform: uppercase;
-  background: var(--idle-bg);
-  color: var(--idle);
-  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-faint);
+  border: 1px solid var(--border);
   white-space: nowrap;
 }
 .chip .dot {
-  width: 7px; height: 7px;
+  width: 6px; height: 6px;
   border-radius: 50%;
   background: currentColor;
   flex: none;
 }
-.chip.ok { background: var(--ok-bg); color: var(--ok); }
-.chip.warn { background: var(--warn-bg); color: var(--warn); }
-.chip.danger { background: var(--danger-bg); color: var(--danger); }
-.chip.info { background: var(--info-bg); color: var(--info); }
+/* Coloured text and dot on a hairline tinted toward the same hue. The fill
+   stays dark: a header full of solid pills competes with the data. Warn and
+   danger earn a tint -- they are the states someone must act on. */
+.chip.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 35%, var(--border)); }
+.chip.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, var(--border)); background: var(--warn-bg); }
+.chip.danger { color: var(--danger); border-color: var(--danger); background: var(--danger-bg); }
+.chip.info { color: var(--info); border-color: color-mix(in srgb, var(--info) 40%, var(--border)); }
 .chip.live .dot { animation: pulse 1.6s ease-in-out infinite; }
 
 @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:.25 } }
 
+/* Hardware-link loss warning. Hangs from the header's bottom edge, out of
+   flow and click-through: noticeable, but it never covers or displaces a
+   control and never needs dismissing. */
+.link-alert {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: calc(100vw - 32px);
+  pointer-events: none;
+  z-index: 45;
+}
+.link-alert[hidden] { display: none; }
+.link-alert-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid currentColor;
+  font-size: var(--fs-md);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 0 4px 14px rgb(0 0 0 / 22%);
+  animation: link-alert-in .2s ease-out;
+}
+.link-alert-row.danger { background: color-mix(in srgb, var(--danger) 14%, var(--surface)); color: var(--danger); }
+.link-alert-row.warn { background: color-mix(in srgb, var(--warn) 14%, var(--surface)); color: var(--warn); }
+.link-alert-row strong { font-family: var(--mono); font-weight: 600; font-size: var(--fs-xs); letter-spacing: .08em; }
+.link-alert-why { color: var(--text); opacity: .85; overflow: hidden; text-overflow: ellipsis; }
+.link-alert-row .dot {
+  width: 8px; height: 8px; border-radius: 50%; flex: none;
+  background: currentColor;
+  animation: pulse 1s ease-in-out infinite;
+}
+@keyframes link-alert-in { from { opacity: 0; transform: translateY(-4px); } }
+
 .clock {
   font-family: var(--mono);
-  font-size: 12px;
-  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  letter-spacing: .02em;
+  color: var(--text-faint);
   font-variant-numeric: tabular-nums;
 }
 
 .icon-btn {
   display: inline-grid;
   place-items: center;
-  width: 32px; height: 32px;
+  width: 26px; height: 26px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
-  background: var(--surface);
-  color: var(--text-muted);
+  background: transparent;
+  color: var(--text-faint);
+  font: inherit;
+  font-size: var(--fs-base);
   cursor: pointer;
   flex: none;
 }
-.icon-btn:hover { background: var(--surface-2); color: var(--text); }
-.icon-btn svg { width: 16px; height: 16px; }
+.icon-btn:hover { background: var(--surface-3); color: var(--text); border-color: var(--border-strong); }
+.icon-btn svg { width: 14px; height: 14px; }
 
 /* -------------------------------------------------------------- app layout */
 
@@ -395,44 +490,49 @@ body.theme-ready * { transition: background-color .15s, border-color .15s, color
   min-width: 0;
 }
 
-/* TWO COLUMNS, because one column did not fit.
-   Stacked, the four panels came to ~1520px against the ~850px an operator
-   station actually has, so the sequences and the log lived below the fold and
-   starting a sequence began with a scroll. Side by side each column is under
-   the fold on its own: ARM + sequences + log is ~775px, the two bang-bang
-   cards are ~750px.
+/* TWO COLUMNS, fitted to the window, never scrolled.
+   ARM + sequences + log on the left, the bang-bang cards stacked on the right.
 
-   The sidebar stays the single scroll container. On a short screen both
-   columns give at once, which keeps `position: sticky` on the ARM panel
-   working -- `top: 0` is this element's top edge, not a column's. */
+   Each column is laid out at a fixed DESIGN width (the two tokens above) and
+   then zoomed as one by `--fit`, which sidebar-fit.js sets to the largest
+   value at which
+     - both columns fit the window's height, so nothing is ever below the
+       fold -- not ABORT, not the second tank's card, not the live log; and
+     - the sidebar takes no more than about a third of the window's width, so
+       at a high browser zoom or on a small laptop it shrinks in proportion
+       instead of crowding the P&ID into a sliver.
+   Zooming (rather than squeezing widths) keeps the cards' layout identical at
+   every size: nothing re-wraps, nothing reflows into a second row.
+
+   `--sb-h` is the sidebar's rendered height; a column is given that height
+   divided by its zoom, so once zoomed it is exactly as tall as the window. */
 .sidebar {
-  width: calc(var(--sidebar-ops-w) + var(--sidebar-bb-w));
+  --fit: 1;
+  --sb-h: calc(100vh - var(--header-h));
   flex: none;
-  background: var(--surface);
+  background: var(--bg);
   border-left: 1px solid var(--border);
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: hidden;
   display: flex;
   flex-direction: row;
   align-items: flex-start;
   gap: 0;
 }
+/* Width is stated, not left to the columns: a flex container sizes itself
+   from its children's UNZOOMED widths, which left a dead strip beside the
+   zoomed columns as wide as the zoom had saved. */
+.sidebar { width: calc((var(--sidebar-ops-w) + var(--sidebar-bb-w)) * var(--fit) + 1px); }
+.sidebar.solo { width: calc(var(--sidebar-ops-w) * var(--fit) + 1px); }
 .sidebar.collapsed { width: 0; border-left: none; }
-/* A stand with no bang-bang controllers gets no second column, and the
-   sidebar narrows instead of leaving a 328px hole beside the log. */
-.sidebar.solo { width: var(--sidebar-ops-w); }
 .sidebar.solo .sidebar-col.ops { border-right: none; }
 
-/* `min-height: 100%` rather than `align-items: stretch`: stretch would pin
-   each column to the viewport height and let its content spill out of a box
-   that no longer matches it. This way a column is at least full height -- so
-   the log still absorbs the slack -- and grows past it when it must, which is
-   what gives the sidebar something to scroll. */
 .sidebar-col {
-  min-height: 100%;
+  zoom: var(--fit);
+  height: calc(var(--sb-h) / var(--fit));
   min-width: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 .sidebar-col.ops {
   width: var(--sidebar-ops-w);
@@ -451,48 +551,26 @@ body.theme-ready * { transition: background-color .15s, border-color .15s, color
 }
 .sidebar-col > .sidebar-section:last-child { border-bottom: none; }
 
-/* ARM / DISARM / ABORT hold the top of the sidebar and do not scroll with it.
-   The sidebar is the scroll container, so `top: 0` is its top edge. Opaque
-   and raised, or the sequence list reads through it on the way past. */
-.sidebar-section.pinned {
-  position: sticky;
-  top: 0;
-  z-index: 6;
-  background: var(--surface);
-  box-shadow: 0 6px 12px -8px rgb(0 0 0 / 45%);
-}
+/* ARM / DISARM / ABORT: first thing in the column, always. */
+.sidebar-section.pinned { background: var(--bg); }
 
-/* The event log absorbs leftover height. It must be able to shrink (min-height:0
-   breaks the default `min-height:auto` of a flex item) and must clip, or its
-   list overflows the section.
-
-   It gets far more than the 150px it started with: the log is the running
-   account of the test, and at 150px an autosequence firing its steps pushed
-   everything before it out of view faster than anyone could read it. The
-   recording panel that used to sit under it moved to the header, and the
-   bang-bang cards moved into their own column; the log took both. */
+/* The event log takes whatever height the column has left. Basis 0 so the
+   log's length never sets the column's height; the floor is what
+   sidebar-fit.js reserves for it when it works out the zoom, so the live
+   tail always has room for a handful of lines. */
 .sidebar-section.grow {
-  /* Basis 0, not auto: the log list is long, and an `auto` basis makes the
-     column's content height the length of the log rather than the height of
-     the panel showing it -- which pushed the column past the viewport and put
-     the scrollbar back. With basis 0 the section is exactly its minimum plus
-     whatever the column has left over. */
   flex: 1 1 0;
-  /* The floor, not the height -- with room to spare the log takes it all.
-     272px, sized against the one moment the column is fullest: a running
-     sequence adds a ~96px progress panel above, and at 300px that pushed the
-     newest log lines below the fold exactly while a sequence was firing steps
-     into them. Losing two lines of scrollback beats losing the live tail. */
-  min-height: 272px;
+  min-height: var(--log-min, 140px);
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 
 .section-title {
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: .09em;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  letter-spacing: .08em;
   text-transform: uppercase;
   color: var(--text-faint);
   margin: 0 0 9px;
@@ -513,14 +591,17 @@ body.theme-ready * { transition: background-color .15s, border-color .15s, color
   flex-wrap: wrap;
 }
 .page-head h1 {
-  font-size: 17px;
-  font-weight: 700;
+  font-size: var(--fs-xl);
+  font-weight: 400;
   margin: 0;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.025em;
 }
+/* The sub line is a readout, not prose: channel counts and rates. */
 .page-head .sub {
-  font-size: 12.5px;
-  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  letter-spacing: .02em;
+  color: var(--text-faint);
 }
 
 .group-head {
@@ -528,11 +609,12 @@ body.theme-ready * { transition: background-color .15s, border-color .15s, color
   align-items: center;
   gap: 9px;
   margin: 20px 0 9px;
-  font-size: 11px;
-  font-weight: 700;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  font-weight: 500;
   letter-spacing: .08em;
   text-transform: uppercase;
-  color: var(--text-muted);
+  color: var(--text-faint);
 }
 .group-head:first-child { margin-top: 0; }
 .group-head::after {
@@ -542,8 +624,8 @@ body.theme-ready * { transition: background-color .15s, border-color .15s, color
   background: var(--border);
 }
 .group-swatch {
-  width: 9px; height: 9px;
-  border-radius: 2px;
+  width: 6px; height: 6px;
+  border-radius: 1px;
   flex: none;
 }
 
@@ -553,31 +635,33 @@ body.theme-ready * { transition: background-color .15s, border-color .15s, color
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
-  padding: 8px 14px;
+  gap: 6px;
+  padding: 6px 12px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   background: var(--surface-2);
   color: var(--text);
   font: inherit;
-  font-weight: 600;
-  font-size: 13px;
+  font-weight: 500;
+  font-size: var(--fs-md);
   cursor: pointer;
   user-select: none;
   white-space: nowrap;
 }
-.btn:hover:not(:disabled) { background: var(--surface-3); border-color: var(--border-strong); }
-.btn:active:not(:disabled) { transform: translateY(1px); }
-.btn:disabled { opacity: .42; cursor: not-allowed; }
-.btn svg { width: 15px; height: 15px; }
+.btn:hover:not(:disabled) { background: var(--surface-3); border-color: color-mix(in srgb, var(--text) 25%, var(--border-strong)); }
+.btn:disabled { opacity: .38; cursor: not-allowed; }
+.btn svg { width: 13px; height: 13px; }
 
 .btn.wide { width: 100%; }
-.btn.sm { padding: 5px 9px; font-size: 12px; }
-.btn.accent { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
-.btn.accent:hover:not(:disabled) { filter: brightness(1.08); }
-.btn.ok { background: var(--ok-bg); border-color: var(--ok); color: var(--ok); }
-.btn.danger { background: var(--danger-bg); border-color: var(--danger); color: var(--danger); }
-.btn.ghost { background: transparent; }
+.btn.sm { padding: 3px 8px; font-size: var(--fs-sm); }
+/* "Primary" is neutral and inverted -- a light ink block on a dark page. The
+   config accent is a signal colour, and a signal on every Save button stops
+   meaning anything. */
+.btn.accent { background: var(--text); border-color: var(--text); color: var(--bg); }
+.btn.accent:hover:not(:disabled) { background: color-mix(in srgb, var(--text) 86%, var(--bg)); border-color: transparent; }
+.btn.ok { background: var(--ok-bg); border-color: color-mix(in srgb, var(--ok) 55%, var(--border)); color: var(--ok); }
+.btn.danger { background: var(--danger-bg); border-color: color-mix(in srgb, var(--danger) 65%, var(--border)); color: var(--danger); }
+.btn.ghost { background: transparent; border-color: var(--border); }
 
 .btn-row { display: flex; gap: 6px; }
 .btn-row > * { flex: 1; }
@@ -586,9 +670,10 @@ body.theme-ready * { transition: background-color .15s, border-color .15s, color
 
 label.field {
   display: block;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: .04em;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  letter-spacing: .08em;
   text-transform: uppercase;
   color: var(--text-faint);
   margin-bottom: 4px;
@@ -596,23 +681,26 @@ label.field {
 
 input[type="text"], input[type="number"], select, textarea {
   width: 100%;
-  padding: 6px 9px;
+  padding: 5px 8px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   background: var(--bg);
   color: var(--text);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--fs-md);
 }
-input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+input[type="text"]:hover:not(:disabled), input[type="number"]:hover:not(:disabled),
+select:hover:not(:disabled), textarea:hover:not(:disabled) { border-color: var(--border-strong); }
+input[type="number"] { font-family: var(--mono); font-size: var(--fs-md); font-variant-numeric: tabular-nums; }
 input:focus, select:focus, textarea:focus {
-  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline: 1px solid var(--text-muted);
   outline-offset: -1px;
-  border-color: var(--accent);
+  border-color: var(--text-muted);
 }
+input[type="checkbox"] { accent-color: var(--text); }
 input:disabled, select:disabled { opacity: .5; cursor: not-allowed; }
 
-textarea { font-family: var(--mono); font-size: 12px; line-height: 1.5; resize: vertical; }
+textarea { font-family: var(--mono); font-size: var(--fs-md); line-height: 1.5; resize: vertical; }
 
 /* ------------------------------------------------------------------ toasts */
 
@@ -629,13 +717,13 @@ textarea { font-family: var(--mono); font-size: 12px; line-height: 1.5; resize: 
 }
 .toast {
   pointer-events: auto;
-  padding: 9px 13px;
+  padding: 8px 12px;
   border-radius: var(--radius);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--idle);
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  border-left: 2px solid var(--idle);
   box-shadow: var(--shadow-lg);
-  font-size: 13px;
+  font-size: var(--fs-md);
   animation: toast-in .16s ease-out;
 }
 .toast.error { border-left-color: var(--danger); }
@@ -648,7 +736,7 @@ textarea { font-family: var(--mono); font-size: 12px; line-height: 1.5; resize: 
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgb(0 0 0 / 55%);
+  background: rgb(0 0 0 / 62%);
   display: grid;
   place-items: center;
   z-index: 200;
@@ -658,13 +746,14 @@ textarea { font-family: var(--mono); font-size: 12px; line-height: 1.5; resize: 
 .modal {
   background: var(--surface);
   border: 1px solid var(--border);
+  border-color: var(--border-strong);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   width: min(440px, calc(100vw - 32px));
-  padding: 18px;
+  padding: 18px 20px 16px;
 }
-.modal h2 { margin: 0 0 6px; font-size: 16px; }
-.modal p { margin: 0 0 16px; color: var(--text-muted); font-size: 13.5px; }
+.modal h2 { margin: 0 0 8px; font-size: 19px; font-weight: 400; letter-spacing: -0.02em; }
+.modal p { margin: 0 0 18px; color: var(--text-muted); font-size: var(--fs-md); }
 .modal .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
 
 /* ----------------------------------------------------------------- utility */
@@ -677,13 +766,14 @@ textarea { font-family: var(--mono); font-size: 12px; line-height: 1.5; resize: 
   padding: 22px;
   text-align: center;
   color: var(--text-faint);
-  font-size: 13px;
+  font-size: var(--fs-base);
 }
 
-::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 5px; border: 2px solid var(--bg); }
-::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background: var(--border-strong); background-clip: padding-box; }
+::-webkit-scrollbar-corner { background: transparent; }
 
 /* The log control took the header's slack, so the decorations give it back
    before anything load-bearing does. The stand badge duplicates the browser
@@ -691,7 +781,7 @@ textarea { font-family: var(--mono); font-size: 12px; line-height: 1.5; resize: 
    indicator absorbs whatever is still missing by clipping its filename. */
 @media (max-width: 1440px) {
   .brand .brand-stand { display: none; }
-  .nav a { padding: 7px 9px; }
+  .nav a { padding: 0 8px; }
 }
 
 /* Two columns cost the content area ~290px, so the sidebar starts giving it
@@ -699,13 +789,9 @@ textarea { font-family: var(--mono); font-size: 12px; line-height: 1.5; resize: 
    once: shrinking only one would put the bang-bang cards and the sequence
    list on different rhythms, and the cards are the half with fixed-width
    numeric fields to lose. */
-@media (max-width: 1400px) {
-  .sidebar { --sidebar-ops-w: 264px; --sidebar-bb-w: 304px; }
-}
 
 @media (max-width: 1100px) {
   .nav a span { display: none; }
-  .sidebar { --sidebar-ops-w: 236px; --sidebar-bb-w: 284px; }
 }
 
 /* -------------------------------------------------------------- login page */
@@ -725,7 +811,7 @@ textarea { font-family: var(--mono); font-size: 12px; line-height: 1.5; resize: 
   width: min(360px, 100%);
   padding: 26px 26px 20px;
   border-radius: var(--radius-lg);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   background: var(--surface);
   box-shadow: var(--shadow-lg);
   display: flex;
@@ -740,7 +826,7 @@ textarea { font-family: var(--mono); font-size: 12px; line-height: 1.5; resize: 
   margin-bottom: 6px;
 }
 .login-brand .org-logo { height: 19px; width: auto; display: block; }
-.login-brand .brand-mark { color: var(--accent); font-size: 15px; }
+.login-brand .brand-mark { color: var(--accent); font-size: var(--fs-lg); }
 .login-brand .brand-stand {
   display: flex;
   align-items: center;
@@ -748,14 +834,14 @@ textarea { font-family: var(--mono); font-size: 12px; line-height: 1.5; resize: 
   padding-left: 9px;
   border-left: 1px solid var(--border);
   font-weight: 600;
-  font-size: 12.5px;
+  font-size: var(--fs-md);
   color: var(--text-muted);
-  letter-spacing: .06em;
+  letter-spacing: .08em;
   text-transform: uppercase;
 }
 .login-brand .stand-logo { height: 24px; width: auto; display: block; }
-.login-card h1 { margin: 0; font-size: 18px; letter-spacing: -0.01em; }
-.login-lead { margin: 0 0 6px; font-size: 13px; color: var(--text-muted); }
+.login-card h1 { margin: 0; font-size: 22px; font-weight: 400; letter-spacing: -0.025em; }
+.login-lead { margin: 0 0 6px; font-size: var(--fs-base); color: var(--text-muted); }
 /* Big, monospace, centred: a PIN is typed with one hand on a phone at a
    pad, and the dots have to be countable. */
 .login-card input[type="password"] {
@@ -771,11 +857,11 @@ textarea { font-family: var(--mono); font-size: 12px; line-height: 1.5; resize: 
   letter-spacing: .35em;
   text-align: center;
 }
-.login-card .btn { padding: 11px 14px; font-size: 14px; letter-spacing: .04em; }
+.login-card .btn { padding: 10px 14px; font-size: var(--fs-base); }
 .login-msg {
   margin: 0;
   min-height: 1.4em;
-  font-size: 12.5px;
+  font-size: var(--fs-md);
   font-weight: 600;
   text-align: center;
   color: var(--text-muted);
@@ -789,7 +875,7 @@ textarea { font-family: var(--mono); font-size: 12px; line-height: 1.5; resize: 
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   color: var(--text-faint);
 }
 .login-foot svg { flex: none; }
@@ -832,7 +918,7 @@ textarea { font-family: var(--mono); font-size: 12px; line-height: 1.5; resize: 
   .app-header .nav a span { display: none; }
   /* A spectator's nav has one link, to the page it is already on. */
   body.spectator .nav { display: none; }
-  .spectator-badge { margin-left: 0; padding: 4px 9px; font-size: 10px; }
+  .spectator-badge { margin-left: 0; padding: 4px 9px; font-size: var(--fs-xs); }
   .rec-control { display: none; }
   .header-status {
     order: 10;
@@ -848,5 +934,6 @@ textarea { font-family: var(--mono); font-size: 12px; line-height: 1.5; resize: 
   }
   .content { padding: 10px; }
   .page-head { gap: 8px 10px; }
-  .page-head h1 { font-size: 16px; }
+  .page-head h1 { font-size: 17px; }
+
 }

@@ -1,6 +1,6 @@
-/** panda-firmware-main/SequenceHandler: one CSV packet, delays AFTER actions.
- * RX_BUF_SIZE=256, NUM_MAX_COMMANDS=32, %1x%1u.%5u. Channel 0 waits
- * without touching an output (update() only actuates channels 1..12).
+/** GC_USERS_GUIDE.md §2.2: one CSV packet, delays AFTER actions. At most 64
+ * steps and 511 characters, %1x%1u.%5u. Channel 0 waits without touching an
+ * output (update() only actuates channels 1..12).
  */
 export function encodeSequence(sequence, valves) {
   if (!Array.isArray(sequence.steps) || !sequence.steps.length) {
@@ -19,12 +19,12 @@ export function encodeSequence(sequence, valves) {
     return { step, at: Math.round(step.t * 1000), channel, on: valve.normallyOpen ? step.state === 'closed' : step.state === 'open' };
   });
   if (items[0].at > 0) items.unshift({ at: 0, channel: 0, on: false, step: null });
-  if (items.length > 32) throw new Error('Panda supports at most 32 commands');
+  if (items.length > 64) throw new Error('Panda supports at most 64 commands');
   const command = items.map((item, i) => {
     const delay = i + 1 < items.length ? items[i + 1].at - item.at : 0;
     if (delay > 99999) throw new Error('Panda delays cannot exceed 99.999 seconds between steps');
     return `s${item.channel.toString(16).toUpperCase()}${item.on ? 1 : 0}.${String(delay).padStart(5, '0')}`;
   }).join(',');
-  if (command.length > 255) throw new Error('Panda sequence exceeds the 255-byte firmware packet limit (including any initial wait)');
+  if (command.length > 511) throw new Error('Panda sequence exceeds the 511-byte firmware packet limit (including any initial wait)');
   return { command, items, steps };
 }

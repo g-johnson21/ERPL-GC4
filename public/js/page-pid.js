@@ -6,10 +6,16 @@
  */
 import { bus } from './bus.js';
 import { bootPage } from './chrome.js';
-import { $, el, icon, fmtValue, fmtCurrent, coilState, shiftGate, toast } from './util.js';
-import { svgEl, svgText, renderComponent, renderValve, renderInstrument, renderPipe, renderJunction } from './pid-symbols.js';
+import { fitSidebar } from './sidebar-fit.js';
+import { $, el, icon, fmtValue, fmtRate, fmtCurrent, coilState, shiftGate, toast } from './util.js';
+import {
+  svgEl, svgText, renderComponent, renderValve, renderInstrument, renderPipe, renderJunction,
+  tileTraceBox, lineWidth, symbolDefs,
+} from './pid-symbols.js';
+import { WINDOWS, windowChips, tracePath, drawTrace, statusColor, cssVar, windowed } from './spark.js';
 
 const content = await bootPage('pid');
+fitSidebar();
 const P = bus.config.pid;
 
 // ------------------------------------------------------------------ shell --
@@ -38,12 +44,9 @@ const svg = svgEl('svg', {
   width: '100%',
   height: '100%',
   viewBox: `0 0 ${P.width} ${P.height}`,
-  // Left-anchored, not centred. The stage is normally narrower than the
-  // drawing's aspect ratio so there is no horizontal slack to place at all --
-  // but when there is (a tall, narrow stage, or a zoomed-out view) the
-  // schematic stays against the left edge, away from the sidebar, rather than
-  // drifting into the middle.
-  preserveAspectRatio: 'xMinYMid meet',
+  // Top-left anchored, so the schematic stays against the window edge, away
+  // from the sidebar, and the default view below zooms out from that corner.
+  preserveAspectRatio: 'xMinYMin meet',
 });
 stage.append(svg);
 
@@ -61,7 +64,8 @@ svg.append(svgEl('defs', {},
       svgEl('stop', { offset: '100%', 'stop-color': '#ef4444', 'stop-opacity': '0' })
     );
     return grad;
-  })()
+  })(),
+  symbolDefs()
 ));
 
 const world = svgEl('g', { id: 'pid-world' });
@@ -127,7 +131,10 @@ for (const valve of bus.config.valves) {
 
 for (const sensor of bus.config.sensors) {
   const node = renderInstrument(sensor, bus.sensorGroup(sensor.id));
-  if (node) layerInstruments.append(node);
+  if (!node) continue;
+  node.addEventListener('pointerenter', () => openHoverCard(sensor));
+  node.addEventListener('pointerleave', () => closeHoverCard(sensor));
+  layerInstruments.append(node);
 }
 
 // The toolbar is built at the bottom of this module, after the pan/zoom state
@@ -153,6 +160,50 @@ function onValveActivate(valve, event) {
 const view = { k: 1, x: 0, y: 0 };
 let viewLocked = loadPref('gc4-pid-locked', false);
 
+/**
+ * The default view: the drawing's CONTENTS -- not its padded canvas --
+ * zoomed to 110%, from the top-left corner.
+ *
+ * 110% is a ceiling, not a demand. When the stage cannot show every symbol,
+ * tile and label at that zoom (a narrow stage beside the sidebar, where the
+ * drawing is already as wide as the stage), the view settles at the largest
+ * zoom that still does. Cropping the fuel-side bottles or the pneumatics
+ * off the right edge to hit a round number would be the drawing lying about
+ * what is on the stand.
+ */
+const DEFAULT_ZOOM = 1.1;
+const FIT_MARGIN = 6;           // drawing units kept clear round the contents
+let viewTouched = false;        // set once the operator pans or zooms
+let contentBox = null;
+
+function measureContent() {
+  // The plume is drawn below the nozzle but is invisible at rest; it must
+  // not count as content, or the fit leaves room for an exhaust that is not
+  // there.
+  const plumes = [...world.querySelectorAll('.sym-plume')];
+  for (const p of plumes) p.style.display = 'none';
+  const b = world.getBBox();
+  for (const p of plumes) p.style.display = '';
+  return { x: b.x - FIT_MARGIN, y: b.y - FIT_MARGIN, w: b.width + 2 * FIT_MARGIN, h: b.height + 2 * FIT_MARGIN };
+}
+
+function fitView() {
+  const ctm = svg.getScreenCTM();
+  // The drawing's own area: the stage less the toolbar strip above it.
+  const r = svg.getBoundingClientRect();
+  if (!ctm || !r.width || !r.height) return;
+  contentBox ??= measureContent();
+  const s = ctm.a;              // screen pixels per drawing unit at 100%
+  const fit = Math.min(r.width / (contentBox.w * s), r.height / (contentBox.h * s));
+  view.k = Math.min(DEFAULT_ZOOM, fit);
+  view.x = -view.k * contentBox.x;
+  view.y = -view.k * contentBox.y;
+  applyView();
+}
+
+// Follow the window until the operator takes the view over themselves.
+new ResizeObserver(() => { if (!viewTouched) fitView(); }).observe(stage);
+
 function applyView() {
   world.setAttribute('transform', `translate(${view.x},${view.y}) scale(${view.k})`);
   const label = $('#zoom-level');
@@ -174,6 +225,7 @@ function toUserSpace(clientX, clientY) {
 function zoomAt(clientX, clientY, factor) {
   if (viewLocked) return;
   const p = toUserSpace(clientX, clientY);
+  viewTouched = true;
   const next = Math.min(6, Math.max(0.3, view.k * factor));
   view.x = p.x - ((p.x - view.x) * next) / view.k;
   view.y = p.y - ((p.y - view.y) * next) / view.k;
@@ -206,6 +258,7 @@ stage.addEventListener('pointerdown', (e) => {
   if (e.target.closest('.pid-valve, .pid-toolbar, .pid-legend, .sim-manual, .sim-reg, .pid-popover')) return;
   if (viewLocked || e.button !== 0) return;
   dragging = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y };
+  viewTouched = true;
   stage.classList.add('panning');
   stage.setPointerCapture(e.pointerId);
 });
@@ -231,8 +284,8 @@ stage.addEventListener('pointercancel', endDrag);
 
 function resetView() {
   if (viewLocked) return;
-  view.k = 1; view.x = 0; view.y = 0;
-  applyView();
+  viewTouched = false;
+  fitView();
 }
 
 function setLocked(locked) {
@@ -246,7 +299,7 @@ function setLocked(locked) {
       ? 'View locked — click to allow pan and zoom (L)'
       : 'Lock the view so it cannot be panned or zoomed by accident (L)';
     btn.setAttribute('aria-pressed', String(locked));
-    btn.innerHTML = icon(locked ? 'lock' : 'unlock', 15);
+    btn.innerHTML = icon(locked ? 'lock' : 'unlock', 14);
   }
   for (const b of document.querySelectorAll('.pid-zoom-ctl')) b.disabled = locked;
   if (locked) endDrag();
@@ -261,16 +314,42 @@ document.addEventListener('keydown', (e) => {
   if (e.key === '+' || e.key === '=') zoomByButton(1.2);
   if (e.key === '-') zoomByButton(1 / 1.2);
   if (e.key.toLowerCase() === 'l' && !e.ctrlKey && !e.metaKey) setLocked(!viewLocked);
+  if (e.key.toLowerCase() === 'k' && !e.ctrlKey && !e.metaKey) toggleLegend();
 });
 
 function buildToolbar() {
+  const tare = levelTareChips();
   stage.append(el('div.pid-toolbar', {},
+    // The trend window for every value tile on the drawing and the hover card.
+    el('span.pid-tb-label', { text: 'TREND' }),
+    windowChips(el, trendSeconds, (s) => {
+      trendSeconds = s;
+      try { localStorage.setItem('gc4-pid-window', String(s)); } catch { /* ignore */ }
+      lastTraceAt = 0;
+      updateTraces();
+    }, 'Trend window for the value tiles'),
+    el('span.pid-tb-sep'),
     el('button.icon-btn.pid-zoom-ctl', { title: 'Zoom out (−)', text: '−', onclick: () => zoomByButton(1 / 1.2) }),
     el('div.pid-zoom-level#zoom-level', { text: '100%' }),
     el('button.icon-btn.pid-zoom-ctl', { title: 'Zoom in (+)', text: '+', onclick: () => zoomByButton(1.2) }),
-    el('button.icon-btn.pid-zoom-ctl', { title: 'Reset view (0)', html: icon('refresh', 15), onclick: resetView }),
+    el('button.icon-btn.pid-zoom-ctl', { title: 'Reset view (0)', html: icon('refresh', 14), onclick: resetView }),
     el('button.icon-btn#pid-lock', { onclick: () => setLocked(!viewLocked) }),
-    ...levelTareChips()
+    tare.length ? el('span.pid-tb-sep') : null,
+    ...tare,
+    el('span.pid-tb-sep'),
+    el('button.pid-key-btn#pid-key-btn', {
+      title: 'Show the key: line colours and valve states (K)',
+      'aria-expanded': 'false',
+      text: 'KEY',
+      onclick: () => toggleLegend(),
+    }),
+    el('span.pid-tb-sep'),
+    // Data freshness: when the reading on screen was taken. A frozen drawing
+    // and a quiet stand look identical; this is what tells them apart.
+    el('span.pid-stamp', { title: 'Time of the snapshot on screen' },
+      el('span.pid-stamp-dot#pid-stamp-dot'),
+      el('span.pid-stamp-t#pid-stamp-t', { text: '--:--:--.-' })
+    )
   ));
   setLocked(viewLocked);
 }
@@ -327,12 +406,162 @@ function savePref(key, value) {
   try { localStorage.setItem(key, String(value)); } catch { /* ignore */ }
 }
 
+/**
+ * The key: what each line colour carries, then what a live line and an open
+ * valve look like. A line drawn grey is not a different fluid -- it is the
+ * same line at rest -- and the key says so, or the first operator to see a
+ * dim LOX run will ask where the LOX went.
+ *
+ * It opens from the toolbar rather than living on the canvas. Pinned to a
+ * corner it either covered part of the drawing or forced the drawing to give
+ * up a strip of the screen to make room for it -- and the key is read once,
+ * the drawing all day.
+ */
 function buildLegend() {
-  stage.append(el('div.pid-legend', {},
-    Object.entries(P.fluids).map(([key, f]) =>
-      el('span.lg', {}, el('i', { style: { background: f.color } }), f.label || key)
+  stage.append(el('div.pid-legend', { hidden: true },
+    el('div.lg-row', {},
+      Object.entries(P.fluids).map(([key, f]) =>
+        el('span.lg', {}, el('i', { style: { background: f.color } }), f.label || key)
+      )
+    ),
+    el('div.lg-row.lg-states', {},
+      el('span.lg', {}, el('i.lg-idle'), 'at rest'),
+      el('span.lg', {}, el('i.lg-live'), 'pressurized / flowing'),
+      el('span.lg', {}, el('b.lg-chip.open', { text: 'OPEN' }), el('b.lg-chip', { text: 'CLOSED' }))
     )
   ));
+}
+
+function toggleLegend(open) {
+  const legend = $('.pid-legend');
+  if (!legend) return;
+  const show = open ?? legend.hidden;
+  legend.hidden = !show;
+  const btn = $('#pid-key-btn');
+  btn?.classList.toggle('active', show);
+  btn?.setAttribute('aria-expanded', String(show));
+}
+
+function updateStamp() {
+  const t = bus.state?.t;
+  const node = $('#pid-stamp-t');
+  if (!node || !t) return;
+  const d = new Date(t);
+  const pad = (n, k = 2) => String(n).padStart(k, '0');
+  node.textContent = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${Math.floor(d.getMilliseconds() / 100)}`;
+  const age = Date.now() - t;
+  $('#pid-stamp-dot').dataset.state = age < 1500 ? 'live' : age < 5000 ? 'late' : 'stale';
+}
+
+// --------------------------------------------------------- value tile trends --
+
+let trendSeconds = (() => {
+  let v = 30;
+  try { v = Number(localStorage.getItem('gc4-pid-window')) || 30; } catch { /* ignore */ }
+  return WINDOWS.some((w) => w.s === v) ? v : 30;
+})();
+
+/**
+ * Redraw the hairline trace in each value tile. Throttled to ~6 Hz: a trace
+ * eight pixels tall does not visibly change between frames at the stream
+ * rate, and twenty of them rebuilt at 50 Hz is work for nothing.
+ */
+let lastTraceAt = 0;
+function updateTraces() {
+  const now = Date.now();
+  if (now - lastTraceAt < 160) return;
+  lastTraceAt = now;
+  for (const sensor of bus.config.sensors) {
+    if (!sensor.pid) continue;
+    const path = document.getElementById(`pis-${sensor.id}`);
+    if (!path) continue;
+    const b = tileTraceBox(sensor);
+    path.setAttribute('d', tracePath(bus.history.get(sensor.id), trendSeconds, b.w, b.h, b.x, b.y, now));
+  }
+}
+
+// ---------------------------------------------------------------- hover card --
+
+/**
+ * Hovering a value tile opens a card beside it with the channel's full name,
+ * a readable trend over the same window as the tiles, and its extremes. The
+ * tile answers "what is it"; the card answers "what has it been doing" without
+ * leaving the drawing for the Data page.
+ */
+let hover = null;   // { sensor, node }
+
+function openHoverCard(sensor) {
+  if (dragging) return;
+  closeHoverCard();
+  const group = bus.sensorGroup(sensor.id);
+  const node = el('div.pid-hovercard', { style: { '--group-color': group?.color || '#64748b' } },
+    el('div.phc-head', {},
+      el('span.phc-eyebrow', {}, el('span.group-swatch'), group?.label || 'Sensor'),
+      el('span.phc-ch', { text: `ch ${sensor.channel}` })
+    ),
+    el('div.phc-name', {}, el('span.phc-tag', { text: sensor.id }), sensor.name),
+    el('div.phc-value', {},
+      el('span#phc-v', { text: '––––' }),
+      el('span.phc-unit', { text: sensor.units }),
+      el('span.phc-rate#phc-rate', { text: '' })
+    ),
+    el('canvas.phc-trace#phc-trace'),
+    el('div.phc-foot', {},
+      el('span', {}, el('i', { text: 'MIN ' }), el('span#phc-min', { text: '––' })),
+      el('span', {}, el('i', { text: 'MAX ' }), el('span#phc-max', { text: '––' })),
+      el('span.phc-win#phc-win', { text: '' })
+    )
+  );
+  stage.append(node);
+  hover = { sensor, node };
+  placeHoverCard();
+  updateHoverCard();
+}
+
+function closeHoverCard(sensor) {
+  if (!hover || (sensor && hover.sensor !== sensor)) return;
+  hover.node.remove();
+  hover = null;
+}
+
+/** Beside the tile, on whichever side has room, clamped inside the stage. */
+function placeHoverCard() {
+  const tile = document.getElementById(`pi-${hover.sensor.id}`)?.querySelector('.pid-tile');
+  if (!tile) return;
+  const s = stage.getBoundingClientRect();
+  const t = tile.getBoundingClientRect();
+  const cw = hover.node.offsetWidth, ch = hover.node.offsetHeight;
+  let x = t.right - s.left + 10;
+  if (x + cw > s.width - 8) x = t.left - s.left - cw - 10;
+  let y = t.top - s.top + t.height / 2 - ch / 2;
+  y = Math.max(8, Math.min(s.height - ch - 8, y));
+  hover.node.style.left = `${Math.max(8, x)}px`;
+  hover.node.style.top = `${y}px`;
+}
+
+function updateHoverCard() {
+  if (!hover) return;
+  const { sensor, node } = hover;
+  const status = bus.sensorStatus(sensor.id);
+  node.dataset.status = status;
+  $('#phc-v').textContent = fmtValue(bus.reading(sensor.id), sensor.decimals);
+  const rate = fmtRate(bus.rate(sensor.id, 3), sensor);
+  const r = $('#phc-rate');
+  r.textContent = rate.text;
+  r.dataset.dir = rate.dir;
+
+  const series = bus.history.get(sensor.id);
+  const win = windowed(series, trendSeconds, 1);
+  $('#phc-min').textContent = win ? fmtValue(win.lo, sensor.decimals) : '––';
+  $('#phc-max').textContent = win ? fmtValue(win.hi, sensor.decimals) : '––';
+  $('#phc-win').textContent = WINDOWS.find((w) => w.s === trendSeconds)?.label ?? '';
+
+  drawTrace($('#phc-trace'), series, trendSeconds, {
+    color: statusColor(status),
+    fill: status === 'danger' || status === 'warn',
+    grid: cssVar('--border', '#232326'),
+    axis: cssVar('--text-faint', '#6b6b70'),
+  });
 }
 
 // ------------------------------------------------------------ tank level --
@@ -440,7 +669,7 @@ buildLegend();
 
 bus.on('state', update);
 update();
-applyView();
+fitView();
 
 // ------------------------------------------------------- simulator controls --
 //
@@ -477,8 +706,13 @@ function wireSimControls() {
     if (!node) continue;
     // Set pressures remain visible on the read-only drawing.
     const comp = P.components.find((c) => c.id === id);
-    const y = comp?.type === 'bottle' ? 18 : 36;
-    node.append(svgText('', { id: `simreg-${id}`, x: 0, y, class: 'pid-sublabel sim-set', 'text-anchor': 'middle' }));
+    // Under the symbol's own label: inside a single bottle, beside a
+    // compressor (whose label is on its right), below everything else.
+    const side = comp?.labelSide === 'left' ? -1 : 1;
+    const at = comp?.type === 'compressor'
+      ? { x: side * ((comp.w ?? 84) / 2 + 8), y: 16, anchor: side < 0 ? 'end' : 'start' }
+      : { x: 0, y: comp?.type === 'bottle' ? 18 : 36, anchor: 'middle' };
+    node.append(svgText('', { id: `simreg-${id}`, x: at.x, y: at.y, class: 'pid-sublabel sim-set', 'text-anchor': at.anchor }));
     if (bus.spectator) continue;
     node.classList.add('sim-reg');
     node.setAttribute('tabindex', '0');
@@ -494,7 +728,14 @@ function wireSimControls() {
 
   // Say so on the legend, where a first-time operator looks for what the
   // colours mean and will look for what the clickable grey symbols mean.
-  if (!bus.spectator) $('.pid-legend')?.append(el('span.lg.sim-note', {}, el('i.sim-dot'), 'SIM: hand valves and regulators are live — click them'));
+  // Said in the key, and flagged in the toolbar where it is always visible:
+  // the key is closed most of the time, and this is the one thing a
+  // first-time operator needs to be told about the grey symbols.
+  if (!bus.spectator) {
+    const note = 'SIM: hand valves and regulators are live — click them';
+    $('.pid-legend')?.append(el('span.lg.sim-note', {}, el('i.sim-dot'), note));
+    $('.pid-stamp')?.before(el('span.pid-sim-chip', { title: note, text: 'SIM' }), el('span.pid-tb-sep'));
+  }
 }
 
 function componentNode(id) {
@@ -607,9 +848,9 @@ function update() {
       base.dataset.pressurized = String(pressurized);
       // Width lives in an inline style (it comes from the fluid), so the
       // bold weight is set the same way rather than fought from CSS.
-      base.style.strokeWidth = `${pipeWidth(pipe) + (bold ? 1.5 : 0)}px`;
+      base.style.strokeWidth = `${pipeWidth(pipe) + (bold ? 0.75 : 0)}px`;
     }
-    if (flow) flow.setAttribute('opacity', flowing ? '0.85' : '0');
+    if (flow) flow.setAttribute('opacity', flowing ? '0.75' : '0');
   }
   for (const j of junctions) {
     j.node.dataset.on = String([...j.pipes].some((id) => boldPipes.has(id)));
@@ -636,6 +877,9 @@ function update() {
   }
 
   updateInstruments();
+  updateTraces();
+  updateHoverCard();
+  updateStamp();
   updateLevelTareChips();
   updateSimControls();
 }
@@ -713,6 +957,15 @@ function updateInstruments() {
     const fillH = frac * h;
     rect.setAttribute('y', String(h / 2 - fillH));
     rect.setAttribute('height', String(fillH));
+
+    // The free surface rides on top of the liquid. Hidden when the tank is
+    // empty or brim full, where an ellipse would be drawn on a head.
+    const surface = document.getElementById(`surface-${comp.id}`);
+    if (surface) {
+      const visible = fillH > 2 && fillH < h - 2;
+      surface.setAttribute('display', visible ? 'inline' : 'none');
+      if (visible) surface.setAttribute('cy', String(h / 2 - fillH));
+    }
   }
 
   // --- engine plume ---
@@ -730,15 +983,18 @@ function updateInstruments() {
       ? Math.min(1, (value - threshold) / (max - threshold))
       : 0;
     plume.setAttribute('opacity', String(intensity));
+    // The chamber's warm core lights with the plume and is gone at rest: a
+    // glowing engine that is not firing is a false reading, not decoration.
+    document.getElementById(`hot-${comp.id}`)?.setAttribute('opacity', String(intensity));
   }
 }
 
 // ------------------------------------------------------------------ utils --
 
 function pipeWidth(pipe) {
-  const w = Number(P.fluids?.[pipe.fluid]?.width);
-  return Number.isFinite(w) ? w : 4;
+  return lineWidth(P.fluids?.[pipe.fluid]);
 }
+
 
 /**
  * Whether a line's section reads pressurized on its own transducer.
