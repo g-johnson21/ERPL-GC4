@@ -165,6 +165,11 @@ function diaphragm() {
   );
 }
 
+/** Pneumatic actuator: a plain box on the stem, no winding. */
+function actuatorBox() {
+  return svgEl('rect', { x: -13, y: -28, width: 26, height: 12, class: 'sym-fill' });
+}
+
 // -------------------------------------------------------------- symbols --
 
 const SYMBOLS = {
@@ -177,14 +182,13 @@ const SYMBOLS = {
 
   /**
    * Pneumatically actuated ball valve: a bowtie with the ball at the seat,
-   * under a diaphragm operator. Both marks are the ISA ones, and between them
-   * they say "main valve, air-driven" without a label.
+   * under a box actuator.
    */
   'valve-ball': () => svgEl('g', {},
     bowtie(),
     svgEl('circle', { cx: 0, cy: 0, r: 5, class: 'sym-ball' }),
     stem(-16),
-    diaphragm(),
+    actuatorBox(),
   ),
 
   /** Manual (hand) valve: bowtie + T-handle. */
