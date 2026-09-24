@@ -107,11 +107,9 @@ const SYMBOLS = {
     svgEl('line', { x1: -6, y1: -27, x2: 6, y2: -27, class: 'sym-line' })
   ),
 
-  /** Pressure regulator: bowtie + ball at the seat, with diaphragm dome. */
+  /** Pressure regulator: bowtie with a diaphragm dome on the stem. */
   regulator: () => svgEl('g', {},
     bowtie(),
-    svgEl('circle', { cx: 0, cy: 0, r: 8, class: 'sym-fill' }),
-    svgEl('line', { x1: -8, y1: 0, x2: 8, y2: 0, class: 'sym-line-thin' }),
     stem(-18),
     // The diaphragm dome sits directly on the end of the stem.
     svgEl('path', { d: 'M-13,-18 A13,10 0 0 1 13,-18 Z', class: 'sym-fill' }),
@@ -138,6 +136,11 @@ const SYMBOLS = {
     }),
     svgEl('line', { x1: -6, y1: -4, x2: 6, y2: -4, class: 'sym-line' }),
     svgEl('line', { x1: -6, y1: 4, x2: 6, y2: 4, class: 'sym-line' })
+  ),
+
+  /** Restriction orifice: a pinched throat in the line, for a flow-limiting orifice plate. */
+  orifice: () => svgEl('g', {},
+    svgEl('path', { d: 'M-10,-10 Q0,-3 10,-10 L10,10 Q0,3 -10,10 Z', class: 'sym-fill' })
   ),
 
   /** Rupture / burst disk: bowed disk between two plates. */
@@ -312,6 +315,18 @@ const SYMBOLS = {
   },
 
   text: () => svgEl('g', {}),
+
+  /**
+   * A boundary around part of the system: the hashed box a P&ID draws
+   * around ground support equipment, or the outline of the vehicle itself.
+   * Unlike every other symbol it is placed by its TOP-LEFT corner, because a
+   * box is laid out by its edges. page-pid.js draws these underneath the
+   * pipes, so a line crossing into a box is never hidden by it.
+   */
+  region: (c) => svgEl('rect', {
+    x: 0, y: 0, width: c.w ?? 200, height: c.h ?? 120, rx: c.variant === 'vehicle' ? 18 : 3,
+    class: c.variant === 'vehicle' ? 'pid-region vehicle' : 'pid-region',
+  }),
 };
 
 // -------------------------------------------------------------- assembly --
@@ -346,6 +361,25 @@ export function renderComponent(c) {
   const draw = SYMBOLS[c.type];
   if (!draw) {
     console.warn(`[pid] unknown component type "${c.type}" for ${c.id}`);
+    return g;
+  }
+
+  // A region's caption sits inside its top-left corner, the way a drawing
+  // names a hashed GSE box, rather than hanging below it like a symbol's.
+  if (c.type === 'region') {
+    g.classList.add('pid-region-group');
+    g.append(draw(c));
+    if (c.label) {
+      g.append(svgText(c.label, {
+        x: 10, y: 17,
+        class: c.variant === 'vehicle' ? 'pid-region-label vehicle' : 'pid-region-label',
+        'text-anchor': 'start',
+        'line-height': 12,
+      }));
+    }
+    if (c.sub) {
+      g.append(svgText(c.sub, { x: 10, y: 30, class: 'pid-sublabel', 'text-anchor': 'start', 'line-height': 10 }));
+    }
     return g;
   }
 
@@ -430,6 +464,7 @@ function labelOffsetFor(c) {
     case 'venturi': return 26;
     case 'regulator': return 24;
     case 'filter': return 26;
+    case 'orifice': return 26;
     case 'engine': return (c.h ?? 260) + 78;   // below the exhaust plume
     case 'thrust-mount': return -16;
     case 'vent-stack': return -22;
@@ -480,11 +515,18 @@ export function renderValve(valve, groupColor) {
   const rot = p.rot ?? 0;
   const side = p.labelSide
     || (rot === 90 ? 'left' : (rot === -90 || rot === 270) ? 'right' : 'bottom');
+  //
+  // A tag may run to two lines (`\n`) where the stand names its valves by
+  // function rather than by number -- "GROUND\nLOX FILL". The state line
+  // drops below however many lines the tag took, and a side label is
+  // centred on the symbol as a block.
+  const tag = p.tag || valve.id;
+  const lines = String(tag).split('\n').length;
   const lx = side === 'right' ? 34 : side === 'left' ? -34 : 0;
   const anchor = side === 'right' ? 'start' : side === 'left' ? 'end' : 'middle';
-  const ly = side === 'bottom' ? 42 : 2;
-  g.append(svgText(p.tag || valve.id, { x: lx, y: ly, class: 'pid-label strong', 'text-anchor': anchor }));
-  g.append(svgText('', { x: lx, y: ly + 11, class: 'pid-valve-state', id: `pvs-${valve.id}`, 'text-anchor': anchor }));
+  const ly = side === 'bottom' ? 42 : 2 - (lines - 1) * 6;
+  g.append(svgText(tag, { x: lx, y: ly, class: 'pid-label strong', 'text-anchor': anchor, 'line-height': 11 }));
+  g.append(svgText('', { x: lx, y: ly + 11 * lines, class: 'pid-valve-state', id: `pvs-${valve.id}`, 'text-anchor': anchor }));
 
   // Coil state as MEASURED, not as commanded.
   //
@@ -532,10 +574,20 @@ export function renderInstrument(sensor, group) {
     }));
   }
 
+  // The bubble carries `pid.tag` when there is one: a stand that names its
+  // transducers by function ("GN2 Bus PT") has ids too long for a 52-unit
+  // circle. A tag that still runs long is set smaller rather than spilling
+  // out of the bubble; eight characters is what fits at full size.
+  const tag = p.tag || sensor.id;
+  const tagSize = tag.length > 8 ? Math.max(6.5, (9.5 * 8) / tag.length) : null;
+
   g.append(
     svgEl('circle', { cx: p.x, cy: p.y, r: 26, class: 'pid-bubble' }),
     svgEl('line', { x1: p.x - 26, y1: p.y - 1, x2: p.x + 26, y2: p.y - 1, class: 'pid-bubble-div' }),
-    svgEl('text', { x: p.x, y: p.y - 7, class: 'pid-tag', 'text-anchor': 'middle' }, document.createTextNode(sensor.id)),
+    svgEl('text', {
+      x: p.x, y: p.y - 7, class: 'pid-tag', 'text-anchor': 'middle',
+      style: tagSize ? `font-size: ${tagSize.toFixed(2)}px` : null,
+    }, document.createTextNode(tag)),
     svgEl('text', { x: p.x, y: p.y + 13, class: 'pid-reading', id: `pir-${sensor.id}`, 'text-anchor': 'middle' },
       document.createTextNode('––––')),
     svgEl('title', {}, document.createTextNode(

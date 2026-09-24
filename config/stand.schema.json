@@ -47,6 +47,13 @@
             }
           }
         },
+        "simModel": {
+          "enum": [
+            "draco",
+            "moe"
+          ],
+          "description": "Which physics model the simulator driver runs for this stand. Omitted means draco. Has no effect on any other driver."
+        },
         "notes": {
           "type": "string"
         }
@@ -361,7 +368,7 @@
               },
               "tag": {
                 "type": "string",
-                "description": "Tag stencilled on the hardware (S1, PB2...), drawn above the symbol so a valve on screen can be matched to one on the stand."
+                "description": "Tag stencilled on the hardware (S1, PB2...), drawn above the symbol so a valve on screen can be matched to one on the stand. Use \\n for a second line where valves are named by function (GROUND\\nLOX FILL)."
               },
               "labelSide": {
                 "enum": ["bottom", "left", "right"],
@@ -463,6 +470,10 @@
               "x": {
                 "type": "number",
                 "description": "Centre of the ISA bubble."
+              },
+              "tag": {
+                "type": "string",
+                "description": "Short name drawn in the bubble in place of the sensor id, for ids too long to fit (e.g. GN2-BUS-PT -> GN2 BUS). Past eight characters it is set smaller to stay inside the bubble."
               },
               "y": {
                 "type": "number"
@@ -918,6 +929,7 @@
                   "regulator",
                   "filter",
                   "venturi",
+                  "orifice",
                   "check-valve",
                   "relief-valve",
                   "burst-disk",
@@ -928,7 +940,8 @@
                   "thrust-mount",
                   "valve-manual",
                   "text",
-                  "logo"
+                  "logo",
+                  "region"
                 ]
               },
               "id": {
@@ -942,13 +955,21 @@
                 "type": "string"
               },
               "x": {
-                "type": "number"
+                "type": "number",
+                "description": "Symbol centre. For a region, its TOP-LEFT corner."
               },
               "y": {
                 "type": "number"
               },
               "w": {
                 "type": "number"
+              },
+              "variant": {
+                "enum": [
+                  "gse",
+                  "vehicle"
+                ],
+                "description": "region only: gse (default) is the hashed box a P&ID draws around ground support equipment; vehicle is a solid, lightly shaded outline around the flight vehicle. Regions are drawn beneath the pipes."
               },
               "h": {
                 "type": "number"

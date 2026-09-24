@@ -1,0 +1,2787 @@
+{
+  "$schema": "./stand.schema.json",
+  "meta": {
+    "standName": "MOE",
+    "organization": "ERPL",
+    "subtitle": "LOX / IPA Flight Vehicle & GSE",
+    "configVersion": "1.0.0",
+    "simModel": "moe",
+    "notes": "MOE flight vehicle and its ground support equipment, per MOE P&ID V2.0. Valves and transducers are named by function, as on the drawing. Valve channels 1-15 are PLACEHOLDERS: the DC channel order is not decided yet. Real wiring lives in config/hardware-moe.json."
+  },
+  "ui": {
+    "brand": "GC",
+    "logo": {
+      "light": "/img/erpl-black.png",
+      "dark": "/img/erpl-white.png",
+      "height": 19,
+      "alt": "ERPL"
+    },
+    "accent": "#0d48bf",
+    "defaultTheme": "dark",
+    "gridColumns": 4,
+    "sparklineSeconds": 60,
+    "confirmDangerousActions": false,
+    "pages": [
+      {
+        "id": "grid",
+        "label": "Control Grid",
+        "href": "/index.html",
+        "icon": "grid"
+      },
+      {
+        "id": "pid",
+        "label": "P&ID",
+        "href": "/pid.html",
+        "icon": "schematic"
+      },
+      {
+        "id": "data",
+        "label": "Data",
+        "href": "/data.html",
+        "icon": "gauge"
+      },
+      {
+        "id": "config",
+        "label": "Config",
+        "href": "/config.html",
+        "icon": "sliders"
+      }
+    ],
+    "tankLevel": {
+      "enabled": false,
+      "heightIn": 60,
+      "smoothingSeconds": 5
+    },
+    "requireShiftToActuate": false
+  },
+  "telemetry": {
+    "sampleRateHz": 50,
+    "streamRateHz": 50,
+    "historySeconds": 120
+  },
+  "safety": {
+    "requireArmToActuate": true,
+    "autoDisarmAfterSeconds": 0,
+    "abortSequenceId": "seq-abort",
+    "armTimeoutWarningSeconds": 600,
+    "requireDisarmToEditConfig": false,
+    "controlPin": ""
+  },
+  "valveGroups": [
+    {
+      "id": "press",
+      "label": "Vehicle Pressurization",
+      "color": "#f59e0b"
+    },
+    {
+      "id": "vent",
+      "label": "Vehicle Vents",
+      "color": "#94a3b8"
+    },
+    {
+      "id": "main",
+      "label": "Main Valves",
+      "color": "#ef4444"
+    },
+    {
+      "id": "fill",
+      "label": "Propellant Fill",
+      "color": "#3b82f6"
+    },
+    {
+      "id": "gn2",
+      "label": "GN2 Fill (GSE)",
+      "color": "#eab308"
+    },
+    {
+      "id": "gse",
+      "label": "GSE Pneumatics & QDs",
+      "color": "#22c55e"
+    }
+  ],
+  "valves": [
+    {
+      "id": "LOX-PRESS",
+      "name": "LOX Press",
+      "abbrev": "LOX PRESS",
+      "group": "press",
+      "type": "solenoid",
+      "channel": 1,
+      "normallyOpen": false,
+      "requiresArm": true,
+      "momentary": false,
+      "openLabel": "OPEN",
+      "closedLabel": "CLOSED",
+      "safeState": "closed",
+      "abortState": "closed",
+      "pid": {
+        "x": 690,
+        "y": 338,
+        "rot": 90,
+        "tag": "LOX PRESS",
+        "labelSide": "right"
+      },
+      "momentaryMs": 1000
+    },
+    {
+      "id": "FUEL-PRESS",
+      "name": "Fuel Press",
+      "abbrev": "FUEL PRESS",
+      "group": "press",
+      "type": "solenoid",
+      "channel": 2,
+      "normallyOpen": false,
+      "requiresArm": true,
+      "momentary": false,
+      "openLabel": "OPEN",
+      "closedLabel": "CLOSED",
+      "safeState": "closed",
+      "abortState": "closed",
+      "pid": {
+        "x": 860,
+        "y": 338,
+        "rot": 90,
+        "tag": "FUEL PRESS",
+        "labelSide": "right"
+      },
+      "momentaryMs": 1000
+    },
+    {
+      "id": "LOX-VENT",
+      "name": "LOX Vent",
+      "abbrev": "LOX VENT",
+      "group": "vent",
+      "type": "solenoid",
+      "channel": 3,
+      "normallyOpen": true,
+      "requiresArm": true,
+      "momentary": false,
+      "openLabel": "VENT",
+      "closedLabel": "SEALED",
+      "safeState": "open",
+      "abortState": "open",
+      "pid": {
+        "x": 755,
+        "y": 695,
+        "rot": 0,
+        "tag": "LOX VENT"
+      },
+      "momentaryMs": 1000
+    },
+    {
+      "id": "FUEL-VENT",
+      "name": "Fuel Vent",
+      "abbrev": "FUEL VENT",
+      "group": "vent",
+      "type": "solenoid",
+      "channel": 4,
+      "normallyOpen": true,
+      "requiresArm": true,
+      "momentary": false,
+      "openLabel": "VENT",
+      "closedLabel": "SEALED",
+      "safeState": "open",
+      "abortState": "open",
+      "pid": {
+        "x": 985,
+        "y": 372,
+        "rot": 0,
+        "tag": "FUEL VENT"
+      },
+      "momentaryMs": 1000
+    },
+    {
+      "id": "GN2-VENT",
+      "name": "GN2 Vent",
+      "abbrev": "GN2 VENT",
+      "group": "vent",
+      "type": "solenoid",
+      "channel": 5,
+      "normallyOpen": true,
+      "requiresArm": true,
+      "momentary": false,
+      "openLabel": "VENT",
+      "closedLabel": "SEALED",
+      "safeState": "open",
+      "abortState": "open",
+      "pid": {
+        "x": 790,
+        "y": 238,
+        "rot": 0,
+        "tag": "GN2 VENT"
+      },
+      "momentaryMs": 1000
+    },
+    {
+      "id": "MOV",
+      "name": "Main Oxygen Valve",
+      "abbrev": "MAIN OX",
+      "group": "main",
+      "type": "ball",
+      "channel": 6,
+      "normallyOpen": false,
+      "requiresArm": true,
+      "momentary": false,
+      "openLabel": "OPEN",
+      "closedLabel": "CLOSED",
+      "safeState": "closed",
+      "abortState": "closed",
+      "pid": {
+        "x": 860,
+        "y": 815,
+        "rot": 90,
+        "tag": "MAIN OXYGEN\nVALVE"
+      },
+      "momentaryMs": 1000
+    },
+    {
+      "id": "MFV",
+      "name": "Main Fuel Valve",
+      "abbrev": "MAIN FUEL",
+      "group": "main",
+      "type": "ball",
+      "channel": 7,
+      "normallyOpen": false,
+      "requiresArm": true,
+      "momentary": false,
+      "openLabel": "OPEN",
+      "closedLabel": "CLOSED",
+      "safeState": "closed",
+      "abortState": "closed",
+      "pid": {
+        "x": 940,
+        "y": 815,
+        "rot": -90,
+        "tag": "MAIN FUEL\nVALVE"
+      },
+      "momentaryMs": 1000
+    },
+    {
+      "id": "FUEL-FILL",
+      "name": "Fuel Fill Solenoid",
+      "abbrev": "FUEL FILL",
+      "group": "fill",
+      "type": "solenoid",
+      "channel": 8,
+      "normallyOpen": false,
+      "requiresArm": true,
+      "momentary": false,
+      "openLabel": "OPEN",
+      "closedLabel": "CLOSED",
+      "safeState": "closed",
+      "abortState": "closed",
+      "pid": {
+        "x": 1168,
+        "y": 790,
+        "rot": 0,
+        "tag": "FUEL FILL"
+      },
+      "momentaryMs": 1000
+    },
+    {
+      "id": "GND-LOX-FILL",
+      "name": "Ground LOX Fill",
+      "abbrev": "GND LOX FILL",
+      "group": "fill",
+      "type": "ball",
+      "channel": 9,
+      "normallyOpen": false,
+      "requiresArm": true,
+      "momentary": false,
+      "openLabel": "OPEN",
+      "closedLabel": "CLOSED",
+      "safeState": "closed",
+      "abortState": "closed",
+      "pid": {
+        "x": 300,
+        "y": 775,
+        "rot": 0,
+        "tag": "GROUND\nLOX FILL"
+      },
+      "momentaryMs": 1000
+    },
+    {
+      "id": "GND-LOX-VENT",
+      "name": "Ground LOX Vent",
+      "abbrev": "GND LOX VENT",
+      "group": "fill",
+      "type": "ball",
+      "channel": 10,
+      "normallyOpen": true,
+      "requiresArm": true,
+      "momentary": false,
+      "openLabel": "VENT",
+      "closedLabel": "SEALED",
+      "safeState": "open",
+      "abortState": "open",
+      "pid": {
+        "x": 380,
+        "y": 835,
+        "rot": -90,
+        "tag": "GROUND\nLOX VENT"
+      },
+      "momentaryMs": 1000
+    },
+    {
+      "id": "GND-GN2-PRESS",
+      "name": "Ground GN2 Press",
+      "abbrev": "GND GN2 PRESS",
+      "group": "gn2",
+      "type": "ball",
+      "channel": 11,
+      "normallyOpen": false,
+      "requiresArm": true,
+      "momentary": false,
+      "openLabel": "OPEN",
+      "closedLabel": "CLOSED",
+      "safeState": "closed",
+      "abortState": "closed",
+      "pid": {
+        "x": 260,
+        "y": 460,
+        "rot": -90,
+        "tag": "GROUND\nGN2 PRESS"
+      },
+      "momentaryMs": 1000
+    },
+    {
+      "id": "GND-GN2-VENT",
+      "name": "Ground GN2 Vent",
+      "abbrev": "GND GN2 VENT",
+      "group": "gn2",
+      "type": "ball",
+      "channel": 12,
+      "normallyOpen": true,
+      "requiresArm": true,
+      "momentary": false,
+      "openLabel": "VENT",
+      "closedLabel": "SEALED",
+      "safeState": "open",
+      "abortState": "open",
+      "pid": {
+        "x": 410,
+        "y": 610,
+        "rot": -90,
+        "tag": "GROUND\nGN2 VENT"
+      },
+      "momentaryMs": 1000
+    },
+    {
+      "id": "GN2-QD-CTRL",
+      "name": "GN2 QD Control",
+      "abbrev": "GN2 QD CTRL",
+      "group": "gse",
+      "type": "solenoid",
+      "channel": 13,
+      "normallyOpen": false,
+      "requiresArm": true,
+      "momentary": false,
+      "openLabel": "OPEN",
+      "closedLabel": "CLOSED",
+      "safeState": "closed",
+      "abortState": "closed",
+      "pid": {
+        "x": 1455,
+        "y": 190,
+        "rot": 0,
+        "tag": "GN2 QD\nCONTROL"
+      },
+      "momentaryMs": 1000
+    },
+    {
+      "id": "LOX-QD-CTRL",
+      "name": "LOX QD Control",
+      "abbrev": "LOX QD CTRL",
+      "group": "gse",
+      "type": "solenoid",
+      "channel": 14,
+      "normallyOpen": false,
+      "requiresArm": true,
+      "momentary": false,
+      "openLabel": "OPEN",
+      "closedLabel": "CLOSED",
+      "safeState": "closed",
+      "abortState": "closed",
+      "pid": {
+        "x": 1455,
+        "y": 290,
+        "rot": 0,
+        "tag": "LOX QD\nCONTROL"
+      },
+      "momentaryMs": 1000
+    },
+    {
+      "id": "GND-PNEU-VENT",
+      "name": "Ground Pneumatics Vent",
+      "abbrev": "GND PNEU VENT",
+      "group": "gse",
+      "type": "solenoid",
+      "channel": 15,
+      "normallyOpen": false,
+      "requiresArm": true,
+      "momentary": false,
+      "openLabel": "VENT",
+      "closedLabel": "SEALED",
+      "safeState": "closed",
+      "abortState": "closed",
+      "pid": {
+        "x": 1455,
+        "y": 90,
+        "rot": 0,
+        "tag": "GROUND\nPNEU VENT"
+      },
+      "momentaryMs": 1000
+    }
+  ],
+  "sensorGroups": [
+    {
+      "id": "lox",
+      "label": "LOX",
+      "color": "#3b82f6"
+    },
+    {
+      "id": "fuel",
+      "label": "Fuel",
+      "color": "#ef4444"
+    },
+    {
+      "id": "gn2",
+      "label": "GN2",
+      "color": "#f59e0b"
+    },
+    {
+      "id": "pneu",
+      "label": "Pneumatics",
+      "color": "#22c55e"
+    }
+  ],
+  "sensors": [
+    {
+      "id": "GN2-BUS-PT",
+      "name": "GN2 Bus",
+      "abbrev": "GN2 BUS",
+      "kind": "pressure",
+      "group": "gn2",
+      "units": "psi",
+      "channel": 0,
+      "decimals": 0,
+      "min": 0,
+      "max": 5000,
+      "warnHigh": 4300,
+      "dangerHigh": 4600,
+      "calibration": {
+        "slope": 1,
+        "offset": 0
+      },
+      "pid": {
+        "x": 965,
+        "y": 196,
+        "lead": [
+          860,
+          196
+        ],
+        "tag": "GN2 BUS"
+      }
+    },
+    {
+      "id": "FUEL-TANK-PT",
+      "name": "Fuel Tank",
+      "abbrev": "FUEL TK",
+      "kind": "pressure",
+      "group": "fuel",
+      "units": "psi",
+      "channel": 1,
+      "decimals": 1,
+      "min": 0,
+      "max": 1500,
+      "warnHigh": 860,
+      "dangerHigh": 920,
+      "calibration": {
+        "slope": 1,
+        "offset": 0
+      },
+      "pid": {
+        "x": 760,
+        "y": 440,
+        "lead": [
+          820,
+          406
+        ],
+        "tag": "FUEL TK"
+      }
+    },
+    {
+      "id": "LOX-TANK-PT",
+      "name": "LOX Tank",
+      "abbrev": "LOX TK",
+      "kind": "pressure",
+      "group": "lox",
+      "units": "psi",
+      "channel": 2,
+      "decimals": 1,
+      "min": 0,
+      "max": 1500,
+      "warnHigh": 860,
+      "dangerHigh": 920,
+      "calibration": {
+        "slope": 1,
+        "offset": 0
+      },
+      "pid": {
+        "x": 745,
+        "y": 628,
+        "lead": [
+          805,
+          619
+        ],
+        "tag": "LOX TK"
+      }
+    },
+    {
+      "id": "ACTUATOR-PT",
+      "name": "Actuator",
+      "abbrev": "ACTUATOR",
+      "kind": "pressure",
+      "group": "pneu",
+      "units": "psi",
+      "channel": 3,
+      "decimals": 1,
+      "min": 0,
+      "max": 500,
+      "warnHigh": 225,
+      "dangerHigh": 245,
+      "calibration": {
+        "slope": 1,
+        "offset": 0
+      },
+      "pid": {
+        "x": 1068,
+        "y": 672,
+        "lead": [
+          1020,
+          672
+        ],
+        "tag": "ACTUATOR"
+      }
+    },
+    {
+      "id": "LOX-ENGINE-PT",
+      "name": "LOX Engine",
+      "abbrev": "LOX ENG",
+      "kind": "pressure",
+      "group": "lox",
+      "units": "psi",
+      "channel": 4,
+      "decimals": 1,
+      "min": 0,
+      "max": 1500,
+      "warnHigh": 860,
+      "dangerHigh": 920,
+      "calibration": {
+        "slope": 1,
+        "offset": 0
+      },
+      "pid": {
+        "x": 795,
+        "y": 885,
+        "lead": [
+          860,
+          855
+        ],
+        "tag": "LOX ENG"
+      }
+    },
+    {
+      "id": "FUEL-ENGINE-PT",
+      "name": "Fuel Engine",
+      "abbrev": "FUEL ENG",
+      "kind": "pressure",
+      "group": "fuel",
+      "units": "psi",
+      "channel": 5,
+      "decimals": 1,
+      "min": 0,
+      "max": 1500,
+      "warnHigh": 860,
+      "dangerHigh": 920,
+      "calibration": {
+        "slope": 1,
+        "offset": 0
+      },
+      "pid": {
+        "x": 1005,
+        "y": 885,
+        "lead": [
+          940,
+          855
+        ],
+        "tag": "FUEL ENG"
+      }
+    },
+    {
+      "id": "GSE-MUSCLE-PT",
+      "name": "GSE Muscle",
+      "abbrev": "MUSCLE",
+      "kind": "pressure",
+      "group": "pneu",
+      "units": "psi",
+      "channel": 6,
+      "decimals": 1,
+      "min": 0,
+      "max": 500,
+      "warnHigh": 180,
+      "dangerHigh": 200,
+      "calibration": {
+        "slope": 1,
+        "offset": 0
+      },
+      "pid": {
+        "x": 1336,
+        "y": 300,
+        "lead": [
+          1300,
+          300
+        ],
+        "tag": "MUSCLE"
+      }
+    },
+    {
+      "id": "LOX-FILL-PT",
+      "name": "LOX Fill",
+      "abbrev": "LOX FILL",
+      "kind": "pressure",
+      "group": "lox",
+      "units": "psi",
+      "channel": 7,
+      "decimals": 1,
+      "min": 0,
+      "max": 500,
+      "warnHigh": 150,
+      "dangerHigh": 200,
+      "calibration": {
+        "slope": 1,
+        "offset": 0
+      },
+      "pid": {
+        "x": 485,
+        "y": 890,
+        "lead": [
+          475,
+          775
+        ],
+        "tag": "LOX FILL"
+      }
+    },
+    {
+      "id": "GN2-FILL-PT",
+      "name": "GN2 Fill",
+      "abbrev": "GN2 FILL",
+      "kind": "pressure",
+      "group": "gn2",
+      "units": "psi",
+      "channel": 8,
+      "decimals": 0,
+      "min": 0,
+      "max": 5000,
+      "warnHigh": 4300,
+      "dangerHigh": 4600,
+      "calibration": {
+        "slope": 1,
+        "offset": 0
+      },
+      "pid": {
+        "x": 330,
+        "y": 620,
+        "lead": [
+          330,
+          680
+        ],
+        "tag": "GN2 FILL"
+      }
+    },
+    {
+      "id": "GN2-REG-PT",
+      "name": "GN2 Reg",
+      "abbrev": "GN2 REG",
+      "kind": "pressure",
+      "group": "gn2",
+      "units": "psi",
+      "channel": 9,
+      "decimals": 0,
+      "min": 0,
+      "max": 5000,
+      "warnHigh": 4300,
+      "dangerHigh": 4600,
+      "calibration": {
+        "slope": 1,
+        "offset": 0
+      },
+      "pid": {
+        "x": 330,
+        "y": 330,
+        "lead": [
+          260,
+          330
+        ],
+        "tag": "GN2 REG"
+      }
+    },
+    {
+      "id": "GN2-BOTTLE-PT",
+      "name": "GN2 Bottle",
+      "abbrev": "GN2 BTL",
+      "kind": "pressure",
+      "group": "gn2",
+      "units": "psi",
+      "channel": 10,
+      "decimals": 0,
+      "min": 0,
+      "max": 10000,
+      "warnHigh": 6200,
+      "dangerHigh": 6500,
+      "calibration": {
+        "slope": 1,
+        "offset": 0
+      },
+      "pid": {
+        "x": 330,
+        "y": 195,
+        "lead": [
+          260,
+          195
+        ],
+        "tag": "GN2 BTL"
+      }
+    },
+    {
+      "id": "FUEL-FILL-PT",
+      "name": "Fuel Fill",
+      "abbrev": "FUEL FILL",
+      "kind": "pressure",
+      "group": "fuel",
+      "units": "psi",
+      "channel": 11,
+      "decimals": 1,
+      "min": 0,
+      "max": 500,
+      "warnHigh": 150,
+      "dangerHigh": 200,
+      "calibration": {
+        "slope": 1,
+        "offset": 0
+      },
+      "pid": {
+        "x": 1330,
+        "y": 835,
+        "lead": [
+          1330,
+          790
+        ],
+        "tag": "FUEL FILL"
+      }
+    }
+  ],
+  "bangbang": [
+    {
+      "id": "bb-fuel",
+      "side": "F",
+      "name": "Fuel Tank Press",
+      "abbrev": "FUEL",
+      "sensor": "FUEL-TANK-PT",
+      "valve": "FUEL-PRESS",
+      "setpoint": 700,
+      "deadband": 15,
+      "setpointMin": 0,
+      "setpointMax": 900,
+      "setpointStep": 5,
+      "deadbandMin": 1,
+      "deadbandMax": 100,
+      "enabled": false,
+      "requiresArm": true,
+      "maxOpenSeconds": 30,
+      "maxOpenMs": 500,
+      "minIntervalMs": 250,
+      "abortAbove": 910,
+      "ventValve": null,
+      "ventTrigger": 880,
+      "ventAuto": false,
+      "_ventValve": "Left null, as on Draco, until the board vent wiring and the sense of its vent bit are confirmed on this vehicle. The tank vents here are normally open, so a wrong sense would reopen a vent the operator just closed."
+    },
+    {
+      "id": "bb-ox",
+      "side": "L",
+      "name": "LOX Tank Press",
+      "abbrev": "OX",
+      "sensor": "LOX-TANK-PT",
+      "valve": "LOX-PRESS",
+      "setpoint": 700,
+      "deadband": 15,
+      "setpointMin": 0,
+      "setpointMax": 900,
+      "setpointStep": 5,
+      "deadbandMin": 1,
+      "deadbandMax": 100,
+      "enabled": false,
+      "requiresArm": true,
+      "maxOpenSeconds": 30,
+      "maxOpenMs": 500,
+      "minIntervalMs": 250,
+      "abortAbove": 910,
+      "ventValve": null,
+      "ventTrigger": 880,
+      "ventAuto": false,
+      "_ventValve": "Left null, as on Draco, until the board vent wiring and the sense of its vent bit are confirmed on this vehicle. The tank vents here are normally open, so a wrong sense would reopen a vent the operator just closed."
+    }
+  ],
+  "autosequences": [
+    {
+      "id": "seq-safe",
+      "name": "Safe All",
+      "abbrev": "SAFE",
+      "description": "Command every actuator to its configured safe state.",
+      "style": "safe",
+      "requiresArm": false,
+      "confirm": false,
+      "steps": [
+        {
+          "t": 0,
+          "action": "log",
+          "message": "Driving all actuators to safe state"
+        },
+        {
+          "t": 0,
+          "action": "safeAll"
+        },
+        {
+          "t": 1,
+          "action": "log",
+          "message": "Safe state reached"
+        }
+      ],
+      "abortConditions": [],
+      "hidden": false,
+      "duration": 1
+    },
+    {
+      "id": "seq-hotfire",
+      "name": "HOT FIRE (5s)",
+      "abbrev": "HOT FIRE",
+      "description": "Ox lead, 5 s burn, cutoff. Fill both tanks and bring them to pressure first: the main valves stroke on the actuator bus, which is regulated off the LOX tank, so they cannot open on an unpressurized vehicle. Ignition is external.",
+      "style": "danger",
+      "requiresArm": true,
+      "confirm": true,
+      "timeMode": "absolute",
+      "steps": [
+        {
+          "t": 0,
+          "action": "log",
+          "message": "HOT FIRE ARMED"
+        },
+        {
+          "t": 0,
+          "action": "bangbang",
+          "target": "bb-ox",
+          "enabled": true,
+          "setpoint": 700
+        },
+        {
+          "t": 0,
+          "action": "bangbang",
+          "target": "bb-fuel",
+          "enabled": true,
+          "setpoint": 700
+        },
+        {
+          "t": 0,
+          "action": "log",
+          "message": "T-0.5 OX LEAD"
+        },
+        {
+          "t": 0,
+          "action": "valve",
+          "target": "MOV",
+          "state": "open"
+        },
+        {
+          "t": 0.5,
+          "action": "log",
+          "message": "T-0 MAIN FUEL OPEN"
+        },
+        {
+          "t": 0.5,
+          "action": "valve",
+          "target": "MFV",
+          "state": "open"
+        },
+        {
+          "t": 5.5,
+          "action": "log",
+          "message": "CUTOFF"
+        },
+        {
+          "t": 5.5,
+          "action": "valve",
+          "target": "MOV",
+          "state": "closed"
+        },
+        {
+          "t": 6,
+          "action": "valve",
+          "target": "MFV",
+          "state": "closed"
+        },
+        {
+          "t": 6,
+          "action": "bangbang",
+          "target": "*",
+          "enabled": false
+        },
+        {
+          "t": 6,
+          "action": "log",
+          "message": "HOT FIRE COMPLETE — tanks still pressurized, detank when ready"
+        }
+      ],
+      "abortConditions": [],
+      "hidden": false,
+      "duration": 6
+    },
+    {
+      "id": "seq-detank",
+      "name": "Detank / Post-Test",
+      "abbrev": "DETANK",
+      "description": "Controllers off, press valves shut, both tanks vented down.",
+      "style": "normal",
+      "requiresArm": true,
+      "confirm": true,
+      "steps": [
+        {
+          "t": 0,
+          "action": "log",
+          "message": "Detank — securing pressurization"
+        },
+        {
+          "t": 0,
+          "action": "bangbang",
+          "target": "*",
+          "enabled": false
+        },
+        {
+          "t": 0,
+          "action": "valve",
+          "target": "LOX-PRESS",
+          "state": "closed"
+        },
+        {
+          "t": 0,
+          "action": "valve",
+          "target": "FUEL-PRESS",
+          "state": "closed"
+        },
+        {
+          "t": 0.5,
+          "action": "valve",
+          "target": "LOX-VENT",
+          "state": "open"
+        },
+        {
+          "t": 0.5,
+          "action": "valve",
+          "target": "FUEL-VENT",
+          "state": "open"
+        },
+        {
+          "t": 30,
+          "action": "log",
+          "message": "Detank complete — tanks vented"
+        }
+      ],
+      "abortConditions": [],
+      "hidden": false,
+      "duration": 30
+    },
+    {
+      "id": "seq-abort",
+      "name": "ABORT",
+      "abbrev": "ABORT",
+      "description": "Emergency safing: mains closed, press closed, tank vents open, ground fills shut.",
+      "style": "abort",
+      "requiresArm": false,
+      "confirm": false,
+      "hidden": true,
+      "timeMode": "absolute",
+      "steps": [
+        {
+          "t": 0,
+          "action": "log",
+          "message": "ABORT — mains closed, tanks venting"
+        },
+        {
+          "t": 0,
+          "action": "valve",
+          "target": "MOV",
+          "state": "closed"
+        },
+        {
+          "t": 0,
+          "action": "bangbang",
+          "target": "*",
+          "enabled": false
+        },
+        {
+          "t": 0.1,
+          "action": "valve",
+          "target": "MFV",
+          "state": "closed"
+        },
+        {
+          "t": 0.2,
+          "action": "valve",
+          "target": "LOX-PRESS",
+          "state": "closed"
+        },
+        {
+          "t": 0.2,
+          "action": "valve",
+          "target": "FUEL-PRESS",
+          "state": "closed"
+        },
+        {
+          "t": 0.2,
+          "action": "valve",
+          "target": "FUEL-FILL",
+          "state": "closed"
+        },
+        {
+          "t": 0.2,
+          "action": "valve",
+          "target": "GND-LOX-FILL",
+          "state": "closed"
+        },
+        {
+          "t": 0.2,
+          "action": "valve",
+          "target": "GND-GN2-PRESS",
+          "state": "closed"
+        },
+        {
+          "t": 0.3,
+          "action": "valve",
+          "target": "LOX-VENT",
+          "state": "open"
+        },
+        {
+          "t": 0.3,
+          "action": "valve",
+          "target": "FUEL-VENT",
+          "state": "open"
+        },
+        {
+          "t": 0.3,
+          "action": "log",
+          "message": "Abort state reached — vehicle is venting"
+        }
+      ],
+      "abortConditions": [],
+      "duration": 0.3
+    }
+  ],
+  "recording": {
+    "directory": "data",
+    "filenamePattern": "{stand}_{date}_{time}_{name}.csv",
+    "defaultTestName": "test",
+    "rateHz": 50,
+    "includeValveStates": true,
+    "includeSetpoints": true,
+    "flushIntervalMs": 500,
+    "derived": []
+  },
+  "pid": {
+    "width": 1660,
+    "height": 1080,
+    "fluids": {
+      "n2": {
+        "label": "GN2",
+        "color": "#f59e0b",
+        "width": 4.5
+      },
+      "lox": {
+        "label": "LOX",
+        "color": "#38bdf8",
+        "width": 5.5
+      },
+      "fuel": {
+        "label": "Fuel (IPA)",
+        "color": "#ef4444",
+        "width": 5.5
+      },
+      "pneu": {
+        "label": "Pneumatic",
+        "color": "#22c55e",
+        "width": 3
+      },
+      "vent": {
+        "label": "Vent",
+        "color": "#94a3b8",
+        "width": 3.5
+      }
+    },
+    "components": [
+      {
+        "type": "text",
+        "id": "TXT-1",
+        "x": 22,
+        "y": 32,
+        "label": "MOE",
+        "size": 16,
+        "weight": 700,
+        "anchor": "start"
+      },
+      {
+        "type": "text",
+        "id": "TXT-2",
+        "x": 22,
+        "y": 50,
+        "label": "LOX / IPA  -  GN2 PRESS-FED VEHICLE + GSE",
+        "size": 10,
+        "anchor": "start"
+      },
+      {
+        "type": "text",
+        "id": "TXT-3",
+        "x": 22,
+        "y": 64,
+        "label": "PER MOE P&ID V2.0  ·  DASHED BOXES ARE GSE",
+        "size": 9,
+        "weight": 500,
+        "muted": true,
+        "anchor": "start"
+      },
+      {
+        "type": "region",
+        "id": "RG-VEHICLE",
+        "x": 540,
+        "y": 12,
+        "w": 680,
+        "h": 1028,
+        "label": "MOE — FLIGHT VEHICLE",
+        "variant": "vehicle"
+      },
+      {
+        "type": "region",
+        "id": "RG-GN2-SUPPLY",
+        "x": 12,
+        "y": 80,
+        "w": 170,
+        "h": 265,
+        "label": "GN2 SUPPLY"
+      },
+      {
+        "type": "region",
+        "id": "RG-GN2-GSE",
+        "x": 195,
+        "y": 80,
+        "w": 330,
+        "h": 640,
+        "label": "GN2 GSE"
+      },
+      {
+        "type": "region",
+        "id": "RG-LOX-GSE",
+        "x": 12,
+        "y": 735,
+        "w": 513,
+        "h": 285,
+        "label": "LOX GSE"
+      },
+      {
+        "type": "region",
+        "id": "RG-LOX-SUPPLY",
+        "x": 22,
+        "y": 790,
+        "w": 178,
+        "h": 220,
+        "label": "LOX SUPPLY"
+      },
+      {
+        "type": "region",
+        "id": "RG-MUSCLE",
+        "x": 1238,
+        "y": 12,
+        "w": 412,
+        "h": 395,
+        "label": "GSE MUSCLE"
+      },
+      {
+        "type": "region",
+        "id": "RG-FUEL-SUPPLY",
+        "x": 1238,
+        "y": 425,
+        "w": 412,
+        "h": 300,
+        "label": "FUEL SUPPLY"
+      },
+      {
+        "type": "region",
+        "id": "RG-FUEL-GSE",
+        "x": 1238,
+        "y": 740,
+        "w": 412,
+        "h": 130,
+        "label": "FUEL GSE"
+      },
+      {
+        "type": "bottle",
+        "id": "GN2-COPV",
+        "x": 860,
+        "y": 95,
+        "w": 140,
+        "h": 110,
+        "count": 2,
+        "rot": 180,
+        "label": "GN2 TANKS",
+        "sub": "2 × 4500 psi MAWP",
+        "labelSide": "right",
+        "labelOffset": 88
+      },
+      {
+        "type": "vent-stack",
+        "id": "VS-GN2",
+        "x": 722,
+        "y": 238,
+        "rot": -90,
+        "label": "VENT"
+      },
+      {
+        "type": "burst-disk",
+        "id": "BD-GN2",
+        "x": 930,
+        "y": 238,
+        "label": "BURST DISK\n5000 psi"
+      },
+      {
+        "type": "check-valve",
+        "id": "CV-GN2-FILL",
+        "x": 662,
+        "y": 305
+      },
+      {
+        "type": "orifice",
+        "id": "OR-FUEL-PRESS",
+        "x": 860,
+        "y": 380,
+        "rot": 90
+      },
+      {
+        "type": "orifice",
+        "id": "OR-LOX-PRESS",
+        "x": 690,
+        "y": 380,
+        "rot": 90
+      },
+      {
+        "type": "tank",
+        "id": "FUEL-TANK",
+        "x": 860,
+        "y": 470,
+        "w": 130,
+        "h": 140,
+        "fluid": "fuel",
+        "label": "FUEL",
+        "sub": "IPA · 940 psi MAWP",
+        "labelOffset": -12
+      },
+      {
+        "type": "vent-stack",
+        "id": "VS-FUEL",
+        "x": 1062,
+        "y": 372,
+        "rot": 90,
+        "label": "VENT"
+      },
+      {
+        "type": "relief-valve",
+        "id": "RV-FUEL",
+        "x": 963,
+        "y": 482,
+        "label": "RELIEF\n937 psi"
+      },
+      {
+        "type": "tank",
+        "id": "LOX-TANK",
+        "x": 860,
+        "y": 675,
+        "w": 130,
+        "h": 140,
+        "fluid": "lox",
+        "label": "LOX",
+        "sub": "940 psi MAWP",
+        "labelOffset": -12
+      },
+      {
+        "type": "vent-stack",
+        "id": "VS-LOX",
+        "x": 688,
+        "y": 695,
+        "rot": -90,
+        "label": "VENT"
+      },
+      {
+        "type": "relief-valve",
+        "id": "RV-LOX",
+        "x": 963,
+        "y": 690,
+        "label": "RELIEF\n937 psi"
+      },
+      {
+        "type": "regulator",
+        "id": "ACT-REG",
+        "x": 1020,
+        "y": 612,
+        "rot": 90,
+        "label": "ACTUATOR\nREG",
+        "labelSide": "left",
+        "labelOffset": 24
+      },
+      {
+        "type": "relief-valve",
+        "id": "RV-ACT",
+        "x": 1058,
+        "y": 730,
+        "label": "RELIEF\n250 psi"
+      },
+      {
+        "type": "check-valve",
+        "id": "CV-LOX-FILL",
+        "x": 760,
+        "y": 775
+      },
+      {
+        "type": "engine",
+        "id": "ENGINE",
+        "x": 900,
+        "y": 880,
+        "w": 100,
+        "h": 110,
+        "label": "MOE ENGINE",
+        "sub": "625 psi inj · 500 psi Pc",
+        "labelOffset": 120
+      },
+      {
+        "type": "qd",
+        "id": "GN2-QD",
+        "x": 540,
+        "y": 680,
+        "label": "GN2 QD"
+      },
+      {
+        "type": "qd",
+        "id": "LOX-QD",
+        "x": 540,
+        "y": 775,
+        "label": "LOX QD"
+      },
+      {
+        "type": "qd",
+        "id": "FUEL-QD",
+        "x": 1220,
+        "y": 790,
+        "label": "FUEL QD"
+      },
+      {
+        "type": "bottle",
+        "id": "GN2-BOTTLES",
+        "x": 97,
+        "y": 250,
+        "w": 130,
+        "h": 120,
+        "count": 3,
+        "label": "GN2 BOTTLES"
+      },
+      {
+        "type": "valve-manual",
+        "id": "HV-GN2-BOTTLES",
+        "x": 97,
+        "y": 142,
+        "rot": 90,
+        "scale": 0.7,
+        "label": "BOTTLE\nVALVES",
+        "labelSide": "right"
+      },
+      {
+        "type": "filter",
+        "id": "FL-GN2-SUPPLY",
+        "x": 260,
+        "y": 150,
+        "rot": 90
+      },
+      {
+        "type": "regulator",
+        "id": "GND-GN2-REG",
+        "x": 260,
+        "y": 260,
+        "rot": 90,
+        "label": "GROUND\nGN2 REG",
+        "labelSide": "right",
+        "labelOffset": 38
+      },
+      {
+        "type": "orifice",
+        "id": "OR-GN2-GSE",
+        "x": 260,
+        "y": 400,
+        "rot": 90
+      },
+      {
+        "type": "vent-stack",
+        "id": "VS-GND-GN2",
+        "x": 410,
+        "y": 538,
+        "label": "VENT"
+      },
+      {
+        "type": "filter",
+        "id": "FL-GN2-QD",
+        "x": 480,
+        "y": 680
+      },
+      {
+        "type": "bottle",
+        "id": "LOX-DEWAR",
+        "x": 150,
+        "y": 930,
+        "w": 80,
+        "h": 110,
+        "label": "LOX\nDEWAR"
+      },
+      {
+        "type": "valve-manual",
+        "id": "HV-LOX-DEWAR",
+        "x": 150,
+        "y": 830,
+        "rot": 90,
+        "scale": 0.7,
+        "label": "DEWAR\nVALVE",
+        "labelSide": "left"
+      },
+      {
+        "type": "relief-valve",
+        "id": "RV-DEWAR",
+        "x": 200,
+        "y": 752,
+        "rot": -90,
+        "label": "DEWAR\nRELIEF",
+        "labelSide": "right"
+      },
+      {
+        "type": "relief-valve",
+        "id": "RV-LOX-LINE",
+        "x": 380,
+        "y": 752,
+        "rot": -90,
+        "label": "LOX\nRELIEF",
+        "labelSide": "right"
+      },
+      {
+        "type": "vent-stack",
+        "id": "VS-GND-LOX",
+        "x": 380,
+        "y": 892,
+        "rot": 180,
+        "label": "VENT",
+        "labelOffset": 30
+      },
+      {
+        "type": "bottle",
+        "id": "GSE-COMP",
+        "x": 1300,
+        "y": 83,
+        "w": 74,
+        "h": 74,
+        "label": "AIR COMP"
+      },
+      {
+        "type": "regulator",
+        "id": "GSE-REG",
+        "x": 1300,
+        "y": 147,
+        "rot": 90,
+        "label": "REG",
+        "labelSide": "left",
+        "labelOffset": 18
+      },
+      {
+        "type": "tank",
+        "id": "SURGE-TANK",
+        "x": 1300,
+        "y": 205,
+        "w": 90,
+        "h": 56,
+        "fluid": "pneu",
+        "label": "SURGE TANK"
+      },
+      {
+        "type": "vent-stack",
+        "id": "VS-PNEU",
+        "x": 1532,
+        "y": 90,
+        "rot": 90,
+        "label": "VENT"
+      },
+      {
+        "type": "terminator",
+        "id": "T-GN2-QD",
+        "x": 1580,
+        "y": 190,
+        "label": "GN2 QD"
+      },
+      {
+        "type": "terminator",
+        "id": "T-LOX-QD",
+        "x": 1580,
+        "y": 290,
+        "label": "LOX QD"
+      },
+      {
+        "type": "terminator",
+        "id": "T-GND-VALVES",
+        "x": 1575,
+        "y": 385,
+        "label": "GND VALVES"
+      },
+      {
+        "type": "tank",
+        "id": "FUEL-STORAGE",
+        "x": 1470,
+        "y": 580,
+        "w": 100,
+        "h": 110,
+        "fluid": "fuel",
+        "label": "FUEL\nSTORAGE",
+        "labelOffset": 0
+      },
+      {
+        "type": "valve-manual",
+        "id": "HV-FUEL-PRESS",
+        "x": 1415,
+        "y": 480,
+        "scale": 0.7,
+        "label": "GROUND\nFUEL PRESS",
+        "labelSide": "top",
+        "labelOffset": 28
+      },
+      {
+        "type": "valve-manual",
+        "id": "HV-FUEL-VENT",
+        "x": 1500,
+        "y": 490,
+        "rot": 90,
+        "scale": 0.7,
+        "label": "GROUND\nFUEL VENT",
+        "labelSide": "right"
+      },
+      {
+        "type": "vent-stack",
+        "id": "VS-FUEL-STORAGE",
+        "x": 1500,
+        "y": 448
+      },
+      {
+        "type": "valve-manual",
+        "id": "HV-FUEL-FILL",
+        "x": 1370,
+        "y": 560,
+        "scale": 0.7,
+        "label": "GROUND\nFUEL FILL"
+      },
+      {
+        "type": "valve-manual",
+        "id": "HV-FUEL-QD-FILL",
+        "x": 1545,
+        "y": 660,
+        "scale": 0.7,
+        "label": "GROUND\nFUEL QD FILL"
+      },
+      {
+        "type": "valve-manual",
+        "id": "HV-WATER-FILL",
+        "x": 1370,
+        "y": 660,
+        "scale": 0.7,
+        "label": "GROUND\nWATER FILL"
+      }
+    ],
+    "pipes": [
+      {
+        "id": "p-gn2-bus",
+        "fluid": "n2",
+        "points": [
+          [
+            860,
+            174
+          ],
+          [
+            860,
+            196
+          ],
+          [
+            860,
+            238
+          ],
+          [
+            860,
+            305
+          ]
+        ],
+        "pressureSensor": "GN2-BUS-PT"
+      },
+      {
+        "id": "p-gn2-vent-a",
+        "fluid": "vent",
+        "points": [
+          [
+            860,
+            238
+          ],
+          [
+            790,
+            238
+          ]
+        ],
+        "flowWhen": [
+          "GN2-VENT"
+        ],
+        "pressureSensor": "GN2-BUS-PT"
+      },
+      {
+        "id": "p-gn2-vent-b",
+        "fluid": "vent",
+        "points": [
+          [
+            790,
+            238
+          ],
+          [
+            744,
+            238
+          ]
+        ],
+        "flowWhen": [
+          "GN2-VENT"
+        ]
+      },
+      {
+        "id": "p-gn2-bd",
+        "fluid": "n2",
+        "points": [
+          [
+            860,
+            238
+          ],
+          [
+            919,
+            238
+          ]
+        ],
+        "pressureSensor": "GN2-BUS-PT"
+      },
+      {
+        "id": "p-press-hdr",
+        "fluid": "n2",
+        "points": [
+          [
+            860,
+            305
+          ],
+          [
+            690,
+            305
+          ]
+        ],
+        "pressureSensor": "GN2-BUS-PT"
+      },
+      {
+        "id": "p-gn2-fill-veh",
+        "fluid": "n2",
+        "points": [
+          [
+            540,
+            680
+          ],
+          [
+            635,
+            680
+          ],
+          [
+            635,
+            305
+          ],
+          [
+            662,
+            305
+          ]
+        ],
+        "flowWhen": [
+          "GND-GN2-PRESS"
+        ],
+        "pressureSensor": "GN2-FILL-PT"
+      },
+      {
+        "id": "p-gn2-fill-check",
+        "fluid": "n2",
+        "points": [
+          [
+            662,
+            305
+          ],
+          [
+            690,
+            305
+          ]
+        ],
+        "pressureSensor": "GN2-BUS-PT"
+      },
+      {
+        "id": "p-lox-press-a",
+        "fluid": "n2",
+        "points": [
+          [
+            690,
+            305
+          ],
+          [
+            690,
+            338
+          ]
+        ],
+        "pressureSensor": "GN2-BUS-PT"
+      },
+      {
+        "id": "p-lox-press-b",
+        "fluid": "n2",
+        "points": [
+          [
+            690,
+            338
+          ],
+          [
+            690,
+            380
+          ],
+          [
+            690,
+            575
+          ],
+          [
+            830,
+            575
+          ]
+        ],
+        "flowWhen": [
+          "LOX-PRESS"
+        ],
+        "pressureSensor": "LOX-TANK-PT"
+      },
+      {
+        "id": "p-lox-press-c",
+        "fluid": "n2",
+        "points": [
+          [
+            830,
+            575
+          ],
+          [
+            830,
+            608
+          ]
+        ],
+        "flowWhen": [
+          "LOX-PRESS"
+        ],
+        "pressureSensor": "LOX-TANK-PT"
+      },
+      {
+        "id": "p-act-feed",
+        "fluid": "n2",
+        "points": [
+          [
+            830,
+            575
+          ],
+          [
+            1020,
+            575
+          ],
+          [
+            1020,
+            612
+          ]
+        ],
+        "pressureSensor": "LOX-TANK-PT"
+      },
+      {
+        "id": "p-act-bus",
+        "fluid": "pneu",
+        "points": [
+          [
+            1020,
+            612
+          ],
+          [
+            1020,
+            672
+          ],
+          [
+            1020,
+            730
+          ],
+          [
+            1020,
+            760
+          ],
+          [
+            900,
+            760
+          ],
+          [
+            900,
+            815
+          ]
+        ],
+        "pressureSensor": "ACTUATOR-PT"
+      },
+      {
+        "id": "p-act-rv",
+        "fluid": "pneu",
+        "points": [
+          [
+            1020,
+            730
+          ],
+          [
+            1045,
+            730
+          ]
+        ],
+        "pressureSensor": "ACTUATOR-PT"
+      },
+      {
+        "id": "p-act-mov",
+        "fluid": "pneu",
+        "points": [
+          [
+            900,
+            815
+          ],
+          [
+            890,
+            815
+          ]
+        ],
+        "pressureSensor": "ACTUATOR-PT"
+      },
+      {
+        "id": "p-act-mfv",
+        "fluid": "pneu",
+        "points": [
+          [
+            900,
+            815
+          ],
+          [
+            910,
+            815
+          ]
+        ],
+        "pressureSensor": "ACTUATOR-PT"
+      },
+      {
+        "id": "p-fuel-press-a",
+        "fluid": "n2",
+        "points": [
+          [
+            860,
+            305
+          ],
+          [
+            860,
+            338
+          ]
+        ],
+        "pressureSensor": "GN2-BUS-PT"
+      },
+      {
+        "id": "p-fuel-press-b",
+        "fluid": "n2",
+        "points": [
+          [
+            860,
+            338
+          ],
+          [
+            860,
+            380
+          ],
+          [
+            860,
+            400
+          ]
+        ],
+        "flowWhen": [
+          "FUEL-PRESS"
+        ],
+        "pressureSensor": "FUEL-TANK-PT"
+      },
+      {
+        "id": "p-fuel-vent-a",
+        "fluid": "vent",
+        "points": [
+          [
+            890,
+            403
+          ],
+          [
+            890,
+            372
+          ],
+          [
+            985,
+            372
+          ]
+        ],
+        "flowWhen": [
+          "FUEL-VENT"
+        ],
+        "pressureSensor": "FUEL-TANK-PT"
+      },
+      {
+        "id": "p-fuel-vent-b",
+        "fluid": "vent",
+        "points": [
+          [
+            985,
+            372
+          ],
+          [
+            1040,
+            372
+          ]
+        ],
+        "flowWhen": [
+          "FUEL-VENT"
+        ]
+      },
+      {
+        "id": "p-fuel-rv",
+        "fluid": "n2",
+        "points": [
+          [
+            925,
+            482
+          ],
+          [
+            950,
+            482
+          ]
+        ],
+        "pressureSensor": "FUEL-TANK-PT"
+      },
+      {
+        "id": "p-fuel-out",
+        "fluid": "fuel",
+        "points": [
+          [
+            860,
+            540
+          ],
+          [
+            860,
+            552
+          ],
+          [
+            1110,
+            552
+          ],
+          [
+            1110,
+            790
+          ]
+        ],
+        "pressureSensor": "FUEL-TANK-PT"
+      },
+      {
+        "id": "p-fuel-run",
+        "fluid": "fuel",
+        "points": [
+          [
+            1110,
+            790
+          ],
+          [
+            940,
+            790
+          ],
+          [
+            940,
+            815
+          ]
+        ],
+        "pressureSensor": "FUEL-TANK-PT"
+      },
+      {
+        "id": "p-fuel-main",
+        "fluid": "fuel",
+        "points": [
+          [
+            940,
+            815
+          ],
+          [
+            940,
+            855
+          ],
+          [
+            940,
+            880
+          ]
+        ],
+        "flowWhen": [
+          "MFV"
+        ],
+        "pressureSensor": "FUEL-ENGINE-PT"
+      },
+      {
+        "id": "p-fuel-fill-veh-a",
+        "fluid": "fuel",
+        "points": [
+          [
+            1220,
+            790
+          ],
+          [
+            1168,
+            790
+          ]
+        ],
+        "flowWhen": [
+          "FUEL-FILL"
+        ],
+        "pressureSensor": "FUEL-FILL-PT"
+      },
+      {
+        "id": "p-fuel-fill-veh-b",
+        "fluid": "fuel",
+        "points": [
+          [
+            1168,
+            790
+          ],
+          [
+            1110,
+            790
+          ]
+        ],
+        "flowWhen": [
+          "FUEL-FILL"
+        ],
+        "pressureSensor": "FUEL-TANK-PT"
+      },
+      {
+        "id": "p-lox-vent-a",
+        "fluid": "vent",
+        "points": [
+          [
+            795,
+            695
+          ],
+          [
+            755,
+            695
+          ]
+        ],
+        "flowWhen": [
+          "LOX-VENT"
+        ],
+        "pressureSensor": "LOX-TANK-PT"
+      },
+      {
+        "id": "p-lox-vent-b",
+        "fluid": "vent",
+        "points": [
+          [
+            755,
+            695
+          ],
+          [
+            710,
+            695
+          ]
+        ],
+        "flowWhen": [
+          "LOX-VENT"
+        ]
+      },
+      {
+        "id": "p-lox-rv",
+        "fluid": "n2",
+        "points": [
+          [
+            925,
+            690
+          ],
+          [
+            950,
+            690
+          ]
+        ],
+        "pressureSensor": "LOX-TANK-PT"
+      },
+      {
+        "id": "p-lox-out",
+        "fluid": "lox",
+        "points": [
+          [
+            860,
+            745
+          ],
+          [
+            860,
+            775
+          ]
+        ],
+        "pressureSensor": "LOX-TANK-PT"
+      },
+      {
+        "id": "p-lox-run",
+        "fluid": "lox",
+        "points": [
+          [
+            860,
+            775
+          ],
+          [
+            860,
+            815
+          ]
+        ],
+        "pressureSensor": "LOX-TANK-PT"
+      },
+      {
+        "id": "p-lox-main",
+        "fluid": "lox",
+        "points": [
+          [
+            860,
+            815
+          ],
+          [
+            860,
+            855
+          ],
+          [
+            860,
+            880
+          ]
+        ],
+        "flowWhen": [
+          "MOV"
+        ],
+        "pressureSensor": "LOX-ENGINE-PT"
+      },
+      {
+        "id": "p-lox-fill-veh-a",
+        "fluid": "lox",
+        "points": [
+          [
+            540,
+            775
+          ],
+          [
+            760,
+            775
+          ]
+        ],
+        "flowWhen": [
+          "GND-LOX-FILL"
+        ],
+        "pressureSensor": "LOX-FILL-PT"
+      },
+      {
+        "id": "p-lox-fill-veh-b",
+        "fluid": "lox",
+        "points": [
+          [
+            760,
+            775
+          ],
+          [
+            860,
+            775
+          ]
+        ],
+        "flowWhen": [
+          "GND-LOX-FILL"
+        ],
+        "pressureSensor": "LOX-TANK-PT"
+      },
+      {
+        "id": "p-gn2-supply",
+        "fluid": "n2",
+        "points": [
+          [
+            97,
+            166
+          ],
+          [
+            97,
+            142
+          ],
+          [
+            97,
+            118
+          ],
+          [
+            260,
+            118
+          ],
+          [
+            260,
+            150
+          ],
+          [
+            260,
+            195
+          ],
+          [
+            260,
+            260
+          ]
+        ],
+        "pressureSensor": "GN2-BOTTLE-PT"
+      },
+      {
+        "id": "p-gn2-reg-out",
+        "fluid": "n2",
+        "points": [
+          [
+            260,
+            260
+          ],
+          [
+            260,
+            330
+          ],
+          [
+            260,
+            400
+          ],
+          [
+            260,
+            460
+          ]
+        ],
+        "pressureSensor": "GN2-REG-PT"
+      },
+      {
+        "id": "p-gn2-fill-gse",
+        "fluid": "n2",
+        "points": [
+          [
+            260,
+            460
+          ],
+          [
+            260,
+            680
+          ],
+          [
+            330,
+            680
+          ],
+          [
+            410,
+            680
+          ],
+          [
+            480,
+            680
+          ],
+          [
+            540,
+            680
+          ]
+        ],
+        "flowWhen": [
+          "GND-GN2-PRESS"
+        ],
+        "pressureSensor": "GN2-FILL-PT"
+      },
+      {
+        "id": "p-gn2-gse-vent-a",
+        "fluid": "vent",
+        "points": [
+          [
+            410,
+            680
+          ],
+          [
+            410,
+            610
+          ]
+        ],
+        "flowWhen": [
+          "GND-GN2-VENT"
+        ],
+        "pressureSensor": "GN2-FILL-PT"
+      },
+      {
+        "id": "p-gn2-gse-vent-b",
+        "fluid": "vent",
+        "points": [
+          [
+            410,
+            610
+          ],
+          [
+            410,
+            560
+          ]
+        ],
+        "flowWhen": [
+          "GND-GN2-VENT"
+        ]
+      },
+      {
+        "id": "p-lox-supply",
+        "fluid": "lox",
+        "points": [
+          [
+            150,
+            861
+          ],
+          [
+            150,
+            830
+          ],
+          [
+            150,
+            775
+          ],
+          [
+            200,
+            775
+          ],
+          [
+            300,
+            775
+          ]
+        ]
+      },
+      {
+        "id": "p-dewar-rv",
+        "fluid": "lox",
+        "points": [
+          [
+            200,
+            775
+          ],
+          [
+            200,
+            765
+          ]
+        ]
+      },
+      {
+        "id": "p-lox-fill-gse",
+        "fluid": "lox",
+        "points": [
+          [
+            300,
+            775
+          ],
+          [
+            380,
+            775
+          ],
+          [
+            475,
+            775
+          ],
+          [
+            540,
+            775
+          ]
+        ],
+        "flowWhen": [
+          "GND-LOX-FILL"
+        ],
+        "pressureSensor": "LOX-FILL-PT"
+      },
+      {
+        "id": "p-lox-line-rv",
+        "fluid": "lox",
+        "points": [
+          [
+            380,
+            775
+          ],
+          [
+            380,
+            765
+          ]
+        ],
+        "pressureSensor": "LOX-FILL-PT"
+      },
+      {
+        "id": "p-gnd-lox-vent-a",
+        "fluid": "vent",
+        "points": [
+          [
+            380,
+            775
+          ],
+          [
+            380,
+            835
+          ]
+        ],
+        "flowWhen": [
+          "GND-LOX-VENT"
+        ],
+        "pressureSensor": "LOX-FILL-PT"
+      },
+      {
+        "id": "p-gnd-lox-vent-b",
+        "fluid": "vent",
+        "points": [
+          [
+            380,
+            835
+          ],
+          [
+            380,
+            870
+          ]
+        ],
+        "flowWhen": [
+          "GND-LOX-VENT"
+        ]
+      },
+      {
+        "id": "p-air",
+        "fluid": "pneu",
+        "points": [
+          [
+            1300,
+            120
+          ],
+          [
+            1300,
+            147
+          ],
+          [
+            1300,
+            177
+          ]
+        ],
+        "pressureSensor": "GSE-MUSCLE-PT"
+      },
+      {
+        "id": "p-muscle-feed",
+        "fluid": "pneu",
+        "points": [
+          [
+            1300,
+            233
+          ],
+          [
+            1300,
+            300
+          ],
+          [
+            1300,
+            385
+          ],
+          [
+            1380,
+            385
+          ]
+        ],
+        "pressureSensor": "GSE-MUSCLE-PT"
+      },
+      {
+        "id": "p-muscle-hdr",
+        "fluid": "pneu",
+        "points": [
+          [
+            1380,
+            385
+          ],
+          [
+            1380,
+            290
+          ],
+          [
+            1380,
+            190
+          ],
+          [
+            1380,
+            90
+          ]
+        ],
+        "pressureSensor": "GSE-MUSCLE-PT"
+      },
+      {
+        "id": "p-pneu-vent-a",
+        "fluid": "pneu",
+        "points": [
+          [
+            1380,
+            90
+          ],
+          [
+            1455,
+            90
+          ]
+        ],
+        "flowWhen": [
+          "GND-PNEU-VENT"
+        ],
+        "pressureSensor": "GSE-MUSCLE-PT"
+      },
+      {
+        "id": "p-pneu-vent-b",
+        "fluid": "pneu",
+        "points": [
+          [
+            1455,
+            90
+          ],
+          [
+            1510,
+            90
+          ]
+        ],
+        "flowWhen": [
+          "GND-PNEU-VENT"
+        ]
+      },
+      {
+        "id": "p-gn2-qd-ctrl-a",
+        "fluid": "pneu",
+        "points": [
+          [
+            1380,
+            190
+          ],
+          [
+            1455,
+            190
+          ]
+        ],
+        "pressureSensor": "GSE-MUSCLE-PT"
+      },
+      {
+        "id": "p-gn2-qd-ctrl-b",
+        "fluid": "pneu",
+        "points": [
+          [
+            1455,
+            190
+          ],
+          [
+            1551,
+            190
+          ]
+        ],
+        "flowWhen": [
+          "GN2-QD-CTRL"
+        ]
+      },
+      {
+        "id": "p-lox-qd-ctrl-a",
+        "fluid": "pneu",
+        "points": [
+          [
+            1380,
+            290
+          ],
+          [
+            1455,
+            290
+          ]
+        ],
+        "pressureSensor": "GSE-MUSCLE-PT"
+      },
+      {
+        "id": "p-lox-qd-ctrl-b",
+        "fluid": "pneu",
+        "points": [
+          [
+            1455,
+            290
+          ],
+          [
+            1551,
+            290
+          ]
+        ],
+        "flowWhen": [
+          "LOX-QD-CTRL"
+        ]
+      },
+      {
+        "id": "p-gnd-valves",
+        "fluid": "pneu",
+        "points": [
+          [
+            1380,
+            385
+          ],
+          [
+            1534,
+            385
+          ]
+        ],
+        "pressureSensor": "GSE-MUSCLE-PT"
+      },
+      {
+        "id": "p-fuel-sup-air-a",
+        "fluid": "pneu",
+        "points": [
+          [
+            1380,
+            385
+          ],
+          [
+            1380,
+            480
+          ],
+          [
+            1415,
+            480
+          ]
+        ],
+        "pressureSensor": "GSE-MUSCLE-PT"
+      },
+      {
+        "id": "p-fuel-sup-air-b",
+        "fluid": "pneu",
+        "points": [
+          [
+            1415,
+            480
+          ],
+          [
+            1450,
+            480
+          ],
+          [
+            1450,
+            527
+          ]
+        ]
+      },
+      {
+        "id": "p-fuel-sup-vent",
+        "fluid": "pneu",
+        "points": [
+          [
+            1500,
+            530
+          ],
+          [
+            1500,
+            470
+          ]
+        ]
+      },
+      {
+        "id": "p-fuel-sup-fill",
+        "fluid": "fuel",
+        "points": [
+          [
+            1420,
+            560
+          ],
+          [
+            1370,
+            560
+          ],
+          [
+            1330,
+            560
+          ]
+        ]
+      },
+      {
+        "id": "p-fuel-sup-out",
+        "fluid": "fuel",
+        "points": [
+          [
+            1470,
+            635
+          ],
+          [
+            1470,
+            660
+          ],
+          [
+            1545,
+            660
+          ]
+        ]
+      },
+      {
+        "id": "p-fuel-sup-water",
+        "fluid": "fuel",
+        "points": [
+          [
+            1470,
+            660
+          ],
+          [
+            1370,
+            660
+          ],
+          [
+            1330,
+            660
+          ]
+        ]
+      },
+      {
+        "id": "p-fuel-gse",
+        "fluid": "fuel",
+        "points": [
+          [
+            1545,
+            660
+          ],
+          [
+            1610,
+            660
+          ],
+          [
+            1610,
+            790
+          ],
+          [
+            1330,
+            790
+          ],
+          [
+            1220,
+            790
+          ]
+        ],
+        "flowWhen": [
+          "FUEL-FILL"
+        ],
+        "pressureSensor": "FUEL-FILL-PT"
+      }
+    ],
+    "pressurizedPsi": 50
+  }
+}
