@@ -144,6 +144,9 @@ $WARN      = [System.Drawing.Color]::FromArgb(176, 74, 0)
 function Add-Label {
   param($Parent, [string]$Text, [int]$X, [int]$Y, [int]$W, [int]$H = 19, $Font, $Color)
   $l = New-Object System.Windows.Forms.Label
+  # Text is shown as written: a stand subtitle like "Vehicle & GSE" must not
+  # lose its ampersand to a keyboard-mnemonic underline.
+  $l.UseMnemonic = $false
   $l.Text = $Text
   $l.Location = New-Object System.Drawing.Point($X, $Y)
   $l.Size = New-Object System.Drawing.Size($W, $H)
@@ -270,6 +273,79 @@ function Get-RelativeToRoot {
   return $full
 }
 
+function Resolve-RootPath {
+  param([string]$Path)
+  if ([System.IO.Path]::IsPathRooted($Path)) { return $Path }
+  return (Join-Path $Root $Path)
+}
+
+# meta.standName of a config file, or '' if it has none or will not parse.
+function Get-ConfigStand {
+  param([string]$RelativePath)
+  try {
+    $file = Resolve-RootPath $RelativePath
+    if (-not (Test-Path -LiteralPath $file)) { return '' }
+    $cfg = Get-Content -LiteralPath $file -Raw | ConvertFrom-Json
+    if ($cfg.meta.standName) { return [string]$cfg.meta.standName }
+  } catch { }
+  return ''
+}
+
+# The `stand` a hardware wiring file declares it belongs to, or ''.
+function Get-HardwareStand {
+  param([string]$RelativePath)
+  try {
+    $file = Resolve-RootPath $RelativePath
+    if (-not (Test-Path -LiteralPath $file)) { return '' }
+    $hw = Get-Content -LiteralPath $file -Raw | ConvertFrom-Json
+    if ($hw.stand) { return [string]$hw.stand }
+  } catch { }
+  return ''
+}
+
+# Every stand this checkout can run, found rather than listed: each config
+# file in config/ names its stand in meta.standName, and each wiring file
+# names the stand it belongs to in `stand`. Adding a stand is adding its two
+# files; nothing here needs to learn its name.
+function Get-WiringFiles {
+  $wiring = @{}
+  $dir = Join-Path $Root 'config'
+  if (Test-Path -LiteralPath $dir) {
+    foreach ($f in @(Get-ChildItem -LiteralPath $dir -Filter 'hardware*.json' -File)) {
+      $rel = 'config/' + $f.Name
+      $stand = Get-HardwareStand $rel
+      if ($stand -and -not $wiring.ContainsKey($stand.ToLower())) { $wiring[$stand.ToLower()] = $rel }
+    }
+  }
+  return $wiring
+}
+
+function Get-Stands {
+  $found = @()
+  foreach ($cfg in Get-ConfigFiles) {
+    $name = Get-ConfigStand $cfg
+    if ($name) { $found += [pscustomobject]@{ Name = $name; Config = $cfg } }
+  }
+  # By name, and the first file wins for a stand two files claim.
+  $stands = [ordered]@{}
+  foreach ($s in ($found | Sort-Object Name)) {
+    if (-not $stands.Contains($s.Name)) { $stands[$s.Name] = $s.Config }
+  }
+  return $stands
+}
+
+# The wiring file the stand driver will actually load for this config: the
+# one typed in the Wiring file box if there is one, otherwise the file that
+# declares the config's stand, otherwise the server's own default.
+function Get-EffectiveWiring {
+  param([string]$ConfigPath)
+  $typed = $txtHardware.Text.Trim()
+  if ($typed) { return $typed }
+  $name = Get-ConfigStand $ConfigPath
+  if ($name -and $WIRING.ContainsKey($name.ToLower())) { return [string]$WIRING[$name.ToLower()] }
+  return 'config/hardware.json'
+}
+
 # The stand a config file describes, for the window's subtitle: the one thing
 # always worth confirming before a launch is that this is the right stand.
 function Get-StandName {
@@ -291,7 +367,7 @@ function Get-StandName {
 
 $form = New-Object System.Windows.Forms.Form
 $form.Text = 'Start ERPL GC-4'
-$form.ClientSize = New-Object System.Drawing.Size(600, 714)
+$form.ClientSize = New-Object System.Drawing.Size(600, 746)
 $form.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::FixedDialog
 $form.MaximizeBox = $false
 $form.MinimizeBox = $false
@@ -347,7 +423,7 @@ Add-Note $pStand $portHint 96 28 440 | Out-Null
 Add-Label $pStand 'Wiring file' 0 51 90 | Out-Null
 $txtHardware = Add-TextBox $pStand $settings.hardwareConfig 96 48 316
 $btnHardware = Add-Button $pStand 'Browse' 418 47 64 24
-Add-Note $pStand 'Channel maps and the chassis name. Blank uses config/hardware.json.' 96 76 440 | Out-Null
+Add-Note $pStand 'Channel maps and the chassis name. Blank uses the chosen stand''s own wiring file.' 96 76 440 | Out-Null
 
 Add-Label $pPanda 'PANDA port' 0 4 90 | Out-Null
 $cbPandaPort = Add-Combo $pPanda (@('(from hardware.json)') + $ports) 96 1 150 'DropDown'
@@ -391,23 +467,32 @@ Add-Note $gNet 'Which network card to serve on. 0.0.0.0 is all of them.' 266 133
 
 # ---- stand config ---------------------------------------------------------
 
-$gCfg = Add-Group $form 'Stand configuration' 16 428 568 114
+$gCfg = Add-Group $form 'Stand configuration' 16 428 568 146
 
-Add-Label $gCfg 'Config file' 12 30 90 | Out-Null
-$cbConfig = Add-Combo $gCfg (Get-ConfigFiles) 108 27 366 'DropDown'
-$btnConfig = Add-Button $gCfg 'Browse' 480 26 74 24
+# Which stand, first: it chooses the config file and, on the real hardware,
+# the wiring file to go with it. The config file stays editable underneath
+# for a config that is not one of the stands found here.
+$STANDS = Get-Stands
+$WIRING = Get-WiringFiles
+Add-Label $gCfg 'Stand' 12 30 90 | Out-Null
+$cbStand = Add-Combo $gCfg @($STANDS.Keys) 108 27 180
+$lblStand = Add-Note $gCfg '' 296 31 258
 
-Add-Label $gCfg 'Control PIN' 12 62 90 | Out-Null
-$cbPin = Add-Combo $gCfg @('From the config file', 'Set one for this run', 'No PIN') 108 59 180
-$txtPin = Add-TextBox $gCfg '' 296 59 100
+Add-Label $gCfg 'Config file' 12 62 90 | Out-Null
+$cbConfig = Add-Combo $gCfg (Get-ConfigFiles) 108 59 366 'DropDown'
+$btnConfig = Add-Button $gCfg 'Browse' 480 58 74 24
+
+Add-Label $gCfg 'Control PIN' 12 94 90 | Out-Null
+$cbPin = Add-Combo $gCfg @('From the config file', 'Set one for this run', 'No PIN') 108 91 180
+$txtPin = Add-TextBox $gCfg '' 296 91 100
 $txtPin.UseSystemPasswordChar = $true
-$lblPin = Add-Note $gCfg '' 12 88 544
+$lblPin = Add-Note $gCfg '' 12 120 544
 
 # ---- options and preview --------------------------------------------------
 
-$chkBrowser = Add-Check $form 'Open the operator page in a browser once the server is listening' 18 552 500 ([bool]$settings.openBrowser)
+$chkBrowser = Add-Check $form 'Open the operator page in a browser once the server is listening' 18 584 500 ([bool]$settings.openBrowser)
 
-Add-Note $form 'The command this will run:' 20 580 400 | Out-Null
+Add-Note $form 'The command this will run:' 20 612 400 | Out-Null
 $preview = New-Object System.Windows.Forms.TextBox
 $preview.Multiline = $true
 $preview.ReadOnly = $true
@@ -415,12 +500,12 @@ $preview.WordWrap = $true
 $preview.Font = $FONT_MONO
 $preview.BackColor = [System.Drawing.Color]::FromArgb(246, 246, 246)
 $preview.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
-$preview.Location = New-Object System.Drawing.Point(18, 598)
+$preview.Location = New-Object System.Drawing.Point(18, 630)
 $preview.Size = New-Object System.Drawing.Size(566, 58)
 $form.Controls.Add($preview)
 
-$btnCancel = Add-Button $form 'Cancel' 340 668 100 32
-$btnLaunch = Add-Button $form 'Launch' 452 668 132 32
+$btnCancel = Add-Button $form 'Cancel' 340 700 100 32
+$btnLaunch = Add-Button $form 'Launch' 452 700 132 32
 $btnLaunch.Font = $FONT_BOLD
 $form.AcceptButton = $btnLaunch
 $form.CancelButton = $btnCancel
@@ -439,8 +524,9 @@ function Get-LaunchArgs {
     'stand' {
       $p = $cbStandPort.Text.Trim()
       if ($p -and -not $p.StartsWith('(')) { $a += "--port-name=$p" }
-      $hw = $txtHardware.Text.Trim()
-      if ($hw) { $a += "--hardware-config=$hw" }
+      # Draco's wiring is the server's default, so it is left off the line.
+      $hw = Get-EffectiveWiring $cbConfig.Text.Trim()
+      if ($hw -and $hw -ne 'config/hardware.json') { $a += "--hardware-config=$hw" }
       if ($chkTapStand.Checked) { $a += '--panda-tap' }
     }
     'panda' {
@@ -535,10 +621,19 @@ function Get-Problems {
     $problems += 'Enter the address of the device to talk to.'
   }
 
-  $hw = $txtHardware.Text.Trim()
-  if ($driver -eq 'stand' -and $hw) {
-    $file = if ([System.IO.Path]::IsPathRooted($hw)) { $hw } else { Join-Path $Root $hw }
-    if (-not (Test-Path -LiteralPath $file)) { $problems += "Hardware wiring file not found: $hw" }
+  if ($driver -eq 'stand') {
+    $hw = Get-EffectiveWiring $cfg
+    if (-not (Test-Path -LiteralPath (Resolve-RootPath $hw))) {
+      $problems += "Hardware wiring file not found: $hw"
+    } else {
+      # The server refuses this too; saying it here costs the operator a
+      # click instead of a console window that opens and dies.
+      $hwStand = Get-HardwareStand $hw
+      $cfgStand = Get-ConfigStand $cfg
+      if ($hwStand -and $cfgStand -and $hwStand -ne $cfgStand) {
+        $problems += "The wiring file $hw is for $hwStand, but the config is for $cfgStand. Clear the Wiring file box to use $cfgStand's own."
+      }
+    }
   }
 
   return $problems
@@ -588,6 +683,23 @@ function Update-Form {
 
     $subtitle.Text = Get-StandName $cbConfig.Text.Trim()
 
+    # The Stand box follows the config file, so a file picked by hand or
+    # restored from last time still shows which stand it is -- and shows
+    # nothing when it is not one of the stands found.
+    $cfgStand = Get-ConfigStand $cbConfig.Text.Trim()
+    if ($cfgStand -and $cbStand.Items.Contains($cfgStand)) {
+      if ([string]$cbStand.SelectedItem -ne $cfgStand) { $cbStand.SelectedItem = $cfgStand }
+    } elseif ($cbStand.SelectedIndex -ne -1) {
+      $cbStand.SelectedIndex = -1
+    }
+    if ($driver -eq 'stand') {
+      $lblStand.Text = 'Wiring: ' + (Get-EffectiveWiring $cbConfig.Text.Trim())
+    } elseif ($cfgStand) {
+      $lblStand.Text = ''
+    } else {
+      $lblStand.Text = 'This config file names no stand.'
+    }
+
     $shown = @(Get-LaunchArgs) | ForEach-Object { Format-Arg $_ }
     $preview.Text = 'node ' + ($shown -join ' ')
   } finally {
@@ -610,6 +722,15 @@ foreach ($c in @($txtPort, $txtSpectatorPort, $txtBind, $txtPin, $txtHardware, $
 # so changing driver never quietly changes what the flag will be.
 $chkTapStand.Add_CheckedChanged({ if ($chkTapPanda.Checked -ne $chkTapStand.Checked) { $chkTapPanda.Checked = $chkTapStand.Checked } })
 $chkTapPanda.Add_CheckedChanged({ if ($chkTapStand.Checked -ne $chkTapPanda.Checked) { $chkTapStand.Checked = $chkTapPanda.Checked } })
+
+# Picking a stand picks its config file; Update-Form (via the config box's
+# change events) does the rest. Ignored while Update-Form is itself moving
+# the Stand box to match a config file, which would otherwise loop.
+$cbStand.Add_SelectedIndexChanged({
+  if ($script:refreshing) { return }
+  $name = [string]$cbStand.SelectedItem
+  if ($name -and $STANDS.Contains($name)) { Set-ComboValue $cbConfig ([string]$STANDS[$name]) }
+})
 
 $btnConfig.Add_Click({
   $dlg = New-Object System.Windows.Forms.OpenFileDialog

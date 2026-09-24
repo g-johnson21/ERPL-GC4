@@ -132,11 +132,14 @@ try {
     port: args['driver-port'],
     listenPort: args['listen-port'],
     port_: undefined,
+    // simulator: which stand's physics to run
+    simModel: configStore.get().meta?.simModel,
     // serial
     ...(DRIVER_NAME === 'serial' ? { port: args['port-name'] ?? args.com, baud: args.baud } : {}),
     // stand (nidaq + panda)
     root: ROOT,
     hardwareConfig: args['hardware-config'],
+    standName: configStore.get().meta?.standName,
     pandaPort: args['port-name'] ?? args.com,
     // Driver-level faults reach the operator through the same event log as
     // everything else, rather than only the server console. A device can fault

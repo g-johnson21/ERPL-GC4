@@ -8,6 +8,9 @@
  * traces to shake out the UI and sequences, NOT for engineering-grade
  * prediction. Do not size hardware from these numbers.
  *
+ * Other stands subclass this driver and replace only the physics -- see
+ * sim-moe.js -- chosen by `meta.simModel` in the stand config.
+ *
  * THE STAND, AS MODELLED
  *   GN2       two bottle banks, one per bus (PT1, PT11). S1 / S2 pulse gas
  *             into the tanks through C1 / C3. PT2 sits between S1 and C1, so
@@ -63,7 +66,6 @@ import {
   parseLine,
   encodeConfig,
   encodeVent,
-  encodeMdot,
   encodeEnable,
   encodeManualVent,
   encodeAbort,
@@ -379,9 +381,10 @@ export class SimulatorDriver {
     const was = this.valveState.get(valve.id);
     let actual = wanted;
     let powered = true;
+    const supply = this.actuatorSupply(valve);
     if (valve.type === 'ball') {
       const spring = valve.normallyOpen ? 'open' : 'closed';
-      const p = this.s.muscleP;
+      const p = supply.psi;
       // Dropped out below one threshold, back in only above a higher one.
       const held = this.springHeld.has(valve.id)
         ? p < MUSCLE_PICKUP_PSI
@@ -392,7 +395,7 @@ export class SimulatorDriver {
         powered = false;
         if (fromCommand && actual !== wanted) {
           this.onEvent(
-            `${valve.id} did not move: muscle bus at ${p.toFixed(0)} psi, ` +
+            `${valve.id} did not move: ${supply.name} at ${p.toFixed(0)} psi, ` +
             `actuator held ${actual.toUpperCase()} by its spring`, 'warn');
         }
       }
@@ -401,16 +404,30 @@ export class SimulatorDriver {
       this.valveState.set(valve.id, actual);
       // A stroke under muscle power costs the bus a slug; falling to the
       // spring costs nothing, the spring did the work.
-      if (valve.type === 'ball' && powered) {
-        this.s.muscleP = Math.max(AMBIENT_PSI, this.s.muscleP - tune.actuatorSlugPsi);
-      }
+      if (valve.type === 'ball' && powered) this.chargeStroke(valve);
       // A pneumatic valve moving on its own -- to its spring, or back to its
       // coil -- is news. A solenoid following the board's pulse is not.
       if (!fromCommand && valve.type === 'ball') {
         this.onEvent(`${valve.id} ${actual.toUpperCase()} — ` +
-          (powered ? 'muscle bus restored, actuator followed its coil' : 'muscle bus lost, actuator fell to its spring position'), 'warn');
+          (powered
+            ? `${supply.name} restored, actuator followed its coil`
+            : `${supply.name} lost, actuator fell to its spring position`), 'warn');
       }
     }
+  }
+
+  /**
+   * The pneumatic supply a spring-return actuator strokes on, as
+   * `{ psi, name }`. On Draco every PB valve hangs off the one muscle bus; a
+   * stand model with more than one bus overrides this.
+   */
+  actuatorSupply(/* valve */) {
+    return { psi: this.s.muscleP, name: 'muscle bus' };
+  }
+
+  /** What one powered stroke costs the actuator's supply. */
+  chargeStroke(/* valve */) {
+    this.s.muscleP = Math.max(AMBIENT_PSI, this.s.muscleP - tune.actuatorSlugPsi);
   }
 
   isOpen(role) {
@@ -468,14 +485,13 @@ export class SimulatorDriver {
 
   // ----------------------------------------------------------- bang-bang ----
   //
-  // The same seven commands the PANDA driver sends, encoded with the same
+  // The same six commands the PANDA driver sends, encoded with the same
   // encoders and handed to the emulated board as ASCII. Going through the wire
   // format rather than calling the firmware's methods directly is the point:
   // a mistake in the grammar shows up here instead of at the pad.
 
   bbConfig(side, cfg) { return this.boardCommand(() => encodeConfig(side, cfg)); }
   bbVent(side, cfg) { return this.boardCommand(() => encodeVent(side, cfg)); }
-  bbMdot(side, cfg) { return this.boardCommand(() => encodeMdot(side, cfg)); }
   bbEnable(side, on) { return this.boardCommand(() => encodeEnable(side, on)); }
   bbManualVent(side, open) { return this.boardCommand(() => encodeManualVent(side, open)); }
   bbAbort(side) { return this.boardCommand(() => encodeAbort(side)); }
@@ -859,6 +875,14 @@ export class SimulatorDriver {
     put('goxLineT', s.goxLineT, noise.tc);
     put('chamberT', s.chamberT, s.burning ? noise.chamberTcBurn : noise.tc);
 
+    return this.finishSample(out);
+  }
+
+  /**
+   * The part of a sample every stand model shares: channels the model does
+   * not cover, tare offsets, and the copy tareSensors() zeroes against.
+   */
+  finishSample(out) {
     // Anything the model does not cover still produces a live channel: a
     // spare thermocouple reads the room, a spare PT reads zero.
     for (const sensor of this.config?.sensors || []) {
@@ -984,16 +1008,20 @@ function freshBbSide() {
 }
 
 /** A relief valve: anything above its set pressure is dumped within a few ms. */
-function relieve(p, setPsi, dt) {
+export function relieve(p, setPsi, dt) {
   if (p <= setPsi) return p;
   return setPsi + (p - setPsi) * Math.exp(-40 * dt);
 }
 
-function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
+export function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
+
+// Shared with the other stand models (sim-moe.js), which subclass this driver
+// for its board emulation, current sense, tares and simulator controls.
+export { AMBIENT_PSI };
 
 let spare = null;
 /** Box-Muller normal(0,1). */
-function gauss() {
+export function gauss() {
   if (spare !== null) { const v = spare; spare = null; return v; }
   let u = 0, v = 0, s = 0;
   do {

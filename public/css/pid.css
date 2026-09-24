@@ -163,6 +163,32 @@
   pointer-events: none;
 }
 
+/* Regions: the hashed boxes a P&ID draws around ground support equipment,
+   and the outline of the vehicle. Pure context, so they take the faintest ink
+   on the drawing and never take the pointer. The vehicle gets a faint wash
+   as well, so "on the rocket" versus "on the ground" reads at a glance. */
+.pid-region-group { pointer-events: none; }
+.pid-region {
+  fill: none;
+  stroke: var(--text-faint);
+  stroke-width: 1.4;
+  stroke-dasharray: 7 5;
+}
+.pid-region.vehicle {
+  fill: color-mix(in srgb, var(--text) 4%, transparent);
+  stroke: var(--text-muted);
+  stroke-width: 1.6;
+  stroke-dasharray: none;
+}
+.pid-region-label {
+  fill: var(--text-muted);
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .08em;
+}
+.pid-region-label.vehicle { fill: var(--text); font-size: 12px; }
+
 /* Hand valves, reliefs, checks and the regulator: nothing on this screen can
    move them, so they take the muted ink and stop competing with the valves
    that the controller is actually watching. */
@@ -383,6 +409,7 @@ body.shift-armed .pid-valve[data-needs-shift="true"] .pid-hit {
 .pid-sublabel,
 .pid-valve-state,
 .pid-title,
+.pid-region-label,
 .pid-flag-text {
   paint-order: stroke;
   stroke: var(--surface);

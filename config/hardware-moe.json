@@ -1,0 +1,103 @@
+{
+  "_comment": [
+    "Hardware wiring for MOE and its GSE, for the --driver=stand composite driver.",
+    "Pass it with --hardware-config=config/hardware-moe.json; the startup",
+    "window does this for you when MOE is the chosen stand.",
+    "",
+    "*** PROVISIONAL. The DC channel order is not decided yet. ***",
+    "Valve channels (valves[].channel in config/moe.json) are placeholders",
+    "numbered in P&ID order: DC1-DC8 are the vehicle, DC9-DC15 the GSE.",
+    "Change the channel on the valve in moe.json AND the dcChannels entry",
+    "below together once the harness is built, then verify each one the way",
+    "Draco's were: actuate from GC and watch which channel draws current.",
+    "",
+    "CHANNEL COUNT. The PANDA addresses channels 1-12 and Draco's board has",
+    "current sense on DC1-DC11 only. MOE has 15 actuated valves, so as",
+    "numbered here GND-GN2-VENT (DC12), GN2-QD-CTRL (DC13), LOX-QD-CTRL",
+    "(DC14) and GND-PNEU-VENT (DC15) have no output on that board: commands",
+    "to DC13-DC15 are refused, and DC12 goes to a channel with nothing on it.",
+    "They need a second output board (route them with valveDevice) or a",
+    "larger PANDA before the GSE can be run from GC.",
+    "",
+    "PT channels are one per transducer on the NI-9208, pt0-pt11, in the",
+    "order the sensors appear in moe.json. maxPsi is a placeholder sized to",
+    "each line (5000 psi class for GN2, 1500 for propellant, 500 for",
+    "pneumatics and fill lines); set it from the installed transducers."
+  ],
+  "_stand": "Which stand this wiring belongs to. Checked against meta.standName in the stand config at startup.",
+  "stand": "MOE",
+  "nidaq": {
+    "required": true,
+    "python": "python",
+    "chassis": "cDAQ9189-2462EFD",
+    "sampleClockHz": 100,
+    "samplesPerRead": 10,
+    "cards": {
+      "pt": {
+        "slot": 2,
+        "channels": 16,
+        "channelMeta": {
+          "0": { "maxPsi": 5000.0, "zeroMa": 4.0 },
+          "1": { "maxPsi": 1500.0, "zeroMa": 4.0 },
+          "2": { "maxPsi": 1500.0, "zeroMa": 4.0 },
+          "3": { "maxPsi": 500.0, "zeroMa": 4.0 },
+          "4": { "maxPsi": 1500.0, "zeroMa": 4.0 },
+          "5": { "maxPsi": 1500.0, "zeroMa": 4.0 },
+          "6": { "maxPsi": 500.0, "zeroMa": 4.0 },
+          "7": { "maxPsi": 500.0, "zeroMa": 4.0 },
+          "8": { "maxPsi": 5000.0, "zeroMa": 4.0 },
+          "9": { "maxPsi": 5000.0, "zeroMa": 4.0 },
+          "10": { "maxPsi": 10000.0, "zeroMa": 4.0 },
+          "11": { "maxPsi": 500.0, "zeroMa": 4.0 }
+        }
+      }
+    },
+    "channelMap": {
+      "pt0": "GN2-BUS-PT",
+      "pt1": "FUEL-TANK-PT",
+      "pt2": "LOX-TANK-PT",
+      "pt3": "ACTUATOR-PT",
+      "pt4": "LOX-ENGINE-PT",
+      "pt5": "FUEL-ENGINE-PT",
+      "pt6": "GSE-MUSCLE-PT",
+      "pt7": "LOX-FILL-PT",
+      "pt8": "GN2-FILL-PT",
+      "pt9": "GN2-REG-PT",
+      "pt10": "GN2-BOTTLE-PT",
+      "pt11": "FUEL-FILL-PT"
+    }
+  },
+  "panda": {
+    "required": true,
+    "port": "COM5",
+    "baud": 460800,
+    "ptInputMode": "volts",
+    "defaultShuntOhms": 47,
+    "shuntOhms": {},
+    "dcThresholdA": 0.1,
+    "armHardware": true,
+    "channelMap": {},
+    "_dcChannels": [
+      "Wire position in the board's 's' line -> the channel it senses. The",
+      "positions are the PANDA's own (two reversed banks: DC8..DC1, then an",
+      "empty DC12 slot, then DC11..DC9 -- see config/hardware.json), so they",
+      "carry over from Draco; only the valve on each channel is MOE's, and",
+      "that follows the placeholder channel numbers in moe.json."
+    ],
+    "dcOrder": null,
+    "dcChannels": {
+      "0": { "id": "DC8", "name": "Fuel Fill Solenoid", "valve": "FUEL-FILL" },
+      "1": { "id": "DC7", "name": "Main Fuel Valve", "valve": "MFV" },
+      "2": { "id": "DC6", "name": "Main Oxygen Valve", "valve": "MOV" },
+      "3": { "id": "DC5", "name": "GN2 Vent", "valve": "GN2-VENT" },
+      "4": { "id": "DC4", "name": "Fuel Vent", "valve": "FUEL-VENT" },
+      "5": { "id": "DC3", "name": "LOX Vent", "valve": "LOX-VENT" },
+      "6": { "id": "DC2", "name": "Fuel Press", "valve": "FUEL-PRESS" },
+      "7": { "id": "DC1", "name": "LOX Press", "valve": "LOX-PRESS" },
+      "9": { "id": "DC11", "name": "Ground GN2 Press", "valve": "GND-GN2-PRESS" },
+      "10": { "id": "DC10", "name": "Ground LOX Vent", "valve": "GND-LOX-VENT" },
+      "11": { "id": "DC9", "name": "Ground LOX Fill", "valve": "GND-LOX-FILL" }
+    }
+  },
+  "valveDevice": {}
+}

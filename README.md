@@ -25,6 +25,11 @@ physics model of the Draco LOX/ethanol stand, tag for tag from its P&ID, so you
 can exercise every screen, sequence and interlock before you ever touch
 hardware. See [The simulator](#the-simulator).
 
+GC-4 runs two stands: **Draco** (`config/stand.json`, the default) and **MOE**,
+the LOX/IPA flight vehicle and its ground support equipment
+(`config/moe.json`). Pick one under **Stand** in the startup window, or pass
+`--config=config/moe.json`. See [The MOE stand](#the-moe-stand).
+
 The control port asks for a **PIN** first. The shipped `stand.json` uses
 `1234`; change it on the Config page's General tab before the address goes on
 a whiteboard. See [Control PIN](#control-pin).
@@ -40,6 +45,7 @@ a whiteboard. See [Control PIN](#control-pin).
 - [Spectator view](#spectator-view)
 - [Control PIN](#control-pin)
 - [The simulator](#the-simulator)
+- [The MOE stand](#the-moe-stand)
 - [Customizing for your stand](#customizing-for-your-stand)
 - [Connecting real hardware](#connecting-real-hardware)
 - [Data recording](#data-recording)
@@ -64,8 +70,13 @@ questions that actually change between runs:
   and port for `udp`, nothing at all for `simulator`.
 - **Network** — the web port, whether other computers may act as operator
   stations, and whether the [spectator view](#spectator-view) is up.
-- **Stand configuration** — which `config/*.json` describes the stand, and
-  whether to override the [control PIN](#control-pin) for this run.
+- **Stand configuration** — which **stand** to run (Draco or MOE), and
+  whether to override the [control PIN](#control-pin) for this run. Choosing
+  a stand fills in its config file and, for the real hardware, its own wiring
+  file; the config file box stays editable for anything else. The list is
+  built from what is in `config/`: every config file that names a stand in
+  `meta.standName` appears, paired with the `hardware*.json` whose `stand`
+  matches it.
 - **Open a browser** when the server is listening.
 
 It shows the assembled command line before it runs, so the window is also how
@@ -1090,6 +1101,83 @@ do not size hardware from it.
 
 ---
 
+## The MOE stand
+
+MOE is the LOX/IPA flight vehicle and the ground support equipment that fills
+and pressurizes it, drawn from `MOE P&ID V2.0.pdf`. Its config is
+[`config/moe.json`](config/moe.json) and its wiring
+[`config/hardware-moe.json`](config/hardware-moe.json).
+
+```bash
+node server/index.js --config=config/moe.json            # simulator
+```
+
+**Names are functions, not numbers.** The drawing calls a valve `LOX PRESS` or
+`GROUND GN2 VENT` rather than `S1` or `PB3`, so the config does too: valve ids
+like `LOX-PRESS`, `MOV`, `GND-LOX-FILL`, transducer ids like `GN2-BUS-PT`, and
+P&ID tags that read the way the drawing does.
+
+| On the vehicle | In the GSE |
+|---|---|
+| LOX PRESS, FUEL PRESS | GROUND LOX FILL, GROUND LOX VENT |
+| LOX VENT, FUEL VENT, GN2 VENT (normally open) | GROUND GN2 PRESS, GROUND GN2 VENT |
+| MAIN OXYGEN VALVE (MOV), MAIN FUEL VALVE (MFV) | GN2 QD CONTROL, LOX QD CONTROL |
+| FUEL FILL SOLENOID | GROUND PNEUMATICS VENT |
+| PTs: GN2 BUS, FUEL TANK, LOX TANK, ACTUATOR, LOX ENGINE, FUEL ENGINE | PTs: GSE MUSCLE, LOX FILL, GN2 FILL, GN2 REG, GN2 BOTTLE, FUEL FILL |
+
+**The P&ID page** follows the rocket's own layout. The vehicle is the shaded
+outline in the middle, top to bottom as it stands: GN2 tanks, the press
+valves, the fuel tank, the LOX tank below it, the main valves, the engine. The
+dashed boxes are the GSE, as on the drawing — GN2 supply and GN2 GSE on the
+left, LOX GSE beneath them, GSE muscle and the fuel cart on the right — and
+each crosses into the vehicle at its QD. The muscle manifold's outputs to the
+ground valves end in flags rather than lines drawn across the whole sheet.
+
+**Valve channels are placeholders.** The DC channel order is not decided, so
+channels 1–15 run in P&ID order: 1–8 the vehicle, 9–15 the GSE. Change a
+valve's `channel` in `moe.json` and its `dcChannels` entry in
+`hardware-moe.json` together once the harness exists. Note the PANDA addresses
+channels 1–12 and Draco's board senses DC1–DC11, so as numbered the last four
+GSE valves need a second output board or a larger PANDA. The wiring file's
+comment block says which.
+
+### The MOE simulator
+
+`meta.simModel: "moe"` in `moe.json` swaps in the MOE model
+([`server/hal/sim-moe.js`](server/hal/sim-moe.js)); the emulated PANDA board,
+current sense, tares and hand controls are Draco's, unchanged. The vehicle
+starts **empty and vented**, so a full run is the real procedure:
+
+1. **GN2.** Close GN2 VENT and GROUND GN2 VENT, open GROUND GN2 PRESS: the bus
+   charges through the GN2 QD and its check valve toward the ground
+   regulator's set pressure. Close PRESS and re-open the ground vent after.
+2. **LOX.** With LOX VENT open (it is normally open), close GROUND LOX VENT and
+   open GROUND LOX FILL. A sealed tank stalls at dewar head.
+3. **Fuel.** On the P&ID, open GROUND FUEL PRESS (shop air on the storage
+   tank) and GROUND FUEL QD FILL, then open FUEL FILL.
+4. **Press** with the bang-bang controllers, or by hand, then **HOT FIRE**.
+
+One behaviour comes straight from the drawing and is worth knowing: the
+**ACTUATOR REG is fed from the LOX press line**, downstream of its orifice. So
+MOV and MFV — spring-return pneumatic valves on that regulator's bus — cannot
+open until the LOX tank is pressurized. Command one early and it stays shut,
+and the log says the actuator bus is why. The GROUND valves stroke on the GSE
+muscle instead; vent it and they fall to their springs. A QD CONTROL valve
+held open releases its QD, and nothing crosses it.
+
+| Control | What it does |
+|---|---|
+| BOTTLE VALVES | GN2 supply bottles — start open |
+| DEWAR VALVE | LOX dewar liquid valve — starts open |
+| GROUND FUEL PRESS / VENT | Shop air onto the fuel storage tank / vent it |
+| GROUND FUEL FILL, GROUND WATER FILL | Refill the storage tank |
+| GROUND FUEL QD FILL | Storage outlet to the fuel QD |
+| GROUND GN2 REG | Fill pressure, 0–4500 psi (default 4000) |
+| ACTUATOR REG | Actuator bus, 0–300 psi (default 150) |
+| AIR COMP | GSE compressor cut-out, 0–200 psi (default 150) |
+
+---
+
 ## Customizing for your stand
 
 Everything lives in [`config/stand.json`](config/stand.json). Nothing about a
@@ -1269,9 +1357,9 @@ reads PT4) and the run lines stop reading PT5 and PT15 upstream of C2 and C4.
 Two pieces meeting end to end draw no tee dot; only three line ends do.
 
 Symbol types: `tank`, `bottle`, `engine`, `regulator`, `filter`, `venturi`,
-`check-valve`, `relief-valve`, `burst-disk`, `vent-stack`, `drain`, `qd`,
-`terminator`, `thrust-mount`, `valve-manual`, `text`, `logo`. Every component
-takes `rot`, and:
+`orifice`, `check-valve`, `relief-valve`, `burst-disk`, `vent-stack`, `drain`,
+`qd`, `terminator`, `thrust-mount`, `valve-manual`, `text`, `logo`, `region`.
+Every component takes `rot`, and:
 
 - **`labelSide`** — `left`, `right` or `top` instead of the default below. Use
   it for anything on a vertical line, where "below" means "on the pipe".
@@ -1284,6 +1372,16 @@ takes `rot`, and:
   sharing one manifold. The pipe starts at `(x, y - h/2 - 24)`.
 - A **`terminator`** is a flag with its `label` drawn inside it; `rot: 180`
   points it left. Its width follows the caption.
+- A **`region`** is a box around part of the system, drawn under the pipes
+  with its `label` in its top-left corner. Unlike every other symbol, `x`/`y`
+  is its **top-left corner** and `w`/`h` its size. The default is the dashed
+  box a P&ID draws around ground support equipment; `"variant": "vehicle"` is
+  a solid, lightly shaded outline, which MOE uses to set the rocket apart from
+  everything on the ground.
+- A valve's `pid.tag` may run to two lines with `\n` (`"GROUND\nLOX FILL"`),
+  for a stand that names valves by function. A sensor's `pid.tag` replaces the
+  sensor id inside its bubble, for ids too long to fit (`GN2-BUS-PT` draws as
+  `GN2 BUS`); past eight characters it is set smaller rather than spilling out.
 
 Add a service by adding a key to `pid.fluids` — it gets a colour, a line width,
 and a legend entry automatically.
@@ -1400,12 +1498,24 @@ npm run stand
 ```
 
 That is a deliberate change from how this kind of file is usually handled. The
-repo serves exactly one stand, and the numbers in it — the DC channel order,
+numbers in it — the DC channel order,
 the load-cell slopes, the PT full scales — were measured, argued about, and
 corrected against hardware. Keeping them out of version control meant every
 correction lived on one laptop, and the calibration that matters most had no
-history at all. [`config/hardware.example.json`](config/hardware.example.json)
-remains as the template for a *different* stand; do not assume the two agree.
+history at all. MOE's wiring is its own file,
+[`config/hardware-moe.json`](config/hardware-moe.json), and
+[`config/hardware.example.json`](config/hardware.example.json) remains as the
+template for a new stand; do not assume any two of them agree.
+
+Each wiring file says which stand it belongs to (`"stand": "Draco"`), and the
+server refuses to start when that disagrees with the config's
+`meta.standName` — so MOE can never be driven on Draco's channel map, or the
+reverse. Pass the right one with `--hardware-config`; the startup window does
+it for you:
+
+```bash
+node server/index.js --driver=stand --config=config/moe.json --hardware-config=config/hardware-moe.json
+```
 
 It is still deliberately a **separate file from `stand.json`**. That one is
 edited through the Config page and rewritten wholesale on save; wiring should
