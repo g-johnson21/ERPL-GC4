@@ -38,19 +38,25 @@ content.append(
       el('span.sub#cfg-sub', { text: 'config/stand.json' }),
       el('div#cfg-actions', { style: { marginLeft: 'auto', display: 'flex', gap: '8px', alignItems: 'center' } },
         el('span.chip.warn.hidden#dirty-chip', {}, el('span.dot'), 'Unsaved changes'),
+        el('div.config-status-wrap', {},
+          el('button.chip.config-status#cfg-status', {
+            type: 'button',
+            title: 'Loaded.',
+            onclick: () => $('#cfg-status-pop')?.classList.toggle('hidden'),
+          }, el('span.dot'), el('span#cfg-status-text', { text: 'Loaded' })),
+          el('div.config-status-pop.hidden#cfg-status-pop')
+        ),
         el('button.btn', { text: 'Validate', onclick: () => validate(true) }),
         el('button.btn', { html: `${icon('refresh', 14)} Revert`, onclick: revert }),
         el('button.btn.accent', { title: 'Save and apply (Ctrl+S)', html: `${icon('save', 14)} Save & Apply`, onclick: save })
       )
     ),
-    el('div.tabs#cfg-tabs'),
-    el('div.config-status#cfg-status', { text: 'Loaded.' })
+    el('div.tabs#cfg-tabs')
   ),
   el('div#cfg-panel')
 );
 
-// Keep the sequence picker pinned just below the bar, whatever height it is
-// (the validation list makes it grow).
+// Keep the sequence picker pinned just below the bar, whatever height it is.
 const stickyBar = $('#cfg-sticky');
 if (window.ResizeObserver) {
   new ResizeObserver(() => {
@@ -229,7 +235,7 @@ async function validate(verbose) {
   }
 
   if (res.ok) {
-    showStatus('ok', `Valid — ${draft.valves.length} actuators, ${draft.sensors.length} sensors, ${draft.autosequences?.length ?? 0} sequences.`);
+    showStatus('ok', `Valid — ${draft.valves.length} actuators, ${draft.sensors.length} sensors, ${draft.autosequences?.length ?? 0} sequences.`, [], 'Valid');
     if (verbose) toast('Configuration is valid', 'ok');
   } else {
     showStatus('error', `${res.errors.length} problem${res.errors.length === 1 ? '' : 's'} found`, res.errors);
@@ -237,17 +243,32 @@ async function validate(verbose) {
   return res.ok ? draft : null;
 }
 
-function showStatus(kind, message, details = []) {
-  const host = $('#cfg-status');
-  if (!host) return;
-  clear(host);
-  host.className = `config-status ${kind}`;
-  host.append(el('div', { text: message }));
+/**
+ * The status is a chip in the action bar, not a full-width row: it only
+ * needs to say "valid" or "N problems". The problems themselves open in a
+ * dropdown under it (shown at once when there are any, since they block Save).
+ */
+function showStatus(kind, message, details = [], short = null) {
+  const chip = $('#cfg-status');
+  const pop = $('#cfg-status-pop');
+  if (!chip || !pop) return;
+  chip.className = `chip config-status ${kind === 'error' ? 'danger' : kind}`;
+  chip.title = message;
+  $('#cfg-status-text').textContent = short
+    ?? (details.length ? `${details.length} problem${details.length === 1 ? '' : 's'}` : message.replace(/\.$/, ''));
+  clear(pop);
+  pop.append(el('div.config-status-msg', { text: message }));
   if (details.length) {
-    host.append(el('ul', {}, details.slice(0, 25).map((d) => el('li', { text: d }))));
-    if (details.length > 25) host.append(el('div', { text: `…and ${details.length - 25} more` }));
+    pop.append(el('ul', {}, details.slice(0, 25).map((d) => el('li', { text: d }))));
+    if (details.length > 25) pop.append(el('div', { text: `…and ${details.length - 25} more` }));
   }
+  chip.classList.toggle('has-details', details.length > 0);
+  pop.classList.toggle('hidden', details.length === 0);
 }
+
+document.addEventListener('pointerdown', (e) => {
+  if (!e.target.closest('.config-status-wrap')) $('#cfg-status-pop')?.classList.add('hidden');
+});
 
 // ============================================================ ACTIONS =====
 
