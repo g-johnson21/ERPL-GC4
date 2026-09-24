@@ -522,9 +522,10 @@ const SYMBOLS = {
       svgEl('line', { x1: -hw, y1: injH * 0.5, x2: hw, y2: injH * 0.5, class: 'sym-seam' }),
       ...[-0.7, -0.35, 0, 0.35, 0.7].map((f) => svgEl('circle', { cx: f * hw, cy: injH * 0.25, r: 1.4, class: 'sym-bolt' })),
       ...shell(contour, 'pid-shade-v', [
-        // Warm core where the propellants burn, and the injector face and
-        // chamber wall drawn through the shell.
-        svgEl('path', { d: contour, fill: 'url(#pid-hot)', class: 'sym-hot' }),
+        // Warm core where the propellants burn -- dark until the chamber
+        // makes pressure; page-pid.js fades it in with the plume. Then the
+        // chamber wall, drawn through the shell.
+        svgEl('path', { id: `hot-${c.id}`, d: contour, fill: 'url(#pid-hot)', class: 'sym-hot', opacity: 0 }),
         svgEl('path', {
           d: `M${-chw + 4},${injH + 3} L${-chw + 4},${barrelBottom} L${-thw + 3},${throatY} M${chw - 4},${injH + 3} L${chw - 4},${barrelBottom} L${thw - 3},${throatY}`,
           class: 'sym-internal', fill: 'none',

@@ -42,12 +42,9 @@ const svg = svgEl('svg', {
   width: '100%',
   height: '100%',
   viewBox: `0 0 ${P.width} ${P.height}`,
-  // Left-anchored, not centred. The stage is normally narrower than the
-  // drawing's aspect ratio so there is no horizontal slack to place at all --
-  // but when there is (a tall, narrow stage, or a zoomed-out view) the
-  // schematic stays against the left edge, away from the sidebar, rather than
-  // drifting into the middle.
-  preserveAspectRatio: 'xMinYMid meet',
+  // Top-left anchored, so the schematic stays against the window edge, away
+  // from the sidebar, and the default view below zooms out from that corner.
+  preserveAspectRatio: 'xMinYMin meet',
 });
 stage.append(svg);
 
@@ -156,6 +153,50 @@ function onValveActivate(valve, event) {
 const view = { k: 1, x: 0, y: 0 };
 let viewLocked = loadPref('gc4-pid-locked', false);
 
+/**
+ * The default view: the drawing's CONTENTS -- not its padded canvas --
+ * zoomed to 110%, from the top-left corner.
+ *
+ * 110% is a ceiling, not a demand. When the stage cannot show every symbol,
+ * tile and label at that zoom (a narrow stage beside the sidebar, where the
+ * drawing is already as wide as the stage), the view settles at the largest
+ * zoom that still does. Cropping the fuel-side bottles or the pneumatics
+ * off the right edge to hit a round number would be the drawing lying about
+ * what is on the stand.
+ */
+const DEFAULT_ZOOM = 1.1;
+const FIT_MARGIN = 6;           // drawing units kept clear round the contents
+let viewTouched = false;        // set once the operator pans or zooms
+let contentBox = null;
+
+function measureContent() {
+  // The plume is drawn below the nozzle but is invisible at rest; it must
+  // not count as content, or the fit leaves room for an exhaust that is not
+  // there.
+  const plumes = [...world.querySelectorAll('.sym-plume')];
+  for (const p of plumes) p.style.display = 'none';
+  const b = world.getBBox();
+  for (const p of plumes) p.style.display = '';
+  return { x: b.x - FIT_MARGIN, y: b.y - FIT_MARGIN, w: b.width + 2 * FIT_MARGIN, h: b.height + 2 * FIT_MARGIN };
+}
+
+function fitView() {
+  const ctm = svg.getScreenCTM();
+  // The drawing's own area: the stage less the toolbar strip above it.
+  const r = svg.getBoundingClientRect();
+  if (!ctm || !r.width || !r.height) return;
+  contentBox ??= measureContent();
+  const s = ctm.a;              // screen pixels per drawing unit at 100%
+  const fit = Math.min(r.width / (contentBox.w * s), r.height / (contentBox.h * s));
+  view.k = Math.min(DEFAULT_ZOOM, fit);
+  view.x = -view.k * contentBox.x;
+  view.y = -view.k * contentBox.y;
+  applyView();
+}
+
+// Follow the window until the operator takes the view over themselves.
+new ResizeObserver(() => { if (!viewTouched) fitView(); }).observe(stage);
+
 function applyView() {
   world.setAttribute('transform', `translate(${view.x},${view.y}) scale(${view.k})`);
   const label = $('#zoom-level');
@@ -177,6 +218,7 @@ function toUserSpace(clientX, clientY) {
 function zoomAt(clientX, clientY, factor) {
   if (viewLocked) return;
   const p = toUserSpace(clientX, clientY);
+  viewTouched = true;
   const next = Math.min(6, Math.max(0.3, view.k * factor));
   view.x = p.x - ((p.x - view.x) * next) / view.k;
   view.y = p.y - ((p.y - view.y) * next) / view.k;
@@ -209,6 +251,7 @@ stage.addEventListener('pointerdown', (e) => {
   if (e.target.closest('.pid-valve, .pid-toolbar, .pid-legend, .sim-manual, .sim-reg, .pid-popover')) return;
   if (viewLocked || e.button !== 0) return;
   dragging = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y };
+  viewTouched = true;
   stage.classList.add('panning');
   stage.setPointerCapture(e.pointerId);
 });
@@ -234,8 +277,8 @@ stage.addEventListener('pointercancel', endDrag);
 
 function resetView() {
   if (viewLocked) return;
-  view.k = 1; view.x = 0; view.y = 0;
-  applyView();
+  viewTouched = false;
+  fitView();
 }
 
 function setLocked(locked) {
@@ -264,6 +307,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === '+' || e.key === '=') zoomByButton(1.2);
   if (e.key === '-') zoomByButton(1 / 1.2);
   if (e.key.toLowerCase() === 'l' && !e.ctrlKey && !e.metaKey) setLocked(!viewLocked);
+  if (e.key.toLowerCase() === 'k' && !e.ctrlKey && !e.metaKey) toggleLegend();
 });
 
 function buildToolbar() {
@@ -284,7 +328,21 @@ function buildToolbar() {
     el('button.icon-btn.pid-zoom-ctl', { title: 'Reset view (0)', html: icon('refresh', 14), onclick: resetView }),
     el('button.icon-btn#pid-lock', { onclick: () => setLocked(!viewLocked) }),
     tare.length ? el('span.pid-tb-sep') : null,
-    ...tare
+    ...tare,
+    el('span.pid-tb-sep'),
+    el('button.pid-key-btn#pid-key-btn', {
+      title: 'Show the key: line colours and valve states (K)',
+      'aria-expanded': 'false',
+      text: 'KEY',
+      onclick: () => toggleLegend(),
+    }),
+    el('span.pid-tb-sep'),
+    // Data freshness: when the reading on screen was taken. A frozen drawing
+    // and a quiet stand look identical; this is what tells them apart.
+    el('span.pid-stamp', { title: 'Time of the snapshot on screen' },
+      el('span.pid-stamp-dot#pid-stamp-dot'),
+      el('span.pid-stamp-t#pid-stamp-t', { text: '--:--:--.-' })
+    )
   ));
   setLocked(viewLocked);
 }
@@ -342,13 +400,18 @@ function savePref(key, value) {
 }
 
 /**
- * The key, bottom left: what each line colour carries, then what a live line
- * and an open valve look like. A line drawn grey is not a different fluid --
- * it is the same line at rest -- and the key says so, or the first operator
- * to see a dim LOX run will ask where the LOX went.
+ * The key: what each line colour carries, then what a live line and an open
+ * valve look like. A line drawn grey is not a different fluid -- it is the
+ * same line at rest -- and the key says so, or the first operator to see a
+ * dim LOX run will ask where the LOX went.
+ *
+ * It opens from the toolbar rather than living on the canvas. Pinned to a
+ * corner it either covered part of the drawing or forced the drawing to give
+ * up a strip of the screen to make room for it -- and the key is read once,
+ * the drawing all day.
  */
 function buildLegend() {
-  stage.append(el('div.pid-legend', {},
+  stage.append(el('div.pid-legend', { hidden: true },
     el('div.lg-row', {},
       Object.entries(P.fluids).map(([key, f]) =>
         el('span.lg', {}, el('i', { style: { background: f.color } }), f.label || key)
@@ -362,17 +425,14 @@ function buildLegend() {
   ));
 }
 
-/**
- * Data freshness, bottom right: when the reading on screen was taken, and
- * how fast they are arriving. A frozen drawing and a quiet stand look
- * identical; this is the line that tells them apart.
- */
-function buildStamp() {
-  stage.append(el('div.pid-stamp', {},
-    el('span.pid-stamp-dot#pid-stamp-dot'),
-    el('span', { text: 'UPDATED ' }),
-    el('span.pid-stamp-t#pid-stamp-t', { text: '--:--:--.-' })
-  ));
+function toggleLegend(open) {
+  const legend = $('.pid-legend');
+  if (!legend) return;
+  const show = open ?? legend.hidden;
+  legend.hidden = !show;
+  const btn = $('#pid-key-btn');
+  btn?.classList.toggle('active', show);
+  btn?.setAttribute('aria-expanded', String(show));
 }
 
 function updateStamp() {
@@ -599,11 +659,10 @@ let simWired = false;
 
 buildToolbar();
 buildLegend();
-buildStamp();
 
 bus.on('state', update);
 update();
-applyView();
+fitView();
 
 // ------------------------------------------------------- simulator controls --
 //
@@ -642,8 +701,9 @@ function wireSimControls() {
     const comp = P.components.find((c) => c.id === id);
     // Under the symbol's own label: inside a single bottle, beside a
     // compressor (whose label is on its right), below everything else.
+    const side = comp?.labelSide === 'left' ? -1 : 1;
     const at = comp?.type === 'compressor'
-      ? { x: (comp.w ?? 84) / 2 + 8, y: 16, anchor: 'start' }
+      ? { x: side * ((comp.w ?? 84) / 2 + 8), y: 16, anchor: side < 0 ? 'end' : 'start' }
       : { x: 0, y: comp?.type === 'bottle' ? 18 : 36, anchor: 'middle' };
     node.append(svgText('', { id: `simreg-${id}`, x: at.x, y: at.y, class: 'pid-sublabel sim-set', 'text-anchor': at.anchor }));
     if (bus.spectator) continue;
@@ -661,7 +721,14 @@ function wireSimControls() {
 
   // Say so on the legend, where a first-time operator looks for what the
   // colours mean and will look for what the clickable grey symbols mean.
-  if (!bus.spectator) $('.pid-legend')?.append(el('span.lg.sim-note', {}, el('i.sim-dot'), 'SIM: hand valves and regulators are live — click them'));
+  // Said in the key, and flagged in the toolbar where it is always visible:
+  // the key is closed most of the time, and this is the one thing a
+  // first-time operator needs to be told about the grey symbols.
+  if (!bus.spectator) {
+    const note = 'SIM: hand valves and regulators are live — click them';
+    $('.pid-legend')?.append(el('span.lg.sim-note', {}, el('i.sim-dot'), note));
+    $('.pid-stamp')?.before(el('span.pid-sim-chip', { title: note, text: 'SIM' }), el('span.pid-tb-sep'));
+  }
 }
 
 function componentNode(id) {
@@ -909,6 +976,9 @@ function updateInstruments() {
       ? Math.min(1, (value - threshold) / (max - threshold))
       : 0;
     plume.setAttribute('opacity', String(intensity));
+    // The chamber's warm core lights with the plume and is gone at rest: a
+    // glowing engine that is not firing is a false reading, not decoration.
+    document.getElementById(`hot-${comp.id}`)?.setAttribute('opacity', String(intensity));
   }
 }
 

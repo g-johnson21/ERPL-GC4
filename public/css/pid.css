@@ -24,31 +24,38 @@
   height: calc(100vh - var(--header-h) - 32px);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  /* The drawing sits straight on the page black, over a dot grid faint
-     enough to read as texture rather than as lines. */
-  background:
-    radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--border-strong) 70%, transparent) 1px, transparent 0) 0 0 / 24px 24px,
-    var(--bg);
+  /* The same plain page ground as every other screen: the drawing is
+     content on the page, not a canvas set into it. */
+  background: var(--bg);
   overflow: hidden;
   cursor: grab;
   touch-action: none;
+  /* A column: the toolbar strip on top, the drawing filling the rest. */
+  display: flex;
+  flex-direction: column;
 }
 .pid-stage.panning { cursor: grabbing; }
 .pid-stage[data-locked="true"] { cursor: default; }
-.pid-stage svg { display: block; user-select: none; }
+.pid-stage svg { display: block; user-select: none; flex: 1 1 0; min-height: 0; height: auto; }
 
+/* The toolbar is a strip above the drawing -- the screen's content header --
+   not a panel floating on it. Floating, it grew with every control added to
+   it until it sat on the drawing's title block; as a strip it can never
+   cover anything, and the drawing is fitted to the space beneath it. */
 .pid-toolbar {
-  position: absolute;
-  top: 10px; right: 10px;
+  order: -1;
+  flex: none;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
   z-index: 5;
-  background: color-mix(in srgb, var(--surface) 92%, transparent);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 3px;
+  min-height: 36px;
+  padding: 4px 8px;
   gap: 3px;
-  backdrop-filter: blur(6px);
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  cursor: default;
 }
 .pid-tb-label {
   padding: 0 2px 0 6px;
@@ -88,8 +95,9 @@
 
 .pid-legend {
   position: absolute;
-  bottom: 10px; left: 10px;
-  z-index: 5;
+  top: 50px; right: 10px;
+  z-index: 6;
+  box-shadow: var(--shadow-lg);
   display: flex;
   flex-direction: column;
   gap: 5px;
@@ -125,26 +133,36 @@
   color: var(--ok);
 }
 
-/* Data freshness, bottom right of the canvas. The dot is green while
+/* Data freshness, at the end of the toolbar. The dot is green while
    snapshots are arriving, amber when they are late, grey when they stop. */
+.pid-legend[hidden] { display: none; }
 .pid-stamp {
-  position: absolute;
-  bottom: 10px; right: 12px;
-  z-index: 5;
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 8px;
-  background: color-mix(in srgb, var(--surface) 92%, transparent);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  backdrop-filter: blur(6px);
+  padding: 0 6px 0 2px;
   font-family: var(--mono);
-  font-size: 9.5px;
-  letter-spacing: .06em;
+  font-size: 10px;
+  letter-spacing: .04em;
   color: var(--text-faint);
-  pointer-events: none;
 }
+.pid-key-btn, .pid-sim-chip {
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-faint);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: .1em;
+  display: inline-flex;
+  align-items: center;
+}
+.pid-key-btn { cursor: pointer; }
+.pid-key-btn:hover { color: var(--text); border-color: var(--border-strong); }
+.pid-key-btn.active { color: var(--text); background: var(--surface-3); border-color: var(--border-strong); }
+.pid-sim-chip { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, var(--border)); cursor: help; }
 .pid-stamp-t { color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .pid-stamp-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--idle); }
 .pid-stamp-dot[data-state="live"] { background: var(--ok); }
