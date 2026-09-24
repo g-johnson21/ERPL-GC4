@@ -1,9 +1,11 @@
 /* page-grid.js — Control Grid: every actuator as a button, grouped by system. */
 import { bus } from './bus.js';
 import { bootPage } from './chrome.js';
+import { fitSidebar } from './sidebar-fit.js';
 import { $, el, clear, icon, fmtValue, fmtRate, fmtCurrent, shiftGate, valueWidthCh } from './util.js';
 
 const content = await bootPage('grid');
+fitSidebar();
 
 const showReadouts = loadPref('gc4-grid-readouts', true);
 

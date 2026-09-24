@@ -47,15 +47,12 @@
   --radius-lg: 6px;
 
   --header-h: 40px;
-  /* The sidebar is two columns wide. Left holds ARM, the sequences and the
-     log; right holds the bang-bang cards. Both are sized so that neither
-     column has to scroll on a 1600x900 station -- see .sidebar below. The
-     media queries at the foot of this file override these two on `.sidebar`,
-     so the total is summed there rather than kept as a third token: a
-     custom property that contains var() is substituted where it is DECLARED,
-     so a `--sidebar-w` defined up here would keep the widths from up here. */
-  --sidebar-ops-w: 292px;
-  --sidebar-bb-w: 328px;
+  /* The sidebar's two columns, at their DESIGN width: left holds ARM, the
+     sequences and the log; right holds the bang-bang cards. They are drawn at
+     these widths and then zoomed to fit the window -- see .sidebar below and
+     sidebar-fit.js -- so these never change with the screen. */
+  --sidebar-ops-w: 280px;
+  --sidebar-bb-w: 312px;
 
   /* Two faces, two jobs: grotesk sans for UI and prose, monospace for every
      tag, value, unit and timestamp. No web fonts are fetched -- a stand has
@@ -436,44 +433,49 @@ body.theme-ready * { transition: background-color .1s, border-color .1s, color .
   min-width: 0;
 }
 
-/* TWO COLUMNS, because one column did not fit.
-   Stacked, the four panels came to ~1520px against the ~850px an operator
-   station actually has, so the sequences and the log lived below the fold and
-   starting a sequence began with a scroll. Side by side each column is under
-   the fold on its own: ARM + sequences + log is ~775px, the two bang-bang
-   cards are ~750px.
+/* TWO COLUMNS, fitted to the window, never scrolled.
+   ARM + sequences + log on the left, the bang-bang cards stacked on the right.
 
-   The sidebar stays the single scroll container. On a short screen both
-   columns give at once, which keeps `position: sticky` on the ARM panel
-   working -- `top: 0` is this element's top edge, not a column's. */
+   Each column is laid out at a fixed DESIGN width (the two tokens above) and
+   then zoomed as one by `--fit`, which sidebar-fit.js sets to the largest
+   value at which
+     - both columns fit the window's height, so nothing is ever below the
+       fold -- not ABORT, not the second tank's card, not the live log; and
+     - the sidebar takes no more than about a third of the window's width, so
+       at a high browser zoom or on a small laptop it shrinks in proportion
+       instead of crowding the P&ID into a sliver.
+   Zooming (rather than squeezing widths) keeps the cards' layout identical at
+   every size: nothing re-wraps, nothing reflows into a second row.
+
+   `--sb-h` is the sidebar's rendered height; a column is given that height
+   divided by its zoom, so once zoomed it is exactly as tall as the window. */
 .sidebar {
-  width: calc(var(--sidebar-ops-w) + var(--sidebar-bb-w));
+  --fit: 1;
+  --sb-h: calc(100vh - var(--header-h));
   flex: none;
   background: var(--bg);
   border-left: 1px solid var(--border);
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: hidden;
   display: flex;
   flex-direction: row;
   align-items: flex-start;
   gap: 0;
 }
+/* Width is stated, not left to the columns: a flex container sizes itself
+   from its children's UNZOOMED widths, which left a dead strip beside the
+   zoomed columns as wide as the zoom had saved. */
+.sidebar { width: calc((var(--sidebar-ops-w) + var(--sidebar-bb-w)) * var(--fit) + 1px); }
+.sidebar.solo { width: calc(var(--sidebar-ops-w) * var(--fit) + 1px); }
 .sidebar.collapsed { width: 0; border-left: none; }
-/* A stand with no bang-bang controllers gets no second column, and the
-   sidebar narrows instead of leaving a 328px hole beside the log. */
-.sidebar.solo { width: var(--sidebar-ops-w); }
 .sidebar.solo .sidebar-col.ops { border-right: none; }
 
-/* `min-height: 100%` rather than `align-items: stretch`: stretch would pin
-   each column to the viewport height and let its content spill out of a box
-   that no longer matches it. This way a column is at least full height -- so
-   the log still absorbs the slack -- and grows past it when it must, which is
-   what gives the sidebar something to scroll. */
 .sidebar-col {
-  min-height: 100%;
+  zoom: var(--fit);
+  height: calc(var(--sb-h) / var(--fit));
   min-width: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 .sidebar-col.ops {
   width: var(--sidebar-ops-w);
@@ -492,38 +494,16 @@ body.theme-ready * { transition: background-color .1s, border-color .1s, color .
 }
 .sidebar-col > .sidebar-section:last-child { border-bottom: none; }
 
-/* ARM / DISARM / ABORT hold the top of the sidebar and do not scroll with it.
-   The sidebar is the scroll container, so `top: 0` is its top edge. Opaque
-   and raised, or the sequence list reads through it on the way past. */
-.sidebar-section.pinned {
-  position: sticky;
-  top: 0;
-  z-index: 6;
-  background: var(--bg);
-}
+/* ARM / DISARM / ABORT: first thing in the column, always. */
+.sidebar-section.pinned { background: var(--bg); }
 
-/* The event log absorbs leftover height. It must be able to shrink (min-height:0
-   breaks the default `min-height:auto` of a flex item) and must clip, or its
-   list overflows the section.
-
-   It gets far more than the 150px it started with: the log is the running
-   account of the test, and at 150px an autosequence firing its steps pushed
-   everything before it out of view faster than anyone could read it. The
-   recording panel that used to sit under it moved to the header, and the
-   bang-bang cards moved into their own column; the log took both. */
+/* The event log takes whatever height the column has left. Basis 0 so the
+   log's length never sets the column's height; the floor is what
+   sidebar-fit.js reserves for it when it works out the zoom, so the live
+   tail always has room for a handful of lines. */
 .sidebar-section.grow {
-  /* Basis 0, not auto: the log list is long, and an `auto` basis makes the
-     column's content height the length of the log rather than the height of
-     the panel showing it -- which pushed the column past the viewport and put
-     the scrollbar back. With basis 0 the section is exactly its minimum plus
-     whatever the column has left over. */
   flex: 1 1 0;
-  /* The floor, not the height -- with room to spare the log takes it all.
-     272px, sized against the one moment the column is fullest: a running
-     sequence adds a ~96px progress panel above, and at 300px that pushed the
-     newest log lines below the fold exactly while a sequence was firing steps
-     into them. Losing two lines of scrollback beats losing the live tail. */
-  min-height: 272px;
+  min-height: var(--log-min, 140px);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -752,13 +732,9 @@ textarea { font-family: var(--mono); font-size: 12px; line-height: 1.5; resize: 
    once: shrinking only one would put the bang-bang cards and the sequence
    list on different rhythms, and the cards are the half with fixed-width
    numeric fields to lose. */
-@media (max-width: 1400px) {
-  .sidebar { --sidebar-ops-w: 264px; --sidebar-bb-w: 304px; }
-}
 
 @media (max-width: 1100px) {
   .nav a span { display: none; }
-  .sidebar { --sidebar-ops-w: 236px; --sidebar-bb-w: 284px; }
 }
 
 /* -------------------------------------------------------------- login page */

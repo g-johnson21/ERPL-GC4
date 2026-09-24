@@ -6,6 +6,7 @@
  */
 import { bus } from './bus.js';
 import { bootPage } from './chrome.js';
+import { fitSidebar } from './sidebar-fit.js';
 import { $, el, icon, fmtValue, fmtRate, fmtCurrent, coilState, shiftGate, toast } from './util.js';
 import {
   svgEl, svgText, renderComponent, renderValve, renderInstrument, renderPipe, renderJunction,
@@ -14,6 +15,7 @@ import {
 import { WINDOWS, windowChips, tracePath, drawTrace, statusColor, cssVar, windowed } from './spark.js';
 
 const content = await bootPage('pid');
+fitSidebar();
 const P = bus.config.pid;
 
 // ------------------------------------------------------------------ shell --
