@@ -760,8 +760,9 @@ export function renderValve(valve, groupColor) {
   });
 
   // Generous invisible hit area — these get clicked under stress, on a laptop
-  // trackpad, in the sun.
-  g.append(svgEl('rect', { x: -30, y: -34, width: 60, height: 68, class: 'pid-hit' }));
+  // trackpad, in the sun. It stops short of the tag below the symbol, so
+  // only the symbol itself actuates.
+  g.append(svgEl('rect', { x: -30, y: -34, width: 60, height: 62, class: 'pid-hit' }));
 
   const body = svgEl('g', { transform: p.rot ? `rotate(${p.rot})` : null });
   body.append(draw(valve));
