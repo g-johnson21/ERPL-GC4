@@ -122,35 +122,54 @@ function generalTab() {
   const safety = draft.safety ??= {};
   const meta = draft.meta ??= {};
   const tankLevel = ui.tankLevel ??= {};
+  const set = (fn) => (v) => { fn(v); markDirty(); };
 
-  return el('div.card', {},
-    el('h3', { text: 'General settings' }),
-    el('p', { text: 'Everything else — valves, sensors, calibrations, P&ID layout — lives on the Advanced tab.' }),
-    el('div.kv-grid', {},
-      textField('Stand name', meta.standName, (v) => { meta.standName = v; markDirty(); }),
-      colorField('Accent colour', ui.accent, (v) => { ui.accent = v; markDirty(); }),
-      selectField('Default theme', [{ value: 'dark', label: 'Dark' }, { value: 'light', label: 'Light' }],
-        ui.defaultTheme || 'dark', (v) => { ui.defaultTheme = v; markDirty(); }),
-      numberField('Valve grid columns', ui.gridColumns, (v) => { ui.gridColumns = v; markDirty(); }, false, 1, 8),
-      numberField('Control loop (Hz)', tel.sampleRateHz, (v) => { tel.sampleRateHz = v; markDirty(); }, false, 1, 500),
-      numberField('Browser stream (Hz)', tel.streamRateHz, (v) => { tel.streamRateHz = v; markDirty(); }, false, 1, 60),
-      numberField('CSV rate (Hz)', rec.rateHz, (v) => { rec.rateHz = v; markDirty(); }, false, 1, 500),
-      textField('Recording directory', rec.directory, (v) => { rec.directory = v; markDirty(); }),
-      textField('Default test name', rec.defaultTestName, (v) => { rec.defaultTestName = v; markDirty(); }),
-      textField('Control PIN (4–12 digits, blank = none)', safety.controlPin,
-        (v) => { safety.controlPin = v.trim(); markDirty(); }),
-      numberField('Tank height (in)', tankLevel.heightIn ?? 70,
-        (v) => { tankLevel.heightIn = v; markDirty(); }, false, 1, 500),
-      numberField('Tank level smoothing (s)', tankLevel.smoothingSeconds ?? 5,
-        (v) => { tankLevel.smoothingSeconds = v; markDirty(); }, false, 0, 120)
-    ),
-    el('div.toggle-row', { style: { marginTop: '12px' } },
-      toggleField('Require ARM to actuate', safety.requireArmToActuate !== false,
-        (v) => { safety.requireArmToActuate = v; markDirty(); }),
-      toggleField('Show tank fill level on P&ID', tankLevel.enabled !== false,
-        (v) => { tankLevel.enabled = v; markDirty(); }),
-      toggleField('Hold SHIFT to enable a valve', ui.requireShiftToActuate !== false,
-        (v) => { ui.requireShiftToActuate = v; markDirty(); })
+  // Grouped by what an operator is deciding, not by where the key lives in
+  // the file: one question per row, the answer in a narrow column on the right.
+  return el('div.settings', {},
+    el('p.settings-intro', { text: 'The settings that change most often. Valves, sensors, calibrations and the P&ID layout are on the Advanced tab.' }),
+    el('div.settings-grid', {},
+      settingsGroup('Station', [
+        textRow('Stand name', 'Shown in the header and on the login screen.',
+          meta.standName, set((v) => { meta.standName = v; })),
+        segRow('Default theme', 'What a station opens in. Each station can still switch with T.',
+          [{ value: 'dark', label: 'DARK' }, { value: 'light', label: 'LIGHT' }],
+          ui.defaultTheme || 'dark', set((v) => { ui.defaultTheme = v; })),
+        colorRow('Accent colour', 'The signal colour: focus, selection, the running sequence.',
+          ui.accent, set((v) => { ui.accent = v; })),
+        numberRow('Valve grid columns', 'Actuator cards per row on the Control Grid.',
+          ui.gridColumns, set((v) => { ui.gridColumns = v; }), { min: 1, max: 8 }),
+      ]),
+      settingsGroup('Safety', [
+        toggleRow('Require ARM to actuate', 'Valves marked "requires ARM" only move while the stand is armed.',
+          safety.requireArmToActuate !== false, set((v) => { safety.requireArmToActuate = v; })),
+        toggleRow('Hold SHIFT to open a valve', 'A stray click cannot drive the stand away from safe.',
+          ui.requireShiftToActuate !== false, set((v) => { ui.requireShiftToActuate = v; })),
+        textRow('Control PIN', '4–12 digits. Blank runs the control port without a PIN.',
+          safety.controlPin, set((v) => { safety.controlPin = v.trim(); }), { mono: true, placeholder: 'none' }),
+      ]),
+      settingsGroup('Rates', [
+        numberRow('Control loop', 'How often the server samples, regulates and steps sequences.',
+          tel.sampleRateHz, set((v) => { tel.sampleRateHz = v; }), { min: 1, max: 500, unit: 'Hz' }),
+        numberRow('Browser stream', 'How often every connected screen is updated.',
+          tel.streamRateHz, set((v) => { tel.streamRateHz = v; }), { min: 1, max: 60, unit: 'Hz' }),
+        numberRow('CSV rate', 'Rows per second written to the log file.',
+          rec.rateHz, set((v) => { rec.rateHz = v; }), { min: 1, max: 500, unit: 'Hz' }),
+      ]),
+      settingsGroup('Recording', [
+        textRow('Recording directory', 'Where log files are written, on the server.',
+          rec.directory, set((v) => { rec.directory = v; }), { mono: true, wide: true }),
+        textRow('Default test name', 'Pre-filled when a new log file is started.',
+          rec.defaultTestName, set((v) => { rec.defaultTestName = v; }), { wide: true }),
+      ]),
+      settingsGroup('Tank level', [
+        toggleRow('Show fill level on the P&ID', 'Draw the liquid level inside the run tanks.',
+          tankLevel.enabled !== false, set((v) => { tankLevel.enabled = v; })),
+        numberRow('Tank height', 'The column a full tank stands in.',
+          tankLevel.heightIn ?? 70, set((v) => { tankLevel.heightIn = v; }), { min: 1, max: 500, unit: 'in' }),
+        numberRow('Level smoothing', 'Averaging time for the level reading. 0 = raw.',
+          tankLevel.smoothingSeconds ?? 5, set((v) => { tankLevel.smoothingSeconds = v; }), { min: 0, max: 120, unit: 's' }),
+      ])
     )
   );
 }
@@ -336,64 +355,100 @@ function upload(e) {
 }
 
 // ======================================================= FIELD HELPERS ====
+// A settings row: the question on the left (name + one line of what it does),
+// the answer on the right. Controls share one column width so the answers
+// line up down the whole group.
 
-function textField(label, value, onChange) {
-  return el('div', {},
-    el('label.field', { text: label }),
-    el('input', { type: 'text', value: value ?? '', oninput: (e) => onChange(e.target.value) })
+function settingsGroup(title, rows) {
+  return el('section.settings-group', {},
+    el('h3.eyebrow', { text: title }),
+    el('div.settings-rows', {}, rows)
   );
 }
 
-function numberField(label, value, onChange, readOnly = false, min, max) {
-  return el('div', {},
-    el('label.field', { text: label }),
+function settingRow(label, hint, control, { wide = false } = {}) {
+  return el('div.setting-row', { class: wide ? 'wide' : '' },
+    el('div.setting-text', {},
+      el('div.setting-name', { text: label }),
+      hint ? el('div.setting-hint', { text: hint }) : null
+    ),
+    el('div.setting-ctl', {}, control)
+  );
+}
+
+function textRow(label, hint, value, onChange, { mono = false, placeholder = '', wide = false } = {}) {
+  return settingRow(label, hint, el('input', {
+    type: 'text',
+    class: mono ? 'mono' : '',
+    value: value ?? '',
+    placeholder,
+    'aria-label': label,
+    oninput: (e) => onChange(e.target.value),
+  }), { wide });
+}
+
+function numberRow(label, hint, value, onChange, { min, max, unit = '' } = {}) {
+  return settingRow(label, hint, el('div.setting-num', {},
     el('input', {
       type: 'number', value: value ?? '', min, max,
-      readonly: readOnly ? '' : null,
-      disabled: readOnly ? '' : null,
-      onchange: readOnly ? null : (e) => {
+      'aria-label': label,
+      onchange: (e) => {
         const v = Number(e.target.value);
-        if (Number.isFinite(v)) onChange(v);
+        const ok = e.target.value !== '' && Number.isFinite(v)
+          && (min === undefined || v >= min) && (max === undefined || v <= max);
+        if (ok) onChange(v);
         else e.target.value = value ?? '';
       },
-    })
-  );
+    }),
+    el('span.setting-unit', { text: unit })
+  ));
 }
 
-function colorField(label, value, onChange) {
-  return el('div', {},
-    el('label.field', { text: label }),
+function colorRow(label, hint, value, onChange) {
+  const hex = el('span.setting-hex', { text: (value || '#3b82f6').toLowerCase() });
+  return settingRow(label, hint, el('div.setting-color', {},
     el('input', {
-      type: 'color', value: value || '#ff7a1a',
-      style: { height: '32px', padding: '2px' },
+      type: 'color', value: value || '#3b82f6',
+      'aria-label': label,
+      oninput: (e) => { hex.textContent = e.target.value; },
       onchange: (e) => onChange(e.target.value),
-    })
-  );
+    }),
+    hex
+  ));
 }
 
-function selectField(label, options, value, onChange) {
-  return el('div', {},
-    el('label.field', { text: label }),
-    el('select', { onchange: (e) => onChange(e.target.value) },
-      options.map((o) => {
-        const v = typeof o === 'string' ? o : o.value;
-        const t = typeof o === 'string' ? o : o.label;
-        return el('option', { value: v, selected: v === value ? '' : null, text: t });
-      })
-    )
-  );
+function segRow(label, hint, options, value, onChange) {
+  const seg = el('div.seg');
+  for (const o of options) {
+    const button = el('button', {
+      type: 'button',
+      class: o.value === value ? 'active' : '',
+      text: o.label,
+      onclick: () => {
+        for (const b of seg.children) b.classList.toggle('active', b === button);
+        onChange(o.value);
+      },
+    });
+    seg.append(button);
+  }
+  return settingRow(label, hint, seg);
 }
 
-function toggleField(label, value, onChange) {
-  return el('label.toggle', {},
+function toggleRow(label, hint, value, onChange) {
+  const state = el('span.setting-state', { text: value ? 'ON' : 'OFF' });
+  return settingRow(label, hint, el('label.toggle', {},
     el('input', {
       type: 'checkbox',
       checked: value ? '' : null,
-      onchange: (e) => onChange(e.target.checked),
+      'aria-label': label,
+      onchange: (e) => {
+        state.textContent = e.target.checked ? 'ON' : 'OFF';
+        onChange(e.target.checked);
+      },
     }),
     el('span.track'),
-    el('span', { text: label })
-  );
+    state
+  ));
 }
 
 // ---------------------------------------------------------------- boot ----

@@ -57,6 +57,20 @@
   /* Two faces, two jobs: grotesk sans for UI and prose, monospace for every
      tag, value, unit and timestamp. No web fonts are fetched -- a stand has
      no internet -- so these resolve to whatever the station has installed. */
+  /* One type scale for the whole station. Seven steps, not nineteen: tiny
+     caps chips, eyebrows and units, secondary text, UI text, body, section
+     titles, page titles. Live values and the brand keep their own sizes --
+     they are data and identity, not text. Weights follow the same rule:
+     400 for text, 500 for emphasis and caps labels, 600 for live values,
+     700 only where the weight is the message (ABORT, ARMED). */
+  --fs-2xs: 9px;
+  --fs-xs: 10px;
+  --fs-sm: 11px;
+  --fs-md: 12px;
+  --fs-base: 13px;
+  --fs-lg: 15px;
+  --fs-xl: 20px;
+
   --mono: "JetBrains Mono", "Geist Mono", "Cascadia Mono", "SF Mono", ui-monospace, Consolas, monospace;
   --sans: "Inter", "Geist", "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
 }
@@ -95,7 +109,7 @@
    Shared by section titles, column heads and table headers. */
 .eyebrow {
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-weight: 500;
   letter-spacing: .08em;
   text-transform: uppercase;
@@ -111,7 +125,7 @@ html, body {
 
 body {
   font-family: var(--sans);
-  font-size: 13px;
+  font-size: var(--fs-base);
   line-height: 1.45;
   letter-spacing: -0.003em;
   background: var(--bg);
@@ -154,7 +168,7 @@ body.theme-ready * { transition: background-color .1s, border-color .1s, color .
 }
 .brand .brand-mark {
   color: var(--accent);
-  font-size: 15px;
+  font-size: var(--fs-lg);
 }
 /* Stand badge, separated from the org mark by a hairline rule. */
 .brand .brand-stand {
@@ -166,7 +180,7 @@ body.theme-ready * { transition: background-color .1s, border-color .1s, color .
   border-left: 1px solid var(--border);
   font-family: var(--mono);
   font-weight: 500;
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   color: var(--text-faint);
   letter-spacing: .08em;
   text-transform: uppercase;
@@ -199,8 +213,8 @@ body.theme-ready * { transition: background-color .1s, border-color .1s, color .
   padding: 0 11px;
   color: var(--text-faint);
   text-decoration: none;
-  font-weight: 450;
-  font-size: 12.5px;
+  font-weight: 400;
+  font-size: var(--fs-md);
   white-space: nowrap;
   box-shadow: inset 0 -1px 0 transparent;
 }
@@ -236,7 +250,7 @@ body.theme-ready * { transition: background-color .1s, border-color .1s, color .
   flex: none;
   gap: 6px;
   padding: 4px 10px;
-  font-size: 12px;
+  font-size: var(--fs-md);
   font-weight: 500;
   white-space: nowrap;
 }
@@ -260,7 +274,7 @@ body.theme-ready * { transition: background-color .1s, border-color .1s, color .
   color: var(--text-faint);
   font: inherit;
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   letter-spacing: .02em;
   cursor: pointer;
 }
@@ -278,7 +292,7 @@ body.theme-ready * { transition: background-color .1s, border-color .1s, color .
    name itself rendering left to right inside it. */
 .rec-indicator .rec-name {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--fs-sm);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -291,7 +305,7 @@ body.theme-ready * { transition: background-color .1s, border-color .1s, color .
    dropped when the header runs out of room — the tooltip still carries it. */
 .rec-indicator .rec-meta {
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--fs-xs);
   color: var(--text-faint);
   white-space: nowrap;
   flex: none;
@@ -344,7 +358,7 @@ body.theme-ready * { transition: background-color .1s, border-color .1s, color .
   padding: 3px 9px;
   border-radius: var(--radius-sm);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-weight: 500;
   letter-spacing: .08em;
   text-transform: uppercase;
@@ -370,7 +384,7 @@ body.theme-ready * { transition: background-color .1s, border-color .1s, color .
   padding: 3px 8px;
   border-radius: var(--radius-sm);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-weight: 500;
   letter-spacing: .08em;
   text-transform: uppercase;
@@ -419,7 +433,7 @@ body.theme-ready * { transition: background-color .1s, border-color .1s, color .
   padding: 5px 12px;
   border-radius: var(--radius-sm);
   border: 1px solid currentColor;
-  font-size: 12px;
+  font-size: var(--fs-md);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -428,7 +442,7 @@ body.theme-ready * { transition: background-color .1s, border-color .1s, color .
 }
 .link-alert-row.danger { background: color-mix(in srgb, var(--danger) 14%, var(--surface)); color: var(--danger); }
 .link-alert-row.warn { background: color-mix(in srgb, var(--warn) 14%, var(--surface)); color: var(--warn); }
-.link-alert-row strong { font-family: var(--mono); font-weight: 600; font-size: 10.5px; letter-spacing: .08em; }
+.link-alert-row strong { font-family: var(--mono); font-weight: 600; font-size: var(--fs-xs); letter-spacing: .08em; }
 .link-alert-why { color: var(--text); opacity: .85; overflow: hidden; text-overflow: ellipsis; }
 .link-alert-row .dot {
   width: 8px; height: 8px; border-radius: 50%; flex: none;
@@ -439,7 +453,7 @@ body.theme-ready * { transition: background-color .1s, border-color .1s, color .
 
 .clock {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--fs-sm);
   letter-spacing: .02em;
   color: var(--text-faint);
   font-variant-numeric: tabular-nums;
@@ -453,6 +467,8 @@ body.theme-ready * { transition: background-color .1s, border-color .1s, color .
   border: 1px solid var(--border);
   background: transparent;
   color: var(--text-faint);
+  font: inherit;
+  font-size: var(--fs-base);
   cursor: pointer;
   flex: none;
 }
@@ -552,7 +568,7 @@ body.theme-ready * { transition: background-color .1s, border-color .1s, color .
 
 .section-title {
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-weight: 500;
   letter-spacing: .08em;
   text-transform: uppercase;
@@ -575,7 +591,7 @@ body.theme-ready * { transition: background-color .1s, border-color .1s, color .
   flex-wrap: wrap;
 }
 .page-head h1 {
-  font-size: 20px;
+  font-size: var(--fs-xl);
   font-weight: 400;
   margin: 0;
   letter-spacing: -0.025em;
@@ -583,7 +599,7 @@ body.theme-ready * { transition: background-color .1s, border-color .1s, color .
 /* The sub line is a readout, not prose: channel counts and rates. */
 .page-head .sub {
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   letter-spacing: .02em;
   color: var(--text-faint);
 }
@@ -594,7 +610,7 @@ body.theme-ready * { transition: background-color .1s, border-color .1s, color .
   gap: 9px;
   margin: 20px 0 9px;
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-weight: 500;
   letter-spacing: .08em;
   text-transform: uppercase;
@@ -627,7 +643,7 @@ body.theme-ready * { transition: background-color .1s, border-color .1s, color .
   color: var(--text);
   font: inherit;
   font-weight: 500;
-  font-size: 12px;
+  font-size: var(--fs-md);
   cursor: pointer;
   user-select: none;
   white-space: nowrap;
@@ -637,7 +653,7 @@ body.theme-ready * { transition: background-color .1s, border-color .1s, color .
 .btn svg { width: 13px; height: 13px; }
 
 .btn.wide { width: 100%; }
-.btn.sm { padding: 3px 8px; font-size: 11.5px; }
+.btn.sm { padding: 3px 8px; font-size: var(--fs-sm); }
 /* "Primary" is neutral and inverted -- a light ink block on a dark page. The
    config accent is a signal colour, and a signal on every Save button stops
    meaning anything. */
@@ -655,9 +671,9 @@ body.theme-ready * { transition: background-color .1s, border-color .1s, color .
 label.field {
   display: block;
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: var(--fs-xs);
   font-weight: 500;
-  letter-spacing: .07em;
+  letter-spacing: .08em;
   text-transform: uppercase;
   color: var(--text-faint);
   margin-bottom: 4px;
@@ -671,11 +687,11 @@ input[type="text"], input[type="number"], select, textarea {
   background: var(--bg);
   color: var(--text);
   font: inherit;
-  font-size: 12.5px;
+  font-size: var(--fs-md);
 }
 input[type="text"]:hover:not(:disabled), input[type="number"]:hover:not(:disabled),
 select:hover:not(:disabled), textarea:hover:not(:disabled) { border-color: var(--border-strong); }
-input[type="number"] { font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums; }
+input[type="number"] { font-family: var(--mono); font-size: var(--fs-md); font-variant-numeric: tabular-nums; }
 input:focus, select:focus, textarea:focus {
   outline: 1px solid var(--text-muted);
   outline-offset: -1px;
@@ -684,7 +700,7 @@ input:focus, select:focus, textarea:focus {
 input[type="checkbox"] { accent-color: var(--text); }
 input:disabled, select:disabled { opacity: .5; cursor: not-allowed; }
 
-textarea { font-family: var(--mono); font-size: 12px; line-height: 1.5; resize: vertical; }
+textarea { font-family: var(--mono); font-size: var(--fs-md); line-height: 1.5; resize: vertical; }
 
 /* ------------------------------------------------------------------ toasts */
 
@@ -707,7 +723,7 @@ textarea { font-family: var(--mono); font-size: 12px; line-height: 1.5; resize: 
   border: 1px solid var(--border-strong);
   border-left: 2px solid var(--idle);
   box-shadow: var(--shadow-lg);
-  font-size: 12.5px;
+  font-size: var(--fs-md);
   animation: toast-in .16s ease-out;
 }
 .toast.error { border-left-color: var(--danger); }
@@ -737,7 +753,7 @@ textarea { font-family: var(--mono); font-size: 12px; line-height: 1.5; resize: 
   padding: 18px 20px 16px;
 }
 .modal h2 { margin: 0 0 8px; font-size: 19px; font-weight: 400; letter-spacing: -0.02em; }
-.modal p { margin: 0 0 18px; color: var(--text-muted); font-size: 12.5px; }
+.modal p { margin: 0 0 18px; color: var(--text-muted); font-size: var(--fs-md); }
 .modal .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
 
 /* ----------------------------------------------------------------- utility */
@@ -750,7 +766,7 @@ textarea { font-family: var(--mono); font-size: 12px; line-height: 1.5; resize: 
   padding: 22px;
   text-align: center;
   color: var(--text-faint);
-  font-size: 13px;
+  font-size: var(--fs-base);
 }
 
 ::-webkit-scrollbar { width: 8px; height: 8px; }
@@ -810,7 +826,7 @@ textarea { font-family: var(--mono); font-size: 12px; line-height: 1.5; resize: 
   margin-bottom: 6px;
 }
 .login-brand .org-logo { height: 19px; width: auto; display: block; }
-.login-brand .brand-mark { color: var(--accent); font-size: 15px; }
+.login-brand .brand-mark { color: var(--accent); font-size: var(--fs-lg); }
 .login-brand .brand-stand {
   display: flex;
   align-items: center;
@@ -818,14 +834,14 @@ textarea { font-family: var(--mono); font-size: 12px; line-height: 1.5; resize: 
   padding-left: 9px;
   border-left: 1px solid var(--border);
   font-weight: 600;
-  font-size: 12.5px;
+  font-size: var(--fs-md);
   color: var(--text-muted);
-  letter-spacing: .06em;
+  letter-spacing: .08em;
   text-transform: uppercase;
 }
 .login-brand .stand-logo { height: 24px; width: auto; display: block; }
 .login-card h1 { margin: 0; font-size: 22px; font-weight: 400; letter-spacing: -0.025em; }
-.login-lead { margin: 0 0 6px; font-size: 13px; color: var(--text-muted); }
+.login-lead { margin: 0 0 6px; font-size: var(--fs-base); color: var(--text-muted); }
 /* Big, monospace, centred: a PIN is typed with one hand on a phone at a
    pad, and the dots have to be countable. */
 .login-card input[type="password"] {
@@ -841,11 +857,11 @@ textarea { font-family: var(--mono); font-size: 12px; line-height: 1.5; resize: 
   letter-spacing: .35em;
   text-align: center;
 }
-.login-card .btn { padding: 10px 14px; font-size: 13px; }
+.login-card .btn { padding: 10px 14px; font-size: var(--fs-base); }
 .login-msg {
   margin: 0;
   min-height: 1.4em;
-  font-size: 12.5px;
+  font-size: var(--fs-md);
   font-weight: 600;
   text-align: center;
   color: var(--text-muted);
@@ -859,7 +875,7 @@ textarea { font-family: var(--mono); font-size: 12px; line-height: 1.5; resize: 
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   color: var(--text-faint);
 }
 .login-foot svg { flex: none; }
@@ -902,7 +918,7 @@ textarea { font-family: var(--mono); font-size: 12px; line-height: 1.5; resize: 
   .app-header .nav a span { display: none; }
   /* A spectator's nav has one link, to the page it is already on. */
   body.spectator .nav { display: none; }
-  .spectator-badge { margin-left: 0; padding: 4px 9px; font-size: 10px; }
+  .spectator-badge { margin-left: 0; padding: 4px 9px; font-size: var(--fs-xs); }
   .rec-control { display: none; }
   .header-status {
     order: 10;

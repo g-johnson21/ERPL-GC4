@@ -257,6 +257,8 @@ the token names the codebase already used, so no component had to be renamed:
 A light theme exists with the same restraint inverted (zinc greys). Every colour is a token,
 so both themes come from one block.
 
+**Type scale.** Seven sizes, as tokens: `--fs-2xs 9` (chips, tiny caps) · `--fs-xs 10` (eyebrows, units) · `--fs-sm 11` (hints, secondary) · `--fs-md 12` (UI text) · `--fs-base 13` (body) · `--fs-lg 15` (card titles) · `--fs-xl 20` (page titles). Before this there were nineteen ad-hoc sizes (8, 8.5, 9, 9.5 … 12.5 px), which is what made the site look inconsistent more than any choice of face. Live values and the brand keep their own sizes, and so does text inside the P&ID drawing, which is in drawing units and overlap-checked (§12). Weights: 400 text, 500 emphasis and caps labels, 600 live values, 700 only for ABORT, ARMED and the login brand. Caps labels are tracked `.08em`. A switch label is plain 400. It was 600, which made every settings form look shouty.
+
 Fonts: `--sans` Inter → Geist → Segoe UI Variable; `--mono` JetBrains Mono → Geist Mono →
 Cascadia Mono. **No web fonts are fetched** — the stand has no internet — so a station
 without Inter/JetBrains Mono installed renders the Windows fallbacks. Vendoring the two
