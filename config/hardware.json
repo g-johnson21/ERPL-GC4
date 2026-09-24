@@ -1,10 +1,10 @@
 {
   "_comment": [
     "Hardware wiring for the --driver=stand composite driver.",
-    "THIS IS DRACO'S ACTUAL WIRING, and it is tracked in git: the repo",
-    "serves exactly one stand, so the numbers below belong with the code",
-    "that reads them. hardware.example.json stays as the template for a",
-    "different stand -- do not assume the two agree.",
+    "THIS IS DRACO'S ACTUAL WIRING, and it is tracked in git so the",
+    "numbers below stay with the code that reads them. MOE's wiring is",
+    "config/hardware-moe.json; hardware.example.json stays as the template",
+    "for a new stand -- do not assume any two of them agree.",
     "",
     "This is deliberately NOT part of stand.json: that file is edited through",
     "the Config page in the browser and rewritten on every save. Wiring should",
@@ -21,6 +21,8 @@
     "are slot 4. A channel with metadata but no channelMap entry is acquired",
     "and logged, but never becomes a sensor reading."
   ],
+  "_stand": "Which stand this wiring belongs to. Checked against meta.standName in the stand config at startup, so MOE cannot be driven with Draco's channels or the reverse.",
+  "stand": "Draco",
   "nidaq": {
     "required": true,
     "python": "python",

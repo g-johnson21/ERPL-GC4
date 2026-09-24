@@ -15,6 +15,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { SimulatorDriver } from './simulator.js';
+import { MoeSimulatorDriver } from './sim-moe.js';
 import { UdpDriver } from './udp.js';
 import { SerialDriver } from './serial.js';
 import { NiDaqDriver } from './nidaq.js';
@@ -29,8 +30,29 @@ const DRIVERS = {
   panda: PandaDriver,
 };
 
+/**
+ * Physics models for the simulator, keyed by the stand config's
+ * `meta.simModel`. A config that names none gets Draco's, which is what every
+ * config before this key existed was written against.
+ */
+const SIM_MODELS = {
+  draco: SimulatorDriver,
+  moe: MoeSimulatorDriver,
+};
+
 export function createDriver(name, options = {}) {
   if (name === 'stand') return createStandDriver(options);
+  if (name === 'simulator') {
+    const model = String(options.simModel || 'draco').toLowerCase();
+    const Model = SIM_MODELS[model];
+    if (!Model) {
+      throw new Error(
+        `Unknown simulator model "${options.simModel}" (meta.simModel). ` +
+        `Available: ${Object.keys(SIM_MODELS).join(', ')}`
+      );
+    }
+    return new Model(options);
+  }
 
   const Driver = DRIVERS[name];
   if (!Driver) {
@@ -53,6 +75,7 @@ export function createDriver(name, options = {}) {
  */
 export function createStandDriver(options = {}) {
   const hw = loadHardwareConfig(options.hardwareConfig, options.root);
+  checkHardwareStand(hw, options.standName, options.hardwareConfig);
 
   const daq = new NiDaqDriver({ ...hw.nidaq, onEvent: options.onEvent });
   const panda = new PandaDriver({
@@ -89,6 +112,27 @@ function loadHardwareConfig(explicitPath, root) {
   } catch (err) {
     throw new Error(`Invalid hardware config ${file}: ${err.message}`);
   }
+}
+
+/**
+ * Refuse to drive one stand with another stand's wiring.
+ *
+ * The repo carries more than one stand now, and the wiring file is chosen
+ * separately from the stand config -- so `--config=config/moe.json` with the
+ * default config/hardware.json would command MOE's valves on Draco's DC
+ * channels and read Draco's PTs into MOE's gauges. A wiring file that says
+ * which stand it belongs to (`"stand"`) is checked against the config's
+ * `meta.standName`; one that does not say is trusted, as before.
+ */
+function checkHardwareStand(hw, standName, explicitPath) {
+  if (!hw?.stand || !standName) return;
+  if (String(hw.stand).toLowerCase() === String(standName).toLowerCase()) return;
+  const file = explicitPath || 'config/hardware.json';
+  throw new Error(
+    `Hardware wiring ${file} is for "${hw.stand}", but the stand config is "${standName}".\n` +
+    `  Pass the matching wiring file with --hardware-config=... ` +
+    `(MOE: config/hardware-moe.json, Draco: config/hardware.json).`
+  );
 }
 
 export function driverNames() {

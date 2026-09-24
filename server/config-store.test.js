@@ -182,3 +182,25 @@ test('editing while armed is allowed unless the stand asks for the interlock', (
   assert.equal(store.get().safety.requireDisarmToEditConfig, true,
     'an explicit opt-in survives normalization');
 });
+
+test('backups are named and pruned per config file, so two stands keep their own', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gc4-cfg-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const moeSource = path.resolve(path.dirname(REAL_CONFIG), 'moe.json');
+  fs.copyFileSync(REAL_CONFIG, path.join(dir, 'stand.json'));
+  fs.copyFileSync(moeSource, path.join(dir, 'moe.json'));
+  const draco = new ConfigStore(path.join(dir, 'stand.json'));
+  const moe = new ConfigStore(path.join(dir, 'moe.json'));
+
+  // One Draco save, then more MOE saves than the keep limit.
+  assert.equal(draco.save(draco.get()).ok, true);
+  for (let i = 0; i < 22; i++) {
+    const cfg = structuredClone(moe.get());
+    cfg.meta.configVersion = `1.0.${i}`;
+    assert.equal(moe.save(cfg).ok, true);
+  }
+
+  const backups = fs.readdirSync(path.join(dir, 'backups'));
+  assert.equal(backups.filter((f) => f.startsWith('stand.')).length, 1, 'the Draco backup survives MOE\'s pruning');
+  assert.equal(backups.filter((f) => f.startsWith('moe.')).length, 20, 'MOE keeps its own twenty');
+});

@@ -53,12 +53,15 @@ export class ConfigStore extends EventEmitter {
     if (errors.length) return { ok: false, errors };
 
     // Keep a timestamped backup so a bad edit at the pad is always recoverable.
+    // Named and pruned per config file: with more than one stand in config/,
+    // a busy session editing one must not age the other's backups out.
     try {
       const backupDir = path.join(path.dirname(this.path), 'backups');
       fs.mkdirSync(backupDir, { recursive: true });
       const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-      fs.copyFileSync(this.path, path.join(backupDir, `stand.${stamp}.json`));
-      pruneBackups(backupDir, 20);
+      const base = path.basename(this.path, '.json');
+      fs.copyFileSync(this.path, path.join(backupDir, `${base}.${stamp}.json`));
+      pruneBackups(backupDir, base, 20);
     } catch (err) {
       console.warn('[config] backup failed:', err.message);
     }
@@ -115,8 +118,8 @@ function canonical(value) {
   });
 }
 
-function pruneBackups(dir, keep) {
-  const files = fs.readdirSync(dir).filter((f) => f.endsWith('.json')).sort();
+function pruneBackups(dir, base, keep) {
+  const files = fs.readdirSync(dir).filter((f) => f.startsWith(`${base}.`) && f.endsWith('.json')).sort();
   for (const f of files.slice(0, Math.max(0, files.length - keep))) {
     fs.unlinkSync(path.join(dir, f));
   }

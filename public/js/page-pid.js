@@ -71,13 +71,16 @@ svg.append(svgEl('defs', {},
 const world = svgEl('g', { id: 'pid-world' });
 svg.append(world);
 
+// Regions (the vehicle outline, the hashed GSE boxes) sit under everything,
+// so a pipe running into a box is never painted over by it.
+const layerRegions = svgEl('g', { id: 'layer-regions' });
 const layerPipes = svgEl('g', { id: 'layer-pipes' });
 const layerFlow = svgEl('g', { id: 'layer-flow' });
 const layerJunctions = svgEl('g', { id: 'layer-junctions' });
 const layerComponents = svgEl('g', { id: 'layer-components' });
 const layerValves = svgEl('g', { id: 'layer-valves' });
 const layerInstruments = svgEl('g', { id: 'layer-instruments' });
-world.append(layerPipes, layerFlow, layerJunctions, layerComponents, layerValves, layerInstruments);
+world.append(layerRegions, layerPipes, layerFlow, layerJunctions, layerComponents, layerValves, layerInstruments);
 
 // ------------------------------------------------------------------ build --
 
@@ -94,7 +97,9 @@ const junctions = detectJunctions(P.pipes).map(([key, j]) => {
   return { key, node, pipes: j.pipes };
 });
 
-for (const comp of P.components) layerComponents.append(renderComponent(comp));
+for (const comp of P.components) {
+  (comp.type === 'region' ? layerRegions : layerComponents).append(renderComponent(comp));
+}
 
 // Title-block logos follow the theme, so a black mark does not vanish on dark.
 function syncLogos() {
