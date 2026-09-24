@@ -3,7 +3,7 @@
   "meta": {
     "standName": "Draco",
     "organization": "ERPL",
-    "subtitle": "LOX / Ethanol Bi-Propellant Test Stand",
+    "subtitle": "LOX / IPA Bi-Propellant Test Stand",
     "configVersion": "4.0.0",
     "standLogo": {
       "light": "/img/draco.png",
@@ -1866,7 +1866,7 @@
         "id": "TXT-2",
         "x": 78,
         "y": 54,
-        "label": "LOX / ETHANOL  -  GN2 REGULATED PRESS-FED",
+        "label": "LOX / IPA  -  PRESS-FED TEST STAND",
         "size": 10,
         "anchor": "start"
       },
