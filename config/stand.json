@@ -1130,6 +1130,18 @@
           "state": "open"
         },
         {
+          "t": 0,
+          "action": "valve",
+          "target": "SV-FPURGE",
+          "state": "open"
+        },
+        {
+          "t": 0.4,
+          "action": "valve",
+          "target": "SV-FPURGE",
+          "state": "closed"
+        },
+        {
           "t": 0.5,
           "action": "log",
           "message": "T-0 FUEL RUNLINE OPEN"
@@ -1616,7 +1628,7 @@
         }
       ],
       "hidden": false,
-      "duration": 0
+      "duration": 2
     },
     {
       "id": "seq-custom-12",

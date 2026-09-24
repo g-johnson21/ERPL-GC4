@@ -32,7 +32,7 @@
  *   a            arm
  *   r            disarm / abort
  *   h            liveness heartbeat, 5 Hz   (see NOTE ON COMMS LOSS)
- *   B/V/M        bang-bang configuration   (see bb-protocol.js)
+ *   B/V          bang-bang configuration   (see bb-protocol.js)
  *   b/v/x/e      bang-bang actuation
  *
  * NOTE ON ARM: the board has its own arm latch, independent of GC-4's
@@ -56,7 +56,6 @@ import {
   parseLine,
   encodeConfig,
   encodeVent,
-  encodeMdot,
   encodeEnable,
   encodeManualVent,
   encodePredictive,
@@ -89,6 +88,8 @@ const GC_HEARTBEAT_MS = 200;
 
 /** How long a talking board may go without a LINK: line before we call it. */
 const NO_WATCHDOG_GRACE_MS = 10000;
+/** A board that has said nothing this long after the port opened is reported. */
+const STARTUP_GRACE_MS = 5000;
 
 /** Change on an `s` position that counts as movement, for the DC trace. */
 const DC_TRACE_DELTA_A = 0.05;
@@ -136,6 +137,10 @@ export class PandaDriver {
     this.dc = { currents: [], states: [] };
     this.lastRxAt = 0;
     this.connected = false;
+    // Why the link is down, for the header's warning strip; null while up.
+    this.everConnected = false;
+    this.lostReason = null;
+    this.openedAt = 0;
     this.rxCount = 0;
     this.port = null;
     this.onEvent = options.onEvent || (() => {});
@@ -201,15 +206,19 @@ export class PandaDriver {
     this.port.on('data', (chunk) => this.onData(chunk));
     this.port.on('error', (err) => {
       console.error('[panda] error:', err.message);
-      this.connected = false;
       this.sequence.command = null;
+      this.fail(`serial port error: ${err.message}`);
     });
-    this.port.on('close', () => { this.connected = false; this.sequence.command = null; });
+    this.port.on('close', () => {
+      this.sequence.command = null;
+      if (!this.closing) this.fail(`serial port ${this.portPath} closed`);
+    });
+    this.openedAt = Date.now();
 
     this.watchdog = setInterval(() => {
-      if (Date.now() - this.lastRxAt > RX_STALE_MS) this.connected = false;
+      this.checkLink();
       this.checkWatchdogPresence();
-    }, 500);
+    }, 250);
     this.watchdog.unref?.();
 
     this.gcHeartbeat = setInterval(() => this.sendGcHeartbeat(), GC_HEARTBEAT_MS);
@@ -249,7 +258,7 @@ export class PandaDriver {
     if (this.lastRxAt && Date.now() - this.lastRxAt > RX_STALE_MS) this.sequence.command = null;
     this.lastRxAt = Date.now();
     if (!this.firstRxAt) this.firstRxAt = this.lastRxAt;
-    this.connected = true;
+    this.setConnected(true);
     this.rxCount++;
 
     if (line.startsWith('SEQ_')) return this.onSequenceLine(line);
@@ -331,18 +340,60 @@ export class PandaDriver {
   sendGcHeartbeat() {
     if (!this.port?.writable) return;
 
+    // Withholding is announced by the DISCONNECTED line, which fires on the
+    // same condition — one incident, one log entry, whichever timer sees the
+    // silence first.
     if (this.rxCount > 0 && Date.now() - this.lastRxAt > RX_STALE_MS) {
-      if (!this.rxLostWarned) {
-        this.rxLostWarned = true;
-        this.onEvent(
-          'PANDA telemetry stopped — heartbeat withheld so the board can safe the stand itself',
-          'error',
-        );
-      }
+      this.checkLink();
       return;
     }
-    this.rxLostWarned = false;
     this.send('h');
+  }
+
+  // ---------------------------------------------------------- link state ----
+
+  /** Watchdog: drop the link when telemetry stops; flag a board that never spoke. */
+  checkLink(now = Date.now()) {
+    if (this.connected && now - this.lastRxAt > RX_STALE_MS) {
+      this.setConnected(false, `no telemetry for ${RX_STALE_MS / 1000} s`);
+    } else if (!this.everConnected && !this.lostReason && this.openedAt
+      && now - this.openedAt > STARTUP_GRACE_MS) {
+      this.fail(`no data from the board on ${this.portPath} since startup`);
+    }
+  }
+
+  /**
+   * The one place the link changes state, so every transition is logged
+   * exactly once. The loss is an ERROR: valve states and board pressures
+   * freeze at their last value. Nothing here blocks the operator — ARM,
+   * ABORT and valve commands are still sent; whether they land is what the
+   * board's own watchdog is for.
+   */
+  setConnected(up, reason = null) {
+    if (up === this.connected) return;
+    this.connected = up;
+    if (up) {
+      const wasLost = this.everConnected;
+      this.everConnected = true;
+      this.lostReason = null;
+      if (wasLost) this.onEvent('PANDA link restored', 'info');
+      return;
+    }
+    this.lostReason = reason;
+    if (this.closing) return;
+    this.onEvent(
+      `PANDA DISCONNECTED — ${reason}. Valve states and board readings are frozen at their ` +
+      'last value; GC heartbeat withheld so the board can safe the stand itself.',
+      'error',
+    );
+  }
+
+  /** A port-level failure. Logged even if the link was never up. */
+  fail(reason) {
+    if (this.connected) return this.setConnected(false, reason);
+    if (this.lostReason === reason || this.closing) return;
+    this.lostReason = reason;
+    this.onEvent(`PANDA DISCONNECTED — ${reason}.`, 'error');
   }
 
   /**
@@ -824,9 +875,6 @@ export class PandaDriver {
   /** Push the vent config: auto-vent trigger and whether it is armed. */
   bbVent(side, cfg) { return this.bbSend(() => encodeVent(side, cfg)); }
 
-  /** Push the mass-flow setpoint schedule. */
-  bbMdot(side, cfg) { return this.bbSend(() => encodeMdot(side, cfg)); }
-
   /** Enter (`true`) or leave (`false`) the regulating state. */
   bbEnable(side, on) { return this.bbSend(() => encodeEnable(side, on)); }
 
@@ -969,6 +1017,7 @@ export class PandaDriver {
       name: this.name,
       connected: this.connected,
       lastRxAt: this.lastRxAt,       // 0 until the board says something
+      lostReason: this.connected ? null : this.lostReason,
       link: { ...this.link },
       detail: this.connected
         ? `${this.detail} · ${this.rxCount} lines · ${this.linkLabel()}`
@@ -977,6 +1026,7 @@ export class PandaDriver {
   }
 
   async close() {
+    this.closing = true;
     clearInterval(this.watchdog);
     // Stop beating before safing. Once we are shutting down there is nobody
     // left to command the stand, so the board's watchdog should be allowed to

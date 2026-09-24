@@ -49,6 +49,16 @@ const SCRIPT = path.join(__dirname, 'devices', 'daq_streamer.py');
 const RX_WINDOW_MS = 3000;
 const RX_MIN_SPAN_S = 0.4;
 
+// No channel data for this long and the DAQ is reported disconnected. Frames
+// that arrive EMPTY do not count: a sidecar that is alive but reading nothing
+// is, for everyone watching the gauges, a DAQ that is not there.
+const DATA_TIMEOUT_MS = 2000;
+
+/** True when any channel in a telemetry frame carries at least one sample. */
+function frameHasData(msg) {
+  return (msg.channels || []).some((ch) => Array.isArray(ch.samples) && ch.samples.length > 0);
+}
+
 export class NiDaqDriver {
   constructor(options = {}) {
     this.name = 'nidaq';
@@ -68,12 +78,21 @@ export class NiDaqDriver {
     // here, so a sidecar restart cannot leave the host claiming a zero the
     // hardware is no longer applying.
     this.tares = new Map();      // "<kind><index>" -> offset
+    // lastRxAt: when channel DATA last arrived — what the header ages from.
+    // lastFrameAt: when the sidecar last said anything, data or not. The two
+    // together tell "cards stopped reading" from "the sidecar went quiet".
     this.lastRxAt = 0;
+    this.lastFrameAt = 0;
+    // When acquisition was launched. Until the first data arrives, the header
+    // counts from here rather than showing a bare NO LINK.
+    this.startedAt = 0;
     this.connected = false;
+    this.everConnected = false;
+    this.lostReason = null;
     this.frameCount = 0;
     // Arrival times of recent frames, for the MEASURED receive rate. See
     // rxRates(). Bounded by age, not by count, so it self-limits at any rate.
-    this.rxWindow = [];              // [{ t, n }] — n = samples in that frame
+    this.rxWindow = [];              // [{ t, n: {card: samples} }] per frame
     this.stdoutBuffer = '';
     this.child = null;
     this.onEvent = options.onEvent || (() => {});
@@ -89,6 +108,7 @@ export class NiDaqDriver {
       cards: this.cards,
     };
 
+    this.startedAt = Date.now();
     this.child = spawn(this.python, ['-u', SCRIPT, JSON.stringify(payload)], {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
@@ -102,32 +122,35 @@ export class NiDaqDriver {
       }
     });
     this.child.on('exit', (code, signal) => {
-      this.connected = false;
-      if (this.closing) return;
+      if (this.closing) { this.connected = false; return; }
       console.error(`[nidaq] streamer exited (code=${code} signal=${signal})`);
       // 143/SIGTERM means the whole process group is going down (Ctrl+C, a
       // service stop). That is a shutdown, not an acquisition fault, and
       // raising it as an error alarms the operator on a normal exit.
       const terminated = signal === 'SIGTERM' || signal === 'SIGINT' || code === 143 || code === 130;
-      if (!terminated) {
-        this.onEvent(`NI-DAQ acquisition stopped (code ${code})`);
-      }
+      if (terminated) { this.closing = true; this.connected = false; return; }
+      this.fail(`acquisition process exited (code ${code})`);
     });
     this.child.on('error', (err) => {
-      this.connected = false;
+      this.fail(`could not start "${this.python}"`);
       console.error(`[nidaq] failed to spawn "${this.python}": ${err.message}`);
     });
 
-    this.watchdog = setInterval(() => {
-      if (Date.now() - this.lastRxAt > 2000) this.connected = false;
-    }, 500);
+    this.watchdog = setInterval(() => this.checkData(), 250);
     this.watchdog.unref?.();
 
     // Wait for the first real frame rather than a fixed delay, so the startup
     // banner and the first control ticks report a truthful link state. Card
     // configuration takes a second or two; give up after `startupTimeoutMs`
     // and let the watchdog report NO LINK rather than blocking the boot.
-    await this.waitForFirstFrame(this.startupTimeoutMs);
+    const up = await this.waitForFirstFrame(this.startupTimeoutMs);
+    // A DAQ that never delivers never makes an up->down transition, so the
+    // watchdog would stay silent about it. Say so once, here.
+    if (!up && !this.lostReason && !this.closing) {
+      this.fail(this.lastFrameAt
+        ? 'acquisition running but no card is returning samples'
+        : `no data within ${Math.round(this.startupTimeoutMs / 1000)} s of startup`);
+    }
     return this;
   }
 
@@ -178,9 +201,12 @@ export class NiDaqDriver {
         }
         this.performance = msg.performance;
         this.frameCount++;
-        this.lastRxAt = Date.now();
-        this.connected = true;
+        this.lastFrameAt = Date.now();
         this.noteRx(msg);
+        if (frameHasData(msg)) {
+          this.lastRxAt = this.lastFrameAt;
+          this.setConnected(true);
+        }
       } else if (msg.type === 'status') {
         if (!msg.ok) this.onEvent(`NI-DAQ: ${msg.message}`);
         console.error(`[nidaq] ${msg.message}`);
@@ -207,6 +233,49 @@ export class NiDaqDriver {
         }
       }
     }
+  }
+
+  /** Watchdog: drop the link once channel data has been absent too long. */
+  checkData(now = Date.now()) {
+    if (!this.connected || now - this.lastRxAt <= DATA_TIMEOUT_MS) return;
+    this.setConnected(false, now - this.lastFrameAt <= DATA_TIMEOUT_MS
+      ? 'acquisition running but no card is returning samples'
+      : 'acquisition process stopped responding');
+  }
+
+  /**
+   * The one place the link changes state, so every transition is logged
+   * exactly once. The loss is an ERROR: sensor readings freeze at their last
+   * value, and an operator watching a steady gauge has no other way to know
+   * it stopped being true. Nothing here blocks control — valves, ARM and
+   * ABORT carry on; the stand only loses its eyes on this device.
+   */
+  setConnected(up, reason = null) {
+    if (up === this.connected) return;
+    this.connected = up;
+    if (up) {
+      const wasLost = this.everConnected;
+      this.everConnected = true;
+      this.lostReason = null;
+      if (wasLost) this.onEvent('NI-DAQ data restored', 'info');
+      return;
+    }
+    this.lostReason = reason;
+    if (this.closing) return;
+    this.onEvent(
+      `NI-DAQ DISCONNECTED — ${reason}. DAQ sensor readings are frozen at their last value.`,
+      'error'
+    );
+  }
+
+  /**
+   * The sidecar itself failed. Logged even when the link was never up — a DAQ
+   * that dies during startup is still a DAQ the operator needs to hear about.
+   */
+  fail(reason) {
+    if (this.connected) return this.setConnected(false, reason);
+    this.lostReason = reason;
+    this.onEvent(`NI-DAQ DISCONNECTED — ${reason}.`, 'error');
   }
 
   command(obj) {
@@ -339,32 +408,50 @@ export class NiDaqDriver {
   setValve() { /* read-only device */ }
 
   /**
-   * Record one frame's arrival for the measured receive rate.
+   * Record one frame's arrival for the measured update rate.
    *
-   * The sample count is taken from the LONGEST `samples` array in the frame
-   * rather than from the configured samplesPerRead. A short read — the card
-   * returned fewer samples than asked for, which is what a starved DAQ
-   * actually does — has to show up as a lower rate. Reading the configured
-   * number back out would report the nameplate no matter what arrived, which
-   * is the exact failure this measurement exists to catch.
+   * Samples are counted PER CARD — the longest `samples` array among that
+   * card's channels — because the cards run on unrelated clocks: the 9208 at
+   * the configured 100 Hz, the 9237 coerced to ~1.6 kHz, the 9211 converting
+   * every ~350 ms. Folding them into one number reports whichever is fastest.
+   *
+   * A frame that carries no samples counts as none. The sidecar emits a frame
+   * every pass whether or not any card had data, and counting an empty frame
+   * as a sample reported the pass rate as if channels were updating.
+   *
+   * A short read — fewer samples than the clock implies, which is what a
+   * starved DAQ does — shows up as a lower rate, because what is counted is
+   * what arrived, never the configured samplesPerRead.
    */
-  noteRx(msg) {
-    let n = 0;
+  noteRx(msg, t = this.lastFrameAt) {
+    const n = {};
     for (const ch of msg.channels || []) {
-      const len = Array.isArray(ch.samples) ? ch.samples.length : 1;
-      if (len > n) n = len;
+      if (!ch.card) continue;
+      const len = Array.isArray(ch.samples) ? ch.samples.length : 0;
+      n[ch.card] = Math.max(n[ch.card] ?? 0, len);
     }
-    this.rxWindow.push({ t: this.lastRxAt, n: n || 1 });
+    this.rxWindow.push({ t, n });
 
-    const cutoff = this.lastRxAt - RX_WINDOW_MS;
+    const cutoff = t - RX_WINDOW_MS;
     let drop = 0;
     while (drop < this.rxWindow.length - 1 && this.rxWindow[drop].t < cutoff) drop++;
     if (drop) this.rxWindow.splice(0, drop);
   }
 
   /**
-   * What the host is ACTUALLY receiving, measured at this end of the pipe:
-   * `{ frameHz, sampleHz }`, or null until there is enough of a window.
+   * How fast channels are ACTUALLY updating, measured at this end of the
+   * pipe: `{ frameHz, sampleHz, clockHz, cards }`, or null until there is
+   * enough of a window.
+   *
+   * `cards` is `{ card: Hz }` — per-channel updates per second for every card
+   * that appeared in the window, zero included. The headline `sampleHz` is
+   * the SLOWEST clocked card (PT/LC): the stand is only as current as its
+   * laggiest clocked input, and the fast 9237 must not mask a stalled 9208.
+   * Thermocouples only headline when nothing else is streaming, because the
+   * 9211's ~3 Hz is its normal pace, not a fault. `clockHz` is the configured
+   * rate of the headline card, so the header compares like with like. With no
+   * cards reporting at all the rate is 0 — frames arriving empty are a live
+   * link with nothing updating, and that is what should be shown.
    *
    * This is deliberately not `performance.sample_rate_hz` from the sidecar.
    * That field is the configured sample clock echoed back — it reads 100 Hz
@@ -381,17 +468,41 @@ export class NiDaqDriver {
     const elapsed = (w[w.length - 1].t - w[0].t) / 1000;
     if (elapsed < RX_MIN_SPAN_S) return null;
 
-    let samples = 0;
-    for (let i = 1; i < w.length; i++) samples += w[i].n;
+    const totals = {};
+    for (let i = 0; i < w.length; i++) {
+      for (const [card, n] of Object.entries(w[i].n)) {
+        totals[card] = (totals[card] ?? 0) + (i === 0 ? 0 : n);
+      }
+    }
+    const cards = {};
+    for (const [card, n] of Object.entries(totals)) cards[card] = n / elapsed;
+
+    const clocks = this.performance?.card_rates_hz || {};
+    const clocked = Object.keys(cards).filter((c) => c !== 'tc');
+    const pick = clocked.length ? clocked : Object.keys(cards);
+    let head = null;
+    for (const c of pick) if (head === null || cards[c] < cards[head]) head = c;
+
+    let clockHz = null;
+    if (head && head !== 'tc') {
+      clockHz = Number.isFinite(clocks[head]) ? clocks[head]
+        : Number.isFinite(this.performance?.sample_rate_hz) ? this.performance.sample_rate_hz
+        : this.sampleClockHz;
+    }
+
     return {
       frameHz: (w.length - 1) / elapsed,
-      sampleHz: samples / elapsed,
+      sampleHz: head ? cards[head] : 0,
+      headCard: head,
+      clockHz,
+      cards,
     };
   }
 
   get status() {
     const configured = this.performance?.sample_rate_hz;
     const rx = this.connected ? this.rxRates() : null;
+    const clocks = this.performance?.card_rates_hz || {};
     return {
       name: this.name,
       connected: this.connected,
@@ -400,15 +511,31 @@ export class NiDaqDriver {
       // second ago from one that has been dead since before the count.
       // 0 means nothing has ever been received.
       lastRxAt: this.lastRxAt,
+      // Set only while nothing has EVER arrived: when acquisition started,
+      // so the header can say how long it has been waiting.
+      waitingSince: this.lastRxAt ? null : (this.startedAt || null),
       // Measured here, not reported by the sidecar — see rxRates().
       rxSampleHz: rx ? Number(rx.sampleHz.toFixed(1)) : null,
       rxFrameHz: rx ? Number(rx.frameHz.toFixed(2)) : null,
-      // The sample clock the cards were CONFIGURED for, so the header can say
-      // what the measured rate is falling short of.
-      sampleClockHz: Number.isFinite(configured) ? configured : this.sampleClockHz,
+      // Per-card breakdown for the tooltip: measured vs. clocked.
+      rxCards: rx
+        ? Object.entries(rx.cards).map(([card, hz]) => ({
+          card,
+          hz: Number(hz.toFixed(1)),
+          clockHz: Number.isFinite(clocks[card]) ? clocks[card] : null,
+        }))
+        : null,
+      // The clock the headline card was CONFIGURED for, so the header can say
+      // what the measured rate is falling short of. Null when the headline is
+      // the unclocked 9211 — it has no nameplate to fall short of.
+      sampleClockHz: rx
+        ? rx.clockHz
+        : Number.isFinite(configured) ? configured : this.sampleClockHz,
+      // Why the link is down, for the header's warning strip. Null while up.
+      lostReason: this.connected ? null : this.lostReason,
       detail: this.connected
         ? `${this.detail} · ${this.frameCount} frames`
-        : `${this.detail} · NO LINK`,
+        : `${this.detail} · ${this.lastFrameAt ? 'NO DATA' : 'NO LINK'}`,
     };
   }
 

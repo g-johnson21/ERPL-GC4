@@ -118,16 +118,6 @@ export class BangBangFirmware {
         this.echoConfig(side, now, 'vent');
         return true;
 
-      case 'mdot':
-        st.cfg.mdotTarget = cmd.target;
-        st.cfg.spMin = cmd.spMin;
-        st.cfg.spMax = cmd.spMax;
-        st.cfg.mdotGain = cmd.gain;
-        st.cfg.rho = cmd.rho;          // stored, never echoed — see CFG_PUSH_KEYS
-        st.cfg.mdotOn = cmd.enabled;
-        this.echoConfig(side, now, 'mdot');
-        return true;
-
       case 'enable':
         // An aborted side is latched: it refuses to re-enter SUS. This is the
         // behaviour §5.4 describes ("nothing in the host code clears it"), and
@@ -394,16 +384,6 @@ export class BangBangFirmware {
         avTrig: c.ventTrigger.toFixed(1),
         avAuto: c.ventAuto,
       }),
-      // Unverified: no `M` has ever been sent to real hardware, so these
-      // spellings are the doc's and may be wrong the same way the vent ones
-      // were. `rho` is deliberately absent — the board has no echo key for it.
-      mdot: () => ({
-        mdot: c.mdotTarget.toFixed(3),
-        spMin: c.spMin.toFixed(3),
-        spMax: c.spMax.toFixed(3),
-        gain: c.mdotGain.toFixed(5),
-        mdotOn: c.mdotOn,
-      }),
     }[kind];
     if (fields) this.emit(encodeCfgPush(this.uptime(now), side, fields()));
   }
@@ -434,12 +414,6 @@ function freshSide() {
       maxOpenMs: 0,
       ventTrigger: 0,
       ventAuto: false,
-      mdotTarget: 0,
-      spMin: 0,
-      spMax: 0,
-      mdotGain: 0,
-      rho: 0,
-      mdotOn: false,
     },
   };
 }

@@ -59,8 +59,11 @@ import { commandSide } from './hal/bb-protocol.js';
  * operator can switch off from the control screen is not a policy.
  */
 const LIMITS = {
-  maxOpenMs: { min: 0, max: 120000, units: 'ms' },
-  minIntervalMs: { min: 0, max: 120000, units: 'ms' },
+  // Board caps both the `B` command's wait and max_open fields at 60000 ms
+  // (GC_USERS_GUIDE.md §2.3) — a higher guard rail here would let an operator
+  // enter a value the firmware's own spec does not cover.
+  maxOpenMs: { min: 0, max: 60000, units: 'ms' },
+  minIntervalMs: { min: 0, max: 60000, units: 'ms' },
   maxOpenSeconds: { min: 0, max: 3600, units: 's' },
 };
 

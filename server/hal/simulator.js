@@ -63,7 +63,6 @@ import {
   parseLine,
   encodeConfig,
   encodeVent,
-  encodeMdot,
   encodeEnable,
   encodeManualVent,
   encodeAbort,
@@ -475,7 +474,6 @@ export class SimulatorDriver {
 
   bbConfig(side, cfg) { return this.boardCommand(() => encodeConfig(side, cfg)); }
   bbVent(side, cfg) { return this.boardCommand(() => encodeVent(side, cfg)); }
-  bbMdot(side, cfg) { return this.boardCommand(() => encodeMdot(side, cfg)); }
   bbEnable(side, on) { return this.boardCommand(() => encodeEnable(side, on)); }
   bbManualVent(side, open) { return this.boardCommand(() => encodeManualVent(side, open)); }
   bbAbort(side) { return this.boardCommand(() => encodeAbort(side)); }

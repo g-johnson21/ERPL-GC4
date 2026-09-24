@@ -159,7 +159,6 @@ export class CompositeDriver {
 
   bbConfig(side, cfg) { return this.bbCall((d) => d.bbConfig(side, cfg)); }
   bbVent(side, cfg) { return this.bbCall((d) => d.bbVent(side, cfg)); }
-  bbMdot(side, cfg) { return this.bbCall((d) => d.bbMdot(side, cfg)); }
   bbEnable(side, on) { return this.bbCall((d) => d.bbEnable(side, on)); }
   bbManualVent(side, open) { return this.bbCall((d) => d.bbManualVent(side, open)); }
   bbAbort(side) { return this.bbCall((d) => d.bbAbort(side)); }
@@ -222,10 +221,13 @@ export class CompositeDriver {
         required: dev.required !== false,
         failed: Boolean(dev.failed),
         lastRxAt: s.lastRxAt ?? 0,
+        waitingSince: s.waitingSince ?? null,
         // Measured receive rate, where the device reports one. Absent on
         // devices that do not measure it, and the header simply omits it.
         rxSampleHz: s.rxSampleHz ?? null,
         rxFrameHz: s.rxFrameHz ?? null,
+        rxCards: s.rxCards ?? null,
+        lostReason: s.lostReason ?? null,
         sampleClockHz: s.sampleClockHz ?? null,
         detail: s.detail,
       });
