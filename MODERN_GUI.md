@@ -13,6 +13,12 @@ Discovery modal, the Telemetry channel table, the Test/verification runner, the 
 control dashboard, and the tank/valve P&ID dashboard. Exact hex values are estimates
 from screenshots unless marked *measured*.
 
+**How to read this document.** §1–6 are the original study of Revel's UI and still stand
+as a description of *their* design. §7–8 record what GC4 adopted and where it lives in the
+code. §9–12 are what we learned building it — what worked, what did not, and the
+engineering traps — and are the part to read before changing the UI further. Where GC4
+deliberately departs from Revel, §1–6 are annotated **GC4:**.
+
 ---
 
 ## 1. Design Philosophy (the "feel")
@@ -27,6 +33,8 @@ from screenshots unless marked *measured*.
    *negative* space around groups. Thin 1px hairlines instead of boxes and shadows.
 5. **Engineering vocabulary on screen.** Raw `snake_case` channel IDs (`test_a_tank_1_fill`,
    `compressor_inlet_temp`) are shown verbatim, in mono, as labels. No prettified names.
+   **GC4:** human names ("LOX Tank Downstream") lead and the tag (`PT4`) follows in mono.
+   Operators scan a wall of cards for the name and read the tag back on comms.
 6. **The diagram *is* the dashboard.** Values are pinned directly onto the schematic next
    to the component they measure, not off in a separate table.
 
@@ -145,6 +153,9 @@ Columns: `Subsystem | Channel Name | [sparkline] | Value`
 - Components are drawn as **thin outline line-art** (1–1.5px stroke, `--fg-1`): tanks as
   capsules, valves as circle-with-bar, pumps as circle-with-blades, check valves as
   triangles, regulators as diamonds.
+  **GC4:** valves stay ISA (bowtie, solenoid coil can, diaphragm operator, check-valve
+  diode, diamond filter). Engineers read ISA without a key; generic circles bought nothing
+  on a propulsion drawing.
 - **Valve state = stroke color + fill ring**: green ring = open, red = closed, grey = unknown.
 - Pipes are 1.5px lines with right-angle routing; colored by fluid when active.
 - **Value callouts** sit beside components: a mono label (`compressor_inlet_temp`) in
@@ -215,6 +226,8 @@ Small eyebrow (subsystem) + caps name, with a **cluster of 3 square icon buttons
 - **Hairline separators** between sections (1px, full-width) instead of cards.
 - **Icon buttons are 20–24px squares**, 1px border, monochrome glyphs; color only for play.
 - **No emoji, no gradients, no glow** on UI (a subtle glow is OK only on the hero illustration).
+  **GC4:** the P&ID vessels are that hero illustration — they carry the only glow and
+  gradients on the station (§9).
 - **Relative times** (`Just now`, `10s ago`) for events; absolute times on hover.
 - **Units always visible**, always dim, always after the value.
 - **Consistent casing**: channel IDs lowercase snake, states/buttons UPPERCASE, prose Sentence.
@@ -223,48 +236,205 @@ Small eyebrow (subsystem) + caps name, with a **cluster of 3 square icon buttons
 
 ---
 
-## 7. Starter Tokens (drop into `public/css/base.css`)
+## 7. Tokens as Implemented (`public/css/base.css`)
 
-```css
-:root {
-  --bg-0:#0a0a0a; --bg-1:#0f0f10; --bg-2:#161618; --bg-3:#1f1f22;
-  --line-1:#1c1c1f; --line-2:#2a2a2e; --line-3:#3a3a3f;
-  --fg-0:#e5e5e5; --fg-1:#a1a1a6; --fg-2:#6b6b70; --fg-3:#45454a;
-  --ok:#22c55e; --bad:#ef4444; --cold:#3b82f6; --warn:#f59e0b; --violet:#8b5cf6;
-  --font-sans:"Inter","Geist",system-ui,sans-serif;
-  --font-mono:"JetBrains Mono","Geist Mono",ui-monospace,monospace;
-  --r-sm:2px; --r-md:4px; --r-lg:6px;
-  --row:26px; --topbar:40px; --sidebar:192px;
-}
-body { background:var(--bg-0); color:var(--fg-0); font:12px/1.4 var(--font-sans); }
-.mono, .value, .channel { font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
-.eyebrow { font:500 10px var(--font-mono); letter-spacing:.08em; text-transform:uppercase; color:var(--fg-2); }
-.value { font-weight:600; font-size:14px; }
-.value .unit { font-weight:400; font-size:9px; color:var(--fg-2); margin-left:3px; }
-.tile { background:var(--bg-2); border:1px solid var(--line-2); border-radius:var(--r-sm); padding:4px 8px; }
-.seg { display:inline-flex; border:1px solid var(--line-2); border-radius:var(--r-sm); }
-.seg > button { font:500 10px var(--font-mono); text-transform:uppercase; color:var(--fg-2); padding:3px 8px; background:none; border:0; }
-.seg > button.on { background:var(--bg-3); color:var(--fg-0); }
-.fade-bottom { mask-image:linear-gradient(to bottom,#000 70%,transparent); }
-```
+The starter names in the first draft of this guide (`--bg-0`, `--fg-2`…) were mapped onto
+the token names the codebase already used, so no component had to be renamed:
+
+| Guide | `base.css` (dark) | Notes |
+|---|---|---|
+| `--bg-0` | `--bg: #0a0a0a` | page, header, sidebar, P&ID stage |
+| `--bg-1` | `--surface: #0f0f10` | cards, tables, bang-bang cards |
+| `--bg-2` / `--bg-3` | `--surface-2 #161618` / `--surface-3 #1f1f22` | tiles, hover, active segment |
+| `--line-1/2` | `--border #232326` / `--border-strong #34343a` | every hairline |
+| `--fg-0/1/2` | `--text #e5e5e5` / `--text-muted #a1a1a6` / `--text-faint #6b6b70` | no pure white anywhere |
+| semantic | `--ok #22c55e`, `--warn #f59e0b`, `--danger #ef4444`, `--info #3b82f6` | `*-bg` variants are 11–12% `color-mix` tints, not solid fills |
+| trace ink | `--spark #818cf8` (dark) / `#6366f1` (light) | nominal trend lines — never green |
+| hologram | `--holo-rim`, `--holo-line` (`pid.css`) | vessel rim light and outlines; silver on dark, graphite on light |
+| radii | `--radius-sm 2px`, `--radius 4px`, `--radius-lg 6px` | |
+| `--accent` | `#3b82f6`, from `stand.json` `ui.accent` | a *signal* colour: focus, progress, the running sequence — never a button fill |
+
+A light theme exists with the same restraint inverted (zinc greys). Every colour is a token,
+so both themes come from one block.
+
+Fonts: `--sans` Inter → Geist → Segoe UI Variable; `--mono` JetBrains Mono → Geist Mono →
+Cascadia Mono. **No web fonts are fetched** — the stand has no internet — so a station
+without Inter/JetBrains Mono installed renders the Windows fallbacks. Vendoring the two
+font files is the one step left to make every station match exactly.
 
 ---
 
-## 8. Applying It to ERPL-GC4
+## 8. What Was Applied, and Where
 
-| GC4 screen | Revel pattern to borrow |
-|---|---|
-| P&ID view (`public/css/pid.css`) | §5.2 line-art components, fluid-colored pipes, pinned value tiles, green/red valve rings |
-| Sensor list / DAQ channels | §5.1 channel table with inline sparklines |
-| Plots | §5.6 window chips, in-plot legend with live values, right-side axis |
-| Valve / ignitor / arm controls | §5.4 segmented `ENABLED/DISABLED`, `LOCK/UNLOCK` |
-| Panda autosequencer | §5.5 sequence cards with pause/play/stop cluster; §5.7 step results list |
-| Device connect (NI-DAQ, Panda, BangBang) | §5.8 discovery wizard modal |
-| Chrome (`public/js/chrome.js`) | §4 top bar tabs + `UPDATED` freshness stamp + sidebar dashboard list |
+| Revel pattern | Status in GC4 | Code |
+|---|---|---|
+| §4 top bar: flat text tabs, active = brighter ink + hairline | Done | `base.css` `.nav` |
+| §4 content header strip with controls | Done on the P&ID (toolbar strip above the drawing) | `page-pid.js` `buildToolbar`, `pid.css` `.pid-toolbar` |
+| §5.1 telemetry table with inline sparklines | Done — Data page "Telemetry" mode | `page-data.js` `buildTelemetry` |
+| §5.2 P&ID line art, fluid-coloured live lines, pinned values | Done, and extended (see §9) | `pid-symbols.js`, `pid.css`, `page-pid.js` |
+| §5.3 value tile with trace | Done — replaces the ISA bubbles on the P&ID | `renderInstrument` |
+| §5.4 segmented control | Done — ARM/DISARM, Cards/Telemetry, window chips | `.seg`, `.arm-btn`, `.win-chips` |
+| §5.6 time-window chips | Done — Data page and P&ID toolbar (`10s 30s 1m 2m 5m`) | `spark.js` `windowChips` |
+| §5.6 plot panels with in-plot legend and right axis | **Partly** — the P&ID hover card has a trace with its range on the right; no standalone plot panels yet | `page-pid.js` hover card |
+| §5.5 sequence cards with pause/play/stop cluster | **Not done** — sequences are a hairline list of rows | `components.css` `.seq-list` |
+| §5.7 test / verification runner | Not done | — |
+| §5.8 discovery wizard modal | Not done | — |
+| §6 `UPDATED` freshness stamp | Done, on the P&ID toolbar only | `page-pid.js` `updateStamp` |
 
-**Safety note for a control GUI:** keep abort/hazard controls visually distinct even in this
-minimal style — red outline + caps label + confirmation — since Revel's neutral-button
-convention would otherwise make them blend in.
+**Safety note, as implemented:** ABORT is the one deliberate exception to "buttons are
+neutral" — solid red, caps mono, with an inset white hairline so it is never just another
+red rectangle. ARMED is the only other solid red on the station. Both survived every
+restyle unchanged in meaning.
+
+---
+
+## 9. The P&ID: What It Became
+
+The P&ID needed the most extension of Revel's language, because a propulsion drawing
+carries more than their dashboards do.
+
+**Vessels are drawn as the hardware on the stand, as a soft hologram.** The cue is the
+turbine x-ray render (§5.2), in neutral silver rather than blue:
+- a near-clear body, rim light at the silhouette (a black/white gradient overlay, so one set
+  of stops works in both themes), faint scanlines, and a soft glow on the outline;
+- x-ray cues: the back half of every weld seam as a dashed hidden line, an inner liner wall,
+  and internals (pressurant diffuser, outlet baffle, the dewar's inner vessel);
+- shapes true to the equipment: 2:1-head run tanks with straps and bosses; 6K cylinders with
+  neck, valve, handwheel and pigtails into a manifold; a dewar with crown ring and casters;
+  a compressor as receiver + motor + finned pump head; horizontal receivers on saddles
+  (surge tanks, MOE fuel storage);
+- the only colour inside a tank is its liquid — translucent, with a glowing free-surface
+  ellipse that tracks the level. The engine's warm core lights only while it is firing.
+
+**Pipes are hairlines, grey at rest, full fluid colour when live.** An idle line keeps ~38%
+of its fluid colour mixed into grey; a pressurized or flowing section takes the full colour.
+Colour on the drawing therefore *means* "live", which reads from across the room. Line
+weights keep the config's ratios at ~45% of the old widths.
+
+**Valve state is a boxed chip** under the tag (`CLOSED` / `OPEN` / `VENT` / `SEALED`), fixed
+width, lit green — red for hazardous valves — when open. The valve body takes a green
+outline and tint rather than a solid fill. Multi-line tags (`GROUND\nLOX FILL`) push the
+chip down.
+
+**Sensors are value tiles**, not ISA bubbles: tag, value + dim unit, and a hairline trend,
+with the group colour as a 2px tick. Hovering opens a card with the full name, rate, a
+readable trace with its range on the right, and window min/max. `pid.tag` gives a stand
+short labels; a tag too long for the tile shrinks rather than spilling past its edge.
+
+**The toolbar is a strip above the drawing**, holding the trend-window chips, zoom, lock,
+tank-level tare, a `KEY` button (the legend opens on demand), a `SIM` chip in the simulator,
+and the `UPDATED` stamp.
+
+**The default view fits the drawing's contents**, up to 110%, never clipping anything.
+`0` returns to it, and it refits on resize until the operator pans or zooms.
+
+**The control sidebar fits the window and never scrolls.** Its columns are laid out at
+fixed design widths and zoomed as one (`--fit`, set by `sidebar-fit.js`) to the largest
+value at which everything fits the window height *and* the sidebar takes at most ~36% of
+the width. The two bang-bang cards always stack. Measured: 23% of the width at 2560×1440,
+34% at 1600×900, 33% at 1067×600 (≈150% browser zoom), with nothing below the fold.
+
+---
+
+## 10. What Worked
+
+- **Colour only for meaning.** Taking colour off everything that is not a state — buttons,
+  tab highlights, sparklines, pipes at rest — made the colour that remains (an open valve, a
+  live line, an alarm) the first thing the eye finds. Green sparklines were the clearest
+  case: on this screen green means "open"/"pass", so nominal traces became indigo.
+- **Hairlines and a step in surface tone instead of shadows.** Flat, calm, and it scales.
+- **Mono for every number, tabular numerals, dim smaller units.** Live values stop jittering.
+- **Tokens first.** Retuning `:root` did most of the restyle before any component was
+  touched; the rest was removing bold, pills and shadows.
+- **Drawing hardware as hardware.** Accurate silhouettes — heads, bosses, straps, valves on
+  bottles — did more for the "serious" feel than any amount of styling.
+- **Translucency over shading.** The hologram shell reads as 3D, keeps the liquid visible,
+  and, being a neutral overlay, works in both themes with no extra colours.
+- **Fit-to-screen as a rule, not a zoom level.** Both the drawing and the sidebar compute
+  their scale from what they must show; neither hard-codes a size.
+- **A measured overlap check** (§12) instead of eyeballing a dense drawing.
+- **One trace implementation** (`spark.js`): binary-search windowing and per-pixel min/max
+  decimation keep a 5-minute, 50 Hz window as cheap as a 10-second one — and keep the spike.
+
+## 11. What Did Not Work (and What Replaced It)
+
+| Tried | Problem | Replaced by |
+|---|---|---|
+| Solid dark "metal" vessel shading | Heavy; read as clip-art next to hairline pipes | Soft translucent hologram shell |
+| Rounded symbols, 2px strokes, a big "S" glyph, a filled lightning-bolt igniter | Looked light and toy-like | Mitred 1.25px line art, coil-can solenoid, diaphragm operator, spark-gap igniter |
+| A blue hologram, like the reference render | Every tank read as LOX | Neutral silver; only the liquid is coloured |
+| Orange combustion glow always on | A glowing engine that is not firing is a false reading | Glow fades in with the plume; dark at rest |
+| Dotted grid behind the drawing | Did not match the rest of the site | Plain `--bg` |
+| Legend and stamp floating in the canvas corners | Covered the dewar label and the `PB1–PB6` flag | Moved into the toolbar; legend on demand (`KEY`) |
+| Reserving an empty band under the drawing for those overlays | Wasted ~8% of the screen permanently | Removed once the overlays moved to the toolbar |
+| A floating toolbar panel over the drawing | Grew with each control until it covered the title block | A toolbar strip above the drawing |
+| A flat 110% default zoom | The drawing is wider than most stages; 110% cut off the right edge or the bottom row on every layout tested | Fit-to-content, *capped* at 110% (lands ~100–104%) |
+| Page-colour halos on labels painted over shaded tanks | Smudged | No halo on vessel labels |
+| Bang-bang cards side by side on short screens | Card position changed with screen shape, and where a card sits is part of how an operator knows which tank they are acting on | Always stacked; the sidebar zooms instead |
+| Fixed-px sidebar widths with media-query breakpoints | At high browser zoom the sidebar took over half the width | Proportional zoom capped at ~36% of the width |
+
+**Still unresolved: the empty space around the P&ID is a shape problem, not a zoom
+problem.** The drawing is ~1.5:1; the stage beside the sidebar is taller than that and a
+full-width stage is wider. Removing the space means changing the drawing's proportions
+(spreading it vertically), not zooming it.
+
+## 12. Engineering Lessons and Traps
+
+**Layout**
+- CSS `zoom` scales layout (unlike `transform`), so a zoomed column still sizes and
+  hit-tests correctly — but **a flex container sizes itself from its children's *unzoomed*
+  widths**, leaving a dead strip beside them. State the container's width from the zoom.
+- Give a zoomed column `height: calc(var(--sb-h) / var(--fit))` so it renders at exactly
+  the window height.
+- **`requestAnimationFrame`, `ResizeObserver` callbacks and `resize` events all pause while
+  a page is not being painted** (minimised or covered window). Anything that must stay
+  correct — the sidebar fit — is scheduled with `setTimeout`. When testing in a background
+  browser, force a frame (take a screenshot) before measuring.
+- The P&ID SVG uses `preserveAspectRatio="xMinYMin meet"`; the view transform lives on an
+  inner group, and the default view is computed from that group's `getBBox()` with the
+  invisible plume excluded (otherwise it reserves room for an exhaust that is not there).
+
+**Verifying a dense drawing**
+- The check that caught every real collision: collect the screen boxes of every label,
+  state chip, value tile and symbol body; map them into drawing units through the world
+  group's CTM; test every pair with different owners. Test the HTML overlays (toolbar,
+  legend, stamp) against the drawing too.
+- It compares **rectangular bounding boxes**, so a tile beside a tank's curved head can be
+  a false positive (PT23 against the fuel tank). Confirm a hit by eye before moving anything.
+- When walking stylesheets, a `CSSStyleRule` now has its own `cssRules` list (CSS nesting):
+  test `instanceof CSSStyleRule` first or the walker skips every rule. And
+  `rule.style.width` reads back empty for a `var()` value — search `cssText` instead.
+
+**Config and data**
+- `stand.json` round-trips through `JSON.stringify(…, null, 2)` byte-for-byte and can be
+  edited as data; **`moe.json` does not** — edit it with exact text replacements. Check
+  before writing.
+- The server reads the stand config at startup: restart the simulator to see a drawing change.
+- When moving a component, keep its **pipe attachment points** — bottle-bank manifold at
+  `y − h/2 − 24`, dewar withdrawal at `y − h/2 − 17`, compressor discharge at `y + 35`,
+  run-tank ports at `y ± h/2` — or move the pipe endpoints with it.
+- Operators' work shares files with the UI (`stand.json` sequences, `chrome.js`,
+  `base.css`). Commit UI work by staging only the UI hunks, or by building the staged file
+  from `HEAD` plus the UI-owned sections, and read the staged diff before committing.
+
+**Scripted edits**
+- A splice that searched for "the next `.section-title {`" matched `.rec-files
+  .section-title {` earlier in the file and duplicated ~180 lines of `base.css`; the stale
+  copy then won the cascade. Anchor a replacement on text that is unique *and* after the
+  start point, assert exactly one match, and diff against `HEAD` afterwards.
+
+**Merging**
+- `git merge-tree --write-tree A B` previews a merge without touching the working tree —
+  use it to see which files will really conflict before starting.
+- Do not settle a restyle-vs-feature conflict with `-X ours`: it merges cleanly and silently
+  drops the other side's behaviour (here it would have lost MOE's two-line valve tags and
+  `pid.tag`). Keep the restyled code and port the feature into it.
+
+**Performance**
+- Trim rolling history in chunks (let it run ~10% long, then drop the excess), not with
+  `splice(0, 1)` per sample; at 30 channels × 50 Hz × 15,000 samples the per-sample shift
+  was the most expensive thing the page did.
+- Redraw hairline traces at ~6 Hz, not at the stream rate.
 
 ---
 
