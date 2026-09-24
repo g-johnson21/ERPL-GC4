@@ -438,6 +438,9 @@
 .pid-valve { cursor: pointer; outline: none; }
 body.spectator .pid-valve { cursor: default; pointer-events: none; }
 .pid-hit { fill: transparent; }
+/* Only the symbol actuates: the tag and the OPEN/CLOSED chip under it are
+   read, not pressed, so a click on them passes through to the drawing. */
+.pid-valve .pid-label, .pid-valve .pid-state-chip { pointer-events: none; }
 .pid-valve:hover .sym-fill,
 .pid-valve:hover .sym-fill-strong { fill: var(--surface-3); stroke: var(--text); }
 .pid-valve:focus-visible .pid-hit {

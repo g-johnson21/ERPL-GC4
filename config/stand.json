@@ -3,7 +3,7 @@
   "meta": {
     "standName": "Draco",
     "organization": "ERPL",
-    "subtitle": "LOX / Ethanol Bi-Propellant Test Stand",
+    "subtitle": "LOX / IPA Bi-Propellant Test Stand",
     "configVersion": "4.0.0",
     "standLogo": {
       "light": "/img/draco.png",
@@ -1357,21 +1357,21 @@
           "enabled": false
         },
         {
-          "t": 0.1,
-          "action": "valve",
-          "target": "MV-F",
-          "state": "closed"
-        },
-        {
-          "t": 0.2,
+          "t": 0,
           "action": "valve",
           "target": "SV-LOXBB",
           "state": "closed"
         },
         {
-          "t": 0.2,
+          "t": 0,
           "action": "valve",
           "target": "SV-FBB",
+          "state": "closed"
+        },
+        {
+          "t": 0.1,
+          "action": "valve",
+          "target": "MV-F",
           "state": "closed"
         },
         {
@@ -1418,7 +1418,19 @@
       ],
       "abortConditions": [],
       "duration": 5.3,
-      "timeMode": "absolute"
+      "timeMode": "absolute",
+      "lanes": [
+        "valve:SV-LOXBB",
+        "valve:SV-FBB",
+        "valve:MV-LOX",
+        "valve:MV-F",
+        "valve:SV-LOXV",
+        "valve:SV-FV",
+        "valve:SV-FPURGE",
+        "valve:SV-LOXPURGE",
+        "bb:bb-fuel",
+        "bb:bb-ox"
+      ]
     },
     {
       "id": "seq-custom-9",
@@ -1866,7 +1878,7 @@
         "id": "TXT-2",
         "x": 78,
         "y": 54,
-        "label": "LOX / ETHANOL  -  GN2 REGULATED PRESS-FED",
+        "label": "LOX / IPA  -  PRESS-FED TEST STAND",
         "size": 10,
         "anchor": "start"
       },

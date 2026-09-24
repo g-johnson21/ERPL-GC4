@@ -66,6 +66,7 @@ export function createSequenceEditor(ctx) {
     extraLanes: new Map(),  // seqId -> lane keys added with no step yet
     tab: 'step',            // inspector tab
     snap: load('gc.seq.snap', 0.05),
+    locked: load('gc.seq.locked', false), // steps can't be dragged; typed times still apply
     zoom: 'fit',
     pps: 100,               // px per second when zoom is manual
     cursorT: null,          // under the mouse
@@ -105,14 +106,19 @@ export function createSequenceEditor(ctx) {
           el('div.sq-gutter'),
           el('div.sq-scroll', {}, el('div.sq-plot'))
         ),
+        el('div.sq-split-h', { title: 'Drag to resize the timeline and the script · double-click to reset' }),
         el('div.sq-lower', {},
           el('div.sq-script'),
+          el('div.sq-split-v', { title: 'Drag to resize the script and the inspector · double-click to reset' }),
           el('div.sq-inspector')
         )
       )
     );
+    root.classList.toggle('locked', S.locked);
+    applySplits();
     host.append(root);
     wirePlot();
+    wireSplits();
     resizeObs?.disconnect();
     if (window.ResizeObserver) {
       resizeObs = new ResizeObserver(() => {
@@ -125,6 +131,72 @@ export function createSequenceEditor(ctx) {
   }
 
   function mounted() { return Boolean(root && root.isConnected); }
+
+  // ---- splitters: timeline | lower (row), script | inspector (column).
+  // Sizes are this station's preference, kept in localStorage; null = the
+  // stylesheet's default.
+
+  function applySplits() {
+    const tlH = load('gc.seq.tlH', null);
+    const inspW = load('gc.seq.inspW', null);
+    if (tlH) root.style.setProperty('--sq-tl-h', `${tlH}px`); else root.style.removeProperty('--sq-tl-h');
+    if (inspW) root.style.setProperty('--sq-insp-w', `${inspW}px`); else root.style.removeProperty('--sq-insp-w');
+  }
+
+  function wireSplits() {
+    const drag = (handle, axis, onMove) => {
+      handle.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        const start = axis === 'y' ? e.clientY : e.clientX;
+        const begin = onMove.begin();
+        handle.classList.add('active');
+        document.body.classList.add(axis === 'y' ? 'sq-resizing-y' : 'sq-resizing-x');
+        const move = (ev) => onMove.move(begin, (axis === 'y' ? ev.clientY : ev.clientX) - start);
+        const up = () => {
+          window.removeEventListener('pointermove', move);
+          window.removeEventListener('pointerup', up);
+          window.removeEventListener('pointercancel', up);
+          handle.classList.remove('active');
+          document.body.classList.remove('sq-resizing-y', 'sq-resizing-x');
+          onMove.end();
+        };
+        window.addEventListener('pointermove', move);
+        window.addEventListener('pointerup', up);
+        window.addEventListener('pointercancel', up);
+      });
+    };
+
+    const tl = q('.sq-tl');
+    const main = q('.sq-main');
+    const LOWER_MIN = 120;
+    let tlH = null;
+    drag(q('.sq-split-h'), 'y', {
+      begin: () => ({
+        h: tl.getBoundingClientRect().height,
+        max: main.getBoundingClientRect().bottom - tl.getBoundingClientRect().top - LOWER_MIN,
+      }),
+      move: (b, dy) => {
+        tlH = Math.round(Math.max(AXIS_H + LANE_H * 2, Math.min(b.max, b.h + dy)));
+        root.style.setProperty('--sq-tl-h', `${tlH}px`);
+      },
+      end: () => { if (tlH !== null) store('gc.seq.tlH', tlH); },
+    });
+
+    const lower = q('.sq-lower');
+    let inspW = null;
+    drag(q('.sq-split-v'), 'x', {
+      begin: () => ({ w: q('.sq-inspector').getBoundingClientRect().width, max: lower.clientWidth - 260 }),
+      move: (b, dx) => {
+        inspW = Math.round(Math.max(260, Math.min(b.max, b.w - dx)));
+        root.style.setProperty('--sq-insp-w', `${inspW}px`);
+      },
+      end: () => { if (inspW !== null) store('gc.seq.inspW', inspW); },
+    });
+
+    q('.sq-split-h').addEventListener('dblclick', () => { store('gc.seq.tlH', null); applySplits(); });
+    q('.sq-split-v').addEventListener('dblclick', () => { store('gc.seq.inspW', null); applySplits(); });
+  }
 
   /** The draft was replaced (revert, JSON tab): keep the selection if it still exists. */
   function reset() {
@@ -362,7 +434,9 @@ export function createSequenceEditor(ctx) {
       el('button.icon-sq', { title: 'New sequence', text: '+', onclick: newSequence })
     ));
     const list = el('div.sq-pick-list');
-    for (const seq of draft.autosequences || []) {
+    // Hidden sequences sink to the bottom; the order among each set is kept.
+    const seqs = [...(draft.autosequences || [])].sort((a, b) => Number(a.hidden === true) - Number(b.hidden === true));
+    for (const seq of seqs) {
       const isAbort = draft.safety?.abortSequenceId === seq.id;
       list.append(el('button.sq-pick', {
         class: seq.id === S.seqId ? 'active' : '',
@@ -373,7 +447,7 @@ export function createSequenceEditor(ctx) {
         el('span.sq-dot'),
         el('span.sq-pick-name', { text: seq.name || seq.id }),
         isAbort ? el('span.sq-badge.bad', { text: 'ABORT' }) : null,
-        seq.hidden ? el('span.sq-badge', { text: 'HIDDEN' }) : null,
+        seq.hidden ? el('span.sq-pick-hidden', { title: 'Hidden from the sidebar', html: icon('eyeOff', 13) }) : null,
         el('span.sq-pick-dur', { text: `${M.duration(seq).toFixed(1)}s` })
       ));
     }
@@ -417,6 +491,15 @@ export function createSequenceEditor(ctx) {
         el('span.sq-pencil', { text: '✎' }),
         el('span.sq-id', { text: seq.id }),
         el('div.sq-head-actions', {},
+          el('button.btn.sm.sq-lock', {
+            class: S.locked ? 'on' : '',
+            'aria-pressed': String(S.locked),
+            title: S.locked
+              ? 'Timeline locked: steps cannot be dragged or nudged. Times typed in the inspector still apply. Click to unlock.'
+              : 'Lock the timeline so steps cannot be moved by dragging. Times can still be typed in the inspector.',
+            html: `${icon(S.locked ? 'lock' : 'unlock', 13)} ${S.locked ? 'Locked' : 'Lock'}`,
+            onclick: () => setLocked(!S.locked),
+          }),
           el('button.btn.sm', { text: 'Duplicate', onclick: () => duplicateSequence(seq) }),
           el('button.btn.sm.danger', { text: 'Delete', onclick: () => deleteSequence(seq) })
         )
@@ -427,6 +510,14 @@ export function createSequenceEditor(ctx) {
         isAbortSeq ? el('span.sq-flag.bad', { html: `${icon('warning', 11)} RUNS ON ABORT` }) : null
       )
     );
+  }
+
+  function setLocked(on) {
+    S.locked = on;
+    store('gc.seq.locked', on);
+    root.classList.toggle('locked', on);
+    renderHead();
+    renderTimeline();
   }
 
   // ============================================================ toolbar ===
@@ -648,7 +739,11 @@ export function createSequenceEditor(ctx) {
       if (lane.kind === 'bb') drawBbLane(row, lane, sim, x, tMax);
     }
     plot.append(el('div.tl-lane.tl-add-row', { style: { top: `${addRowTop}px`, height: `${LANE_H}px` } },
-      el('span.tl-hint', { text: 'Drag a step to move it · double-click a lane to add one · drag across empty space to select several' })));
+      el('span.tl-hint', {
+        text: S.locked
+          ? 'Timeline locked · click a step and type its time in the inspector · double-click a lane to add one'
+          : 'Drag a step to move it · double-click a lane to add one · drag across empty space to select several',
+      })));
 
     // milestone guides + labels
     const evLane = lanes[0];
@@ -940,6 +1035,14 @@ export function createSequenceEditor(ctx) {
       return;
     }
     if (!S.selection.has(step)) selectOnly([step]);
+    if (S.locked) {
+      // Locked: a press only selects, so the time can be typed in the inspector.
+      S.tab = 'step';
+      renderTimeline();
+      renderScript();
+      renderInspector();
+      return;
+    }
     const before = snapshot(seq);
     const drag = {
       startX: e.clientX,
@@ -1646,6 +1749,7 @@ export function createSequenceEditor(ctx) {
     if (e.key === 'Delete' || e.key === 'Backspace') { if (S.selection.size) { e.preventDefault(); deleteSelection(); } return; }
     if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && S.selection.size) {
       e.preventDefault();
+      if (S.locked) { toast('Timeline is locked. Type the time in the inspector, or unlock it.', 'info', 2500); return; }
       const unit = (S.snap || 0.01) * (e.shiftKey ? 10 : 1);
       nudge(e.key === 'ArrowLeft' ? -unit : unit);
     }
