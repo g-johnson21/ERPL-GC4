@@ -591,7 +591,7 @@ export function createSequenceEditor(ctx) {
       el('span.eyebrow.gut-at#gut-at', { text: '' })));
     S.chips = new Map();
     for (const lane of lanes) {
-      const row = el('div.gut-lane', { dataset: { kind: lane.kind }, style: { height: `${lane.h}px` } });
+      const row = el('div.gut-lane', { dataset: { kind: lane.kind, laneKey: lane.key }, style: { height: `${lane.h}px` } });
       if (lane.kind === 'events') {
         row.append(el('span.gut-name', { text: 'Milestones' }));
       } else {
@@ -599,6 +599,10 @@ export function createSequenceEditor(ctx) {
         const group = lane.kind === 'valve' ? (draft.valveGroups || []).find((g) => g.id === lane.valve?.group) : null;
         row.style.setProperty('--tick', group?.color || (lane.kind === 'bb' ? 'var(--info)' : 'var(--border-strong)'));
         row.append(
+          el('span.gut-grip', {
+            title: 'Drag to reorder this lane',
+            'aria-label': `Reorder ${obj?.name || lane.id}`,
+          }, el('i'), el('i'), el('i')),
           el('span.gut-tick'),
           el('span.gut-text', {},
             el('span.gut-name', { text: obj?.name || lane.id, title: obj?.name || lane.id }),
@@ -638,7 +642,7 @@ export function createSequenceEditor(ctx) {
 
     // lanes
     for (const lane of lanes) {
-      const row = el('div.tl-lane', { dataset: { lane: lane.key, kind: lane.kind }, style: { top: `${lane.top}px`, height: `${lane.h}px` } });
+      const row = el('div.tl-lane', { dataset: { lane: lane.key, laneKey: lane.key, kind: lane.kind }, style: { top: `${lane.top}px`, height: `${lane.h}px` } });
       plot.append(row);
       if (lane.kind === 'valve') drawValveLane(row, lane, sim, x, tMax);
       if (lane.kind === 'bb') drawBbLane(row, lane, sim, x, tMax);
@@ -686,6 +690,7 @@ export function createSequenceEditor(ctx) {
             action: step.action,
             state: step.action === 'valve' ? step.state : step.action === 'bangbang' ? (step.enabled === undefined ? 'same' : step.enabled ? 'open' : 'closed') : '',
             lane: lane.kind,
+            laneKey: lane.key,
           },
           style: { left: `${px}px`, top: `${cy}px` },
           title: `${M.fmtT(M.stepT(step))}  ${M.describe(step, draft)}${warnings.has(step) ? `\n⚠ ${warnings.get(step).join('\n⚠ ')}` : ''}`,
@@ -864,6 +869,12 @@ export function createSequenceEditor(ctx) {
   }
 
   function wirePlot() {
+    q('.sq-gutter').addEventListener('pointerdown', (e) => {
+      const grip = e.button === 0 && e.target.closest('.gut-grip');
+      if (!grip) return;
+      e.preventDefault();
+      beginLaneDrag(e, grip.closest('.gut-lane').dataset.laneKey);
+    });
     const plot = q('.sq-plot');
     const scroll = q('.sq-scroll');
 
@@ -1024,6 +1035,59 @@ export function createSequenceEditor(ctx) {
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
+  }
+
+  /**
+   * Reorder lanes by dragging the grip. The held lane lifts and follows the
+   * pointer, clamped to the lane stack; the lanes it passes step aside as it
+   * goes, so the drop position is always visible before the button is let
+   * go. Everything is done with transforms on the existing rows (gutter row,
+   * plot row, and the step handles that sit on it) -- nothing is rebuilt
+   * until the drop, so the drag stays smooth. The order is saved with the
+   * sequence (`seq.lanes`) and is undoable.
+   */
+  function beginLaneDrag(e, key) {
+    const seq = cur();
+    const movable = S.lanes.slice(1).map((l) => l.key); // milestones stay on top
+    const from = movable.indexOf(key);
+    if (from < 0) return;
+    const nodesFor = (k) => root.querySelectorAll(`[data-lane-key="${CSS.escape(k)}"]`);
+    const groups = movable.map(nodesFor);
+    const startY = e.clientY;
+    let result = { dy: 0, target: from };
+
+    root.classList.add('lane-dragging');
+    document.body.classList.add('sq-dragging');
+    for (const n of groups[from]) n.classList.add('lane-lifted');
+
+    const onMove = (ev) => {
+      result = M.laneDrag(movable.length, from, ev.clientY - startY, LANE_H);
+      groups.forEach((nodes, i) => {
+        const y = i === from ? result.dy : result.shifts[i];
+        for (const n of nodes) n.style.setProperty('--lane-dy', `${y}px`);
+      });
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+      root.classList.remove('lane-dragging');
+      document.body.classList.remove('sq-dragging');
+      if (result.target !== from) {
+        pushUndo();
+        seq.lanes = M.moveLane(movable, from, result.target);
+        ctx.markDirty();
+        renderTimeline();
+        renderToolbar();
+      } else {
+        for (const nodes of groups) {
+          for (const n of nodes) { n.classList.remove('lane-lifted'); n.style.removeProperty('--lane-dy'); }
+        }
+      }
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
   }
 
   /** Selection and insert-point marks, without rebuilding the plot. */

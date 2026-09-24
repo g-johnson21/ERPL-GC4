@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  buildLanes, simulate, stateAt, lint, niceStep, snapTime, shiftSteps,
+  buildLanes, applyLaneOrder, moveLane, laneDrag, simulate, stateAt, lint, niceStep, snapTime, shiftSteps,
   sortSteps, stopTime, isUnreachable, describe, fmtT, fmtDelta,
 } from './seq-model.js';
 
@@ -130,4 +130,26 @@ test('describe and formatting', () => {
   assert.equal(describe({ action: 'bangbang', target: '*', enabled: false }, config), 'All controllers: OFF');
   assert.equal(fmtT(1.5), 'T+1.50');
   assert.equal(fmtDelta(-0.1), '−0.10');
+});
+
+test('a saved lane order wins; milestones stay first; new lanes keep their neighbours', () => {
+  const seq = hotfire();
+  seq.lanes = ['bb:bb-fuel', 'valve:MV-F', 'valve:MV-LOX'];
+  assert.deepEqual(buildLanes(seq, config).map((l) => l.key),
+    ['events', 'bb:bb-fuel', 'valve:MV-F', 'bb:bb-ox', 'valve:MV-LOX']);
+  // A lane the order has never seen slots in after its natural predecessor.
+  const lanes = [{ key: 'events' }, { key: 'a' }, { key: 'b' }, { key: 'c' }];
+  assert.deepEqual(applyLaneOrder(lanes, ['c', 'a']).map((l) => l.key), ['events', 'c', 'a', 'b']);
+  assert.deepEqual(applyLaneOrder(lanes, ['b', 'c']).map((l) => l.key), ['events', 'a', 'b', 'c']);
+  assert.equal(applyLaneOrder(lanes, undefined), lanes);
+});
+
+test('moveLane and laneDrag', () => {
+  assert.deepEqual(moveLane(['a', 'b', 'c', 'd'], 0, 2), ['b', 'c', 'a', 'd']);
+  assert.deepEqual(moveLane(['a', 'b', 'c', 'd'], 3, 1), ['a', 'd', 'b', 'c']);
+  // Dragging lane 0 down 1.6 lanes: lands at 2, lanes 1 and 2 step up.
+  assert.deepEqual(laneDrag(4, 0, 48, 30), { dy: 48, target: 2, shifts: [0, -30, -30, 0] });
+  // Dragging lane 3 up past the top is clamped to the stack.
+  assert.deepEqual(laneDrag(4, 3, -500, 30), { dy: -90, target: 0, shifts: [30, 30, 30, 0] });
+  assert.deepEqual(laneDrag(4, 1, 10, 30).target, 1);
 });

@@ -396,6 +396,7 @@ Three tabs:
   | Drag a step | retime it. Snaps to the grid chosen in **SNAP**, and to other steps' times; hold **Alt** to drag freely |
   | Double-click a lane | add the obvious step there (the valve toggles, the controller turns on or off, a milestone) |
   | Drag across empty space, or Shift+click | select several steps; dragging any of them moves them all |
+  | Drag a lane's grip (☰, left of its name) | reorder the lanes. The lane lifts and follows the pointer and the others step aside; the order is saved with the sequence |
   | **MOVE: RIPPLE** | moving a step carries every later step with it, keeping the gaps |
   | ← / → | nudge the selection by the snap step (Shift ×10) |
   | Del, Ctrl+D, Ctrl+Z / Ctrl+Y | delete, duplicate, undo / redo |

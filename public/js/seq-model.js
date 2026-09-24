@@ -109,7 +109,55 @@ export function buildLanes(seq, config, extra = []) {
   }
   valveKeys.forEach(addValve);
   ctrlKeys.forEach(addCtrl);
-  return lanes;
+  return applyLaneOrder(lanes, seq.lanes);
+}
+
+/**
+ * Put lanes in the order the operator dragged them into (`seq.lanes`, a
+ * list of lane keys saved with the sequence). Milestones stay on top. Lanes
+ * the saved order does not mention -- an actuator a later edit brought in --
+ * keep their natural place after the lane that precedes them naturally, so a
+ * new valve appears near its neighbours rather than always at the bottom.
+ */
+export function applyLaneOrder(lanes, order) {
+  if (!Array.isArray(order) || !order.length) return lanes;
+  const [events, ...rest] = lanes;
+  const byKey = new Map(rest.map((l) => [l.key, l]));
+  const out = order.filter((k) => byKey.has(k)).map((k) => byKey.get(k));
+  const placed = new Set(out.map((l) => l.key));
+  rest.forEach((lane, i) => {
+    if (placed.has(lane.key)) return;
+    const prev = rest.slice(0, i).reverse().find((l) => placed.has(l.key));
+    const at = prev ? out.indexOf(prev) + 1 : 0;
+    out.splice(at, 0, lane);
+    placed.add(lane.key);
+  });
+  return [events, ...out];
+}
+
+/** Move the lane at `from` to `to` (indices among the movable lanes). */
+export function moveLane(keys, from, to) {
+  const out = [...keys];
+  const [k] = out.splice(from, 1);
+  out.splice(to, 0, k);
+  return out;
+}
+
+/**
+ * Where a lane being dragged lands, and how far every other lane has to
+ * step aside while it is held there. All movable lanes are one height, `h`.
+ * Returns { dy, target, shifts } with `dy` clamped to the lane stack.
+ */
+export function laneDrag(count, from, rawDy, h) {
+  const dy = Math.max(-from * h, Math.min((count - 1 - from) * h, rawDy));
+  const target = Math.max(0, Math.min(count - 1, Math.round((from * h + dy) / h)));
+  const shifts = Array.from({ length: count }, (_, i) => {
+    if (i === from) return 0;
+    if (from < target && i > from && i <= target) return -h;
+    if (target < from && i >= target && i < from) return h;
+    return 0;
+  });
+  return { dy, target, shifts };
 }
 
 /** Which lanes a step is drawn on. A `*` bang-bang step sits on every controller. */
