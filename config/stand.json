@@ -2038,7 +2038,7 @@
         }
       },
       {
-        "type": "bottle",
+        "type": "compressor",
         "id": "AC-1",
         "x": 620,
         "y": 172,
@@ -2073,7 +2073,7 @@
         "labelOffset": 30
       },
       {
-        "type": "bottle",
+        "type": "dewar",
         "id": "DW-1",
         "x": 80,
         "y": 735,

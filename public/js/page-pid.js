@@ -9,7 +9,7 @@ import { bootPage } from './chrome.js';
 import { $, el, icon, fmtValue, fmtRate, fmtCurrent, coilState, shiftGate, toast } from './util.js';
 import {
   svgEl, svgText, renderComponent, renderValve, renderInstrument, renderPipe, renderJunction,
-  tileTraceBox, lineWidth,
+  tileTraceBox, lineWidth, symbolDefs,
 } from './pid-symbols.js';
 import { WINDOWS, windowChips, tracePath, drawTrace, statusColor, cssVar, windowed } from './spark.js';
 
@@ -65,7 +65,8 @@ svg.append(svgEl('defs', {},
       svgEl('stop', { offset: '100%', 'stop-color': '#ef4444', 'stop-opacity': '0' })
     );
     return grad;
-  })()
+  })(),
+  symbolDefs()
 ));
 
 const world = svgEl('g', { id: 'pid-world' });
@@ -639,8 +640,12 @@ function wireSimControls() {
     if (!node) continue;
     // Set pressures remain visible on the read-only drawing.
     const comp = P.components.find((c) => c.id === id);
-    const y = comp?.type === 'bottle' ? 18 : 36;
-    node.append(svgText('', { id: `simreg-${id}`, x: 0, y, class: 'pid-sublabel sim-set', 'text-anchor': 'middle' }));
+    // Under the symbol's own label: inside a single bottle, beside a
+    // compressor (whose label is on its right), below everything else.
+    const at = comp?.type === 'compressor'
+      ? { x: (comp.w ?? 84) / 2 + 8, y: 16, anchor: 'start' }
+      : { x: 0, y: comp?.type === 'bottle' ? 18 : 36, anchor: 'middle' };
+    node.append(svgText('', { id: `simreg-${id}`, x: at.x, y: at.y, class: 'pid-sublabel sim-set', 'text-anchor': at.anchor }));
     if (bus.spectator) continue;
     node.classList.add('sim-reg');
     node.setAttribute('tabindex', '0');
@@ -878,6 +883,15 @@ function updateInstruments() {
     const fillH = frac * h;
     rect.setAttribute('y', String(h / 2 - fillH));
     rect.setAttribute('height', String(fillH));
+
+    // The free surface rides on top of the liquid. Hidden when the tank is
+    // empty or brim full, where an ellipse would be drawn on a head.
+    const surface = document.getElementById(`surface-${comp.id}`);
+    if (surface) {
+      const visible = fillH > 2 && fillH < h - 2;
+      surface.setAttribute('display', visible ? 'inline' : 'none');
+      if (visible) surface.setAttribute('cy', String(h / 2 - fillH));
+    }
   }
 
   // --- engine plume ---

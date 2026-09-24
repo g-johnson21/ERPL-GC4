@@ -152,59 +152,130 @@
 
 /* ------------------------------------------------------------- symbols --- */
 
-/* Line art. Every symbol is a thin outline in the secondary ink over the
-   page black; state is carried by colour on the outline, not by a mass of
-   fill. */
+/* Line art, drawn like a technical drawing rather than an icon set: 1.25px
+   strokes, mitred corners, butt ends, and bodies filled in a dark metal
+   tone instead of the page colour so a symbol reads as a solid part.
+   State is carried by colour on the outline, not by a mass of fill. */
+:root { --metal: color-mix(in srgb, var(--text) 9%, var(--bg)); --metal-2: color-mix(in srgb, var(--text) 16%, var(--bg)); }
+
+/* Hologram inks for the vessels. A neutral, faintly cool silver on dark --
+   deliberately not blue, so the only colour inside a tank is its liquid --
+   and graphite on light, where a pale glow would vanish into the page. */
+:root {
+  --holo-rim: #3f3f46;
+  --holo-line: #52525b;
+}
+[data-theme="dark"] {
+  --holo-rim: #eef1f4;
+  --holo-line: #c9ced4;
+}
+.holo-stop { stop-color: var(--holo-rim); }
+.holo-scan { fill: var(--holo-rim); opacity: .05; }
+
 .sym-fill {
-  fill: var(--bg);
+  fill: var(--metal);
   stroke: var(--text-muted);
-  stroke-width: 1.5;
-  stroke-linejoin: round;
+  stroke-width: 1.25;
+  stroke-linejoin: miter;
 }
 .sym-fill-strong {
-  fill: var(--surface-2);
+  fill: var(--metal-2);
   stroke: var(--text-muted);
-  stroke-width: 1.5;
-  stroke-linejoin: round;
+  stroke-width: 1.25;
+  stroke-linejoin: miter;
 }
 .sym-line {
   stroke: var(--text-muted);
-  stroke-width: 1.5;
-  stroke-linecap: round;
+  stroke-width: 1.25;
+  stroke-linecap: butt;
+  stroke-linejoin: miter;
   fill: none;
 }
 .sym-line-thin {
   stroke: var(--text-muted);
-  stroke-width: 1.3;
-  stroke-linecap: round;
+  stroke-width: .9;
+  stroke-linecap: butt;
   fill: none;
 }
+/* Small machined parts: bosses, valve bodies, handwheels, casters. */
+.sym-metal {
+  fill: color-mix(in srgb, var(--holo-rim) 9%, transparent);
+  stroke: var(--holo-line);
+  stroke-width: .9;
+}
+/* The ball in a ball valve: solid, so it reads as the closure element. */
+.sym-ball { fill: var(--text-muted); stroke: none; }
+.sym-winding { stroke: var(--text-faint); stroke-width: .9; fill: none; }
+.sym-element { stroke: var(--text-muted); stroke-width: 1; stroke-dasharray: 2.5 2; }
+.sym-bolt { fill: color-mix(in srgb, var(--holo-rim) 55%, transparent); }
+.sym-ring { fill: none; stroke: var(--holo-line); stroke-width: 1.3; }
+
+/* Vessels, as a soft hologram: a near-clear body, rim light at the
+   silhouette, fine scanlines, and a glowing outline. What would be hidden on
+   a solid part -- the back of a seam, the inner wall, the internals -- is
+   drawn faint, so the eye reads the vessel as something it is looking into. */
 .sym-vessel {
-  fill: var(--surface);
+  fill: color-mix(in srgb, var(--holo-rim) 4%, transparent);
   stroke: none;
 }
-.sym-chamber {
-  fill: var(--surface);
-  stroke: var(--text-muted);
-  stroke-width: 1.6;
-  stroke-linejoin: round;
-}
+.sym-shade, .sym-scan, .sym-hot { stroke: none; pointer-events: none; }
 .sym-vessel-stroke {
   fill: none;
-  stroke: var(--text-muted);
-  stroke-width: 1.6;
+  stroke: var(--holo-line);
+  stroke-width: 1.15;
   stroke-linejoin: round;
+  filter: url(#pid-glow);
 }
-/* Tank fill: a solid block of the fluid's colour from the bottom up. */
+.sym-liner {
+  fill: none;
+  stroke: color-mix(in srgb, var(--holo-rim) 22%, transparent);
+  stroke-width: .7;
+}
+.sym-internal {
+  fill: none;
+  stroke: color-mix(in srgb, var(--holo-rim) 32%, transparent);
+  stroke-width: .8;
+}
+.sym-hidden {
+  fill: none;
+  stroke: color-mix(in srgb, var(--holo-rim) 22%, transparent);
+  stroke-width: .7;
+  stroke-dasharray: 2.5 2.5;
+}
+/* Girth seams and ribs: fine lines that give the shell its curvature. */
+.sym-seam {
+  fill: none;
+  stroke: color-mix(in srgb, var(--holo-rim) 48%, transparent);
+  stroke-width: .8;
+}
+/* Frame straps: a band standing just proud of the shell. */
+.sym-strap {
+  fill: none;
+  stroke: color-mix(in srgb, var(--holo-rim) 26%, transparent);
+  stroke-width: 2.4;
+  stroke-linecap: butt;
+}
+/* Tank fill: a solid block of the fluid's colour from the bottom up, with
+   its free surface lighter and outlined, the way the top of a liquid
+   catches light. */
 .sym-level {
   transition: y .25s linear, height .25s linear;
-  opacity: .72;
+  opacity: .55;
+}
+/* The free surface glows: the brightest thing inside the tank, so the level
+   is found first. */
+.sym-surface {
+  opacity: .9;
+  stroke: rgb(255 255 255 / 55%);
+  stroke-width: .9;
+  filter: brightness(1.45) url(#pid-glow);
+  transition: cy .25s linear;
 }
 .sym-tank-level {
   fill: var(--text);
   font-family: var(--mono);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: .02em;
   /* Painted over the liquid fill, so it carries its own halo — the fill
      colour changes with the fluid and cannot be relied on for contrast. */
@@ -216,11 +287,11 @@
 .sym-glyph {
   fill: var(--text-muted);
   font-family: var(--mono);
-  font-size: 10px;
-  font-weight: 600;
+  font-size: 9px;
+  font-weight: 500;
   text-anchor: middle;
 }
-.sym-spark { fill: var(--warn); stroke: none; }
+.sym-spark { fill: none; stroke: var(--warn); stroke-width: 1.4; stroke-linejoin: miter; }
 .sym-plume {
   fill: url(#plume-gradient);
   transition: opacity .12s linear;
@@ -233,6 +304,7 @@
 .pid-component.passive .sym-fill,
 .pid-component.passive .sym-line,
 .pid-component.passive .sym-line-thin { stroke: var(--text-faint); }
+.pid-component.passive .sym-ball { fill: var(--text-faint); }
 
 /* Simulator only: the hand valves and regulators become controls. They keep
    the muted ink at rest -- they are still not the stand's actuators -- but
@@ -337,6 +409,8 @@ body.spectator .pid-valve { cursor: default; pointer-events: none; }
   stroke-width: 2;
 }
 .pid-valve[data-state="open"] .sym-line { stroke: var(--ok); }
+.pid-valve[data-state="open"] .sym-ball { fill: var(--ok); }
+.pid-valve[data-state="open"] .sym-winding { stroke: color-mix(in srgb, var(--ok) 70%, transparent); }
 .pid-valve[data-state="open"] .sym-glyph { fill: var(--ok); }
 
 .pid-valve[data-hazard="true"][data-state="open"] .sym-fill,
@@ -593,6 +667,16 @@ body.shift-armed .pid-valve[data-needs-shift="true"] .pid-hit {
   letter-spacing: .02em;
 }
 .pid-label.strong { fill: var(--text-muted); font-weight: 500; font-size: 9.5px; }
+/* A label painted ON a vessel -- a tank's name in its dome -- sits on shaded
+   metal, where the page-colour halo reads as a smudge. It goes without, in
+   brighter ink, like lettering stencilled on the shell. */
+.pid-component[data-comp-type="tank"] .pid-label,
+.pid-component[data-comp-type="tank"] .pid-sublabel {
+  stroke: none;
+  fill: color-mix(in srgb, var(--text) 85%, transparent);
+  letter-spacing: .08em;
+}
+.pid-component[data-comp-type="tank"] .pid-sublabel { fill: var(--text-muted); }
 .pid-sublabel {
   fill: var(--text-faint);
   font-family: var(--mono);
