@@ -278,6 +278,7 @@ font files is the one step left to make every station match exactly.
 | §5.6 plot panels with in-plot legend and right axis | **Partly** — the P&ID hover card has a trace with its range on the right; no standalone plot panels yet | `page-pid.js` hover card |
 | §5.5 sequence cards with pause/play/stop cluster | **Not done** — sequences are a hairline list of rows | `components.css` `.seq-list` |
 | §5.7 test / verification runner | Not done | — |
+| §4 sidebar list, §5.4 segments, §5.6 chips, §5.8 step tabs, §6 pencil / bold number | Done — the autosequence editor (§9a) | `seq-editor.js`, `seq-model.js`, `components.css` `.sq-*` |
 | §5.8 discovery wizard modal | Not done | — |
 | §6 `UPDATED` freshness stamp | Done, on the P&ID toolbar only | `page-pid.js` `updateStamp` |
 
@@ -333,6 +334,36 @@ fixed design widths and zoomed as one (`--fit`, set by `sidebar-fit.js`) to the 
 value at which everything fits the window height *and* the sidebar takes at most ~36% of
 the width. The two bang-bang cards always stack. Measured: 23% of the width at 2560×1440,
 34% at 1600×900, 33% at 1067×600 (≈150% browser zoom), with nothing below the fold.
+
+### 9a. The autosequence editor
+
+The old editor was four stacked cards: settings, a strip of unlabelled ticks, a
+table of dropdowns per step, and abort conditions. Retiming meant typing, and
+seeing when a valve was open meant finding two rows that could be ten apart.
+
+It is now drawn as what the sequence **does**. There is one swimlane per
+actuator, and an open window is a lit bar between the step that opens it and the
+step that closes it. This is the P&ID's rule applied to time: colour means live,
+green open, red for a hazardous actuator, blue for a regulating controller.
+Steps are handles you drag, and they snap to the grid and to each other. Under
+the timeline the same run reads as a countdown sheet (`T+`, gap, action), and a
+single inspector edits whatever is selected. The page follows the rest of the
+station:
+- a picker list as in §4;
+- an eyebrow-labelled toolbar strip with segmented `SNAP` / `MOVE` / `ZOOM`
+  controls;
+- the P&ID's state chips in the lane gutter, showing each lane's state under
+  the cursor;
+- step tabs in the inspector;
+- an inline-editable title with ✎, and a meta line that bolds the numbers.
+
+Selection, the insert pin and the preview playhead use the accent, the signal
+colour. The only amber is the live playhead and lint.
+
+What a sequence means over time lives in `seq-model.js`, with no DOM. It covers
+SAFE ALL and ABORT STATES moving every valve, momentary pulses closing
+themselves, and END/ABORT cutting off what follows. The lanes, the script and
+the lint therefore agree, and all of it is unit-tested.
 
 ---
 
@@ -422,6 +453,15 @@ full-width stage is wider. Removing the space means changing the drawing's propo
   .section-title {` earlier in the file and duplicated ~180 lines of `base.css`; the stale
   copy then won the cascade. Anchor a replacement on text that is unique *and* after the
   start point, assert exactly one match, and diff against `HEAD` afterwards.
+
+**Keys**
+- **Esc is ABORT on every page** (`chrome.js`), from inside text fields too. Never
+  bind it to anything local ("deselect", "close panel"). An editor that teaches
+  "press Esc to deselect" teaches operators to abort the stand. Testing the
+  sequence editor with Esc-to-deselect latched an abort on the simulator. Only
+  a modal dialog may take Esc, and it stops the event first.
+- `t` (theme) and `\` (sidebar) are global too. Check `chrome.js` before adding
+  a single-key shortcut.
 
 **Merging**
 - `git merge-tree --write-tree A B` previews a merge without touching the working tree —
