@@ -8,6 +8,7 @@
  * leave the UI showing a valve position that isn't real.
  */
 import { toast } from './util.js';
+import { MAX_WINDOW_S } from './spark.js';
 
 class Bus {
   constructor() {
@@ -36,7 +37,9 @@ class Bus {
       this.auth = await fetch('/api/auth').then((r) => (r.ok ? r.json() : null));
     } catch { this.auth = null; }
 
-    const limitSeconds = Math.max(this.config.ui.sparklineSeconds || 60, 120);
+    // Long enough for the widest trend-window chip (see spark.js), so a 5m
+    // window is a full five minutes rather than whatever happened to fit.
+    const limitSeconds = Math.max(this.config.ui.sparklineSeconds || 60, MAX_WINDOW_S);
     this.historyLimit = Math.ceil(limitSeconds * (this.config.telemetry.streamRateHz || 20));
 
     try {
@@ -216,7 +219,11 @@ class Bus {
     if (!series) { series = { t: [], v: [] }; this.history.set(id, series); }
     series.t.push(t);
     series.v.push(value);
-    if (series.t.length > this.historyLimit) {
+    // Trimmed in chunks, not one sample at a time. splice(0, 1) shifts the
+    // whole array, and at 15,000 samples x 30 channels x 50 Hz that was the
+    // most expensive thing the page did. Letting the buffer run 10% long
+    // makes the shift happen once every few seconds instead of every sample.
+    if (series.t.length > this.historyLimit * 1.1) {
       const drop = series.t.length - this.historyLimit;
       series.t.splice(0, drop);
       series.v.splice(0, drop);

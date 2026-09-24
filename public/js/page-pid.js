@@ -6,8 +6,12 @@
  */
 import { bus } from './bus.js';
 import { bootPage } from './chrome.js';
-import { $, el, icon, fmtValue, fmtCurrent, coilState, shiftGate, toast } from './util.js';
-import { svgEl, svgText, renderComponent, renderValve, renderInstrument, renderPipe, renderJunction } from './pid-symbols.js';
+import { $, el, icon, fmtValue, fmtRate, fmtCurrent, coilState, shiftGate, toast } from './util.js';
+import {
+  svgEl, svgText, renderComponent, renderValve, renderInstrument, renderPipe, renderJunction,
+  tileTraceBox, lineWidth,
+} from './pid-symbols.js';
+import { WINDOWS, windowChips, tracePath, drawTrace, statusColor, cssVar, windowed } from './spark.js';
 
 const content = await bootPage('pid');
 const P = bus.config.pid;
@@ -122,7 +126,10 @@ for (const valve of bus.config.valves) {
 
 for (const sensor of bus.config.sensors) {
   const node = renderInstrument(sensor, bus.sensorGroup(sensor.id));
-  if (node) layerInstruments.append(node);
+  if (!node) continue;
+  node.addEventListener('pointerenter', () => openHoverCard(sensor));
+  node.addEventListener('pointerleave', () => closeHoverCard(sensor));
+  layerInstruments.append(node);
 }
 
 // The toolbar is built at the bottom of this module, after the pan/zoom state
@@ -241,7 +248,7 @@ function setLocked(locked) {
       ? 'View locked — click to allow pan and zoom (L)'
       : 'Lock the view so it cannot be panned or zoomed by accident (L)';
     btn.setAttribute('aria-pressed', String(locked));
-    btn.innerHTML = icon(locked ? 'lock' : 'unlock', 15);
+    btn.innerHTML = icon(locked ? 'lock' : 'unlock', 14);
   }
   for (const b of document.querySelectorAll('.pid-zoom-ctl')) b.disabled = locked;
   if (locked) endDrag();
@@ -259,13 +266,24 @@ document.addEventListener('keydown', (e) => {
 });
 
 function buildToolbar() {
+  const tare = levelTareChips();
   stage.append(el('div.pid-toolbar', {},
+    // The trend window for every value tile on the drawing and the hover card.
+    el('span.pid-tb-label', { text: 'TREND' }),
+    windowChips(el, trendSeconds, (s) => {
+      trendSeconds = s;
+      try { localStorage.setItem('gc4-pid-window', String(s)); } catch { /* ignore */ }
+      lastTraceAt = 0;
+      updateTraces();
+    }, 'Trend window for the value tiles'),
+    el('span.pid-tb-sep'),
     el('button.icon-btn.pid-zoom-ctl', { title: 'Zoom out (−)', text: '−', onclick: () => zoomByButton(1 / 1.2) }),
     el('div.pid-zoom-level#zoom-level', { text: '100%' }),
     el('button.icon-btn.pid-zoom-ctl', { title: 'Zoom in (+)', text: '+', onclick: () => zoomByButton(1.2) }),
-    el('button.icon-btn.pid-zoom-ctl', { title: 'Reset view (0)', html: icon('refresh', 15), onclick: resetView }),
+    el('button.icon-btn.pid-zoom-ctl', { title: 'Reset view (0)', html: icon('refresh', 14), onclick: resetView }),
     el('button.icon-btn#pid-lock', { onclick: () => setLocked(!viewLocked) }),
-    ...levelTareChips()
+    tare.length ? el('span.pid-tb-sep') : null,
+    ...tare
   ));
   setLocked(viewLocked);
 }
@@ -322,12 +340,160 @@ function savePref(key, value) {
   try { localStorage.setItem(key, String(value)); } catch { /* ignore */ }
 }
 
+/**
+ * The key, bottom left: what each line colour carries, then what a live line
+ * and an open valve look like. A line drawn grey is not a different fluid --
+ * it is the same line at rest -- and the key says so, or the first operator
+ * to see a dim LOX run will ask where the LOX went.
+ */
 function buildLegend() {
   stage.append(el('div.pid-legend', {},
-    Object.entries(P.fluids).map(([key, f]) =>
-      el('span.lg', {}, el('i', { style: { background: f.color } }), f.label || key)
+    el('div.lg-row', {},
+      Object.entries(P.fluids).map(([key, f]) =>
+        el('span.lg', {}, el('i', { style: { background: f.color } }), f.label || key)
+      )
+    ),
+    el('div.lg-row.lg-states', {},
+      el('span.lg', {}, el('i.lg-idle'), 'at rest'),
+      el('span.lg', {}, el('i.lg-live'), 'pressurized / flowing'),
+      el('span.lg', {}, el('b.lg-chip.open', { text: 'OPEN' }), el('b.lg-chip', { text: 'CLOSED' }))
     )
   ));
+}
+
+/**
+ * Data freshness, bottom right: when the reading on screen was taken, and
+ * how fast they are arriving. A frozen drawing and a quiet stand look
+ * identical; this is the line that tells them apart.
+ */
+function buildStamp() {
+  stage.append(el('div.pid-stamp', {},
+    el('span.pid-stamp-dot#pid-stamp-dot'),
+    el('span', { text: 'UPDATED ' }),
+    el('span.pid-stamp-t#pid-stamp-t', { text: '--:--:--.-' })
+  ));
+}
+
+function updateStamp() {
+  const t = bus.state?.t;
+  const node = $('#pid-stamp-t');
+  if (!node || !t) return;
+  const d = new Date(t);
+  const pad = (n, k = 2) => String(n).padStart(k, '0');
+  node.textContent = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${Math.floor(d.getMilliseconds() / 100)}`;
+  const age = Date.now() - t;
+  $('#pid-stamp-dot').dataset.state = age < 1500 ? 'live' : age < 5000 ? 'late' : 'stale';
+}
+
+// --------------------------------------------------------- value tile trends --
+
+let trendSeconds = (() => {
+  let v = 30;
+  try { v = Number(localStorage.getItem('gc4-pid-window')) || 30; } catch { /* ignore */ }
+  return WINDOWS.some((w) => w.s === v) ? v : 30;
+})();
+
+/**
+ * Redraw the hairline trace in each value tile. Throttled to ~6 Hz: a trace
+ * eight pixels tall does not visibly change between frames at the stream
+ * rate, and twenty of them rebuilt at 50 Hz is work for nothing.
+ */
+let lastTraceAt = 0;
+function updateTraces() {
+  const now = Date.now();
+  if (now - lastTraceAt < 160) return;
+  lastTraceAt = now;
+  for (const sensor of bus.config.sensors) {
+    if (!sensor.pid) continue;
+    const path = document.getElementById(`pis-${sensor.id}`);
+    if (!path) continue;
+    const b = tileTraceBox(sensor);
+    path.setAttribute('d', tracePath(bus.history.get(sensor.id), trendSeconds, b.w, b.h, b.x, b.y, now));
+  }
+}
+
+// ---------------------------------------------------------------- hover card --
+
+/**
+ * Hovering a value tile opens a card beside it with the channel's full name,
+ * a readable trend over the same window as the tiles, and its extremes. The
+ * tile answers "what is it"; the card answers "what has it been doing" without
+ * leaving the drawing for the Data page.
+ */
+let hover = null;   // { sensor, node }
+
+function openHoverCard(sensor) {
+  if (dragging) return;
+  closeHoverCard();
+  const group = bus.sensorGroup(sensor.id);
+  const node = el('div.pid-hovercard', { style: { '--group-color': group?.color || '#64748b' } },
+    el('div.phc-head', {},
+      el('span.phc-eyebrow', {}, el('span.group-swatch'), group?.label || 'Sensor'),
+      el('span.phc-ch', { text: `ch ${sensor.channel}` })
+    ),
+    el('div.phc-name', {}, el('span.phc-tag', { text: sensor.id }), sensor.name),
+    el('div.phc-value', {},
+      el('span#phc-v', { text: '––––' }),
+      el('span.phc-unit', { text: sensor.units }),
+      el('span.phc-rate#phc-rate', { text: '' })
+    ),
+    el('canvas.phc-trace#phc-trace'),
+    el('div.phc-foot', {},
+      el('span', {}, el('i', { text: 'MIN ' }), el('span#phc-min', { text: '––' })),
+      el('span', {}, el('i', { text: 'MAX ' }), el('span#phc-max', { text: '––' })),
+      el('span.phc-win#phc-win', { text: '' })
+    )
+  );
+  stage.append(node);
+  hover = { sensor, node };
+  placeHoverCard();
+  updateHoverCard();
+}
+
+function closeHoverCard(sensor) {
+  if (!hover || (sensor && hover.sensor !== sensor)) return;
+  hover.node.remove();
+  hover = null;
+}
+
+/** Beside the tile, on whichever side has room, clamped inside the stage. */
+function placeHoverCard() {
+  const tile = document.getElementById(`pi-${hover.sensor.id}`)?.querySelector('.pid-tile');
+  if (!tile) return;
+  const s = stage.getBoundingClientRect();
+  const t = tile.getBoundingClientRect();
+  const cw = hover.node.offsetWidth, ch = hover.node.offsetHeight;
+  let x = t.right - s.left + 10;
+  if (x + cw > s.width - 8) x = t.left - s.left - cw - 10;
+  let y = t.top - s.top + t.height / 2 - ch / 2;
+  y = Math.max(8, Math.min(s.height - ch - 8, y));
+  hover.node.style.left = `${Math.max(8, x)}px`;
+  hover.node.style.top = `${y}px`;
+}
+
+function updateHoverCard() {
+  if (!hover) return;
+  const { sensor, node } = hover;
+  const status = bus.sensorStatus(sensor.id);
+  node.dataset.status = status;
+  $('#phc-v').textContent = fmtValue(bus.reading(sensor.id), sensor.decimals);
+  const rate = fmtRate(bus.rate(sensor.id, 3), sensor);
+  const r = $('#phc-rate');
+  r.textContent = rate.text;
+  r.dataset.dir = rate.dir;
+
+  const series = bus.history.get(sensor.id);
+  const win = windowed(series, trendSeconds, 1);
+  $('#phc-min').textContent = win ? fmtValue(win.lo, sensor.decimals) : '––';
+  $('#phc-max').textContent = win ? fmtValue(win.hi, sensor.decimals) : '––';
+  $('#phc-win').textContent = WINDOWS.find((w) => w.s === trendSeconds)?.label ?? '';
+
+  drawTrace($('#phc-trace'), series, trendSeconds, {
+    color: statusColor(status),
+    fill: status === 'danger' || status === 'warn',
+    grid: cssVar('--border', '#232326'),
+    axis: cssVar('--text-faint', '#6b6b70'),
+  });
 }
 
 // ------------------------------------------------------------ tank level --
@@ -432,6 +598,7 @@ let simWired = false;
 
 buildToolbar();
 buildLegend();
+buildStamp();
 
 bus.on('state', update);
 update();
@@ -602,9 +769,9 @@ function update() {
       base.dataset.pressurized = String(pressurized);
       // Width lives in an inline style (it comes from the fluid), so the
       // bold weight is set the same way rather than fought from CSS.
-      base.style.strokeWidth = `${pipeWidth(pipe) + (bold ? 1.5 : 0)}px`;
+      base.style.strokeWidth = `${pipeWidth(pipe) + (bold ? 0.75 : 0)}px`;
     }
-    if (flow) flow.setAttribute('opacity', flowing ? '0.85' : '0');
+    if (flow) flow.setAttribute('opacity', flowing ? '0.75' : '0');
   }
   for (const j of junctions) {
     j.node.dataset.on = String([...j.pipes].some((id) => boldPipes.has(id)));
@@ -631,6 +798,9 @@ function update() {
   }
 
   updateInstruments();
+  updateTraces();
+  updateHoverCard();
+  updateStamp();
   updateLevelTareChips();
   updateSimControls();
 }
@@ -731,9 +901,9 @@ function updateInstruments() {
 // ------------------------------------------------------------------ utils --
 
 function pipeWidth(pipe) {
-  const w = Number(P.fluids?.[pipe.fluid]?.width);
-  return Number.isFinite(w) ? w : 4;
+  return lineWidth(P.fluids?.[pipe.fluid]);
 }
+
 
 /**
  * Whether a line's section reads pressurized on its own transducer.

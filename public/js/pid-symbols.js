@@ -440,6 +440,9 @@ function labelOffsetFor(c) {
   }
 }
 
+/** Width of a valve's state chip — fits CLOSED / PURGE / VENT in 8.5px mono. */
+const VALVE_CHIP_W = 42;
+
 /** Interactive actuator symbol. Returns the <g>; caller wires the click. */
 export function renderValve(valve, groupColor) {
   const type = `valve-${valve.type}`;
@@ -482,9 +485,20 @@ export function renderValve(valve, groupColor) {
     || (rot === 90 ? 'left' : (rot === -90 || rot === 270) ? 'right' : 'bottom');
   const lx = side === 'right' ? 34 : side === 'left' ? -34 : 0;
   const anchor = side === 'right' ? 'start' : side === 'left' ? 'end' : 'middle';
-  const ly = side === 'bottom' ? 42 : 2;
+  const ly = side === 'bottom' ? 40 : -2;
   g.append(svgText(p.tag || valve.id, { x: lx, y: ly, class: 'pid-label strong', 'text-anchor': anchor }));
-  g.append(svgText('', { x: lx, y: ly + 11, class: 'pid-valve-state', id: `pvs-${valve.id}`, 'text-anchor': anchor }));
+
+  // The state, boxed: a small caps chip under the tag, the way a segmented
+  // control shows its lit half. Hairline and faint ink while closed; the
+  // outline and text take the open colour when it opens. Fixed width, so a
+  // chip does not grow and shrink as OPEN becomes CLOSED.
+  const chipW = VALVE_CHIP_W, chipH = 12;
+  const cx = anchor === 'start' ? lx + chipW / 2 : anchor === 'end' ? lx - chipW / 2 : lx;
+  const cy = ly + 5 + chipH / 2;
+  g.append(svgEl('g', { class: 'pid-state-chip', transform: `translate(${cx},${cy})` },
+    svgEl('rect', { x: -chipW / 2, y: -chipH / 2, width: chipW, height: chipH, rx: 1.5, class: 'pid-state-box' }),
+    svgText('', { x: 0, y: 3, class: 'pid-valve-state', id: `pvs-${valve.id}`, 'text-anchor': 'middle' })
+  ));
 
   // Coil state as MEASURED, not as commanded.
   //
@@ -505,39 +519,58 @@ export function renderValve(valve, groupColor) {
   return g;
 }
 
-/** ISA instrument bubble with live value, plus its lead line to the tap. */
 /**
- * ISA instrument bubble.
+ * Instrument value tile, pinned to the drawing beside the tap it reads.
  *
- * `group` carries the colour, so a glance at the drawing separates the LOX
- * side from the fuel side and both from the thermocouples and load cells,
- * without reading a single tag. Alarm state still repaints the bubble on top
- * of it — knowing a channel is a TC matters less than knowing it is in danger.
+ *   ┌──────────┐
+ *   ▌PT21      │   tag, mono, quiet — the group colour is the tick on the left
+ *   ▌ 14.6 psi │   live value, right-aligned, with a dim unit
+ *   ▌ ~~~~~~~~ │   the last few seconds of it, as a hairline trace
+ *   └──────────┘
+ *
+ * Replaces the ISA bubble. A bubble is the right symbol on a paper drawing,
+ * where it names an instrument; on a live screen the thing an operator needs
+ * is the number and which way it is heading, and a circle is the worst shape
+ * to fit either into. The tile is centred where the bubble was, so every
+ * `pid.x/y` in the config still lands in the same place.
+ *
+ * `group` carries the colour, so a glance separates the LOX side from the fuel
+ * side and both from the thermocouples and load cells. Alarm state repaints
+ * the tile's outline and value on top of that — knowing a channel is a TC
+ * matters less than knowing it is in danger.
  */
+export const TILE = { w: 62, h: 42 };
+
 export function renderInstrument(sensor, group) {
   const p = sensor.pid;
   if (!p) return null;
+  const w = p.w ?? TILE.w, h = TILE.h;
+  const x0 = p.x - w / 2, y0 = p.y - h / 2;
 
   const g = svgEl('g', {
     class: 'pid-instrument',
     id: `pi-${sensor.id}`,
-    dataset: { status: 'stale' },
+    dataset: { status: 'stale', sensorId: sensor.id },
     style: group?.color ? `--group-color: ${group.color}` : '',
   });
 
   if (p.lead) {
-    g.append(svgEl('line', {
-      x1: p.x, y1: p.y, x2: p.lead[0], y2: p.lead[1],
-      class: 'pid-lead',
-    }));
+    g.append(
+      svgEl('line', { x1: p.x, y1: p.y, x2: p.lead[0], y2: p.lead[1], class: 'pid-lead' }),
+      // The tap: where on the process the reading is taken.
+      svgEl('circle', { cx: p.lead[0], cy: p.lead[1], r: 2.2, class: 'pid-tap' })
+    );
   }
 
   g.append(
-    svgEl('circle', { cx: p.x, cy: p.y, r: 26, class: 'pid-bubble' }),
-    svgEl('line', { x1: p.x - 26, y1: p.y - 1, x2: p.x + 26, y2: p.y - 1, class: 'pid-bubble-div' }),
-    svgEl('text', { x: p.x, y: p.y - 7, class: 'pid-tag', 'text-anchor': 'middle' }, document.createTextNode(sensor.id)),
-    svgEl('text', { x: p.x, y: p.y + 13, class: 'pid-reading', id: `pir-${sensor.id}`, 'text-anchor': 'middle' },
-      document.createTextNode('––––')),
+    svgEl('rect', { x: x0, y: y0, width: w, height: h, rx: 2, class: 'pid-tile' }),
+    svgEl('rect', { x: x0, y: y0, width: 2, height: h, class: 'pid-tile-tick' }),
+    svgEl('text', { x: x0 + 7, y: y0 + 11, class: 'pid-tag' }, document.createTextNode(sensor.id)),
+    svgEl('text', { x: x0 + w - 6, y: y0 + 26, class: 'pid-reading', 'text-anchor': 'end' },
+      svgEl('tspan', { id: `pir-${sensor.id}` }, document.createTextNode('––––')),
+      svgEl('tspan', { class: 'pid-unit', dx: 2 }, document.createTextNode(sensor.units || ''))
+    ),
+    svgEl('path', { id: `pis-${sensor.id}`, class: 'pid-tile-trace', d: '' }),
     svgEl('title', {}, document.createTextNode(
       `${sensor.id} — ${sensor.name} (${sensor.units})${group ? ` · ${group.label}` : ''}`))
   );
@@ -545,16 +578,25 @@ export function renderInstrument(sensor, group) {
   return g;
 }
 
+/** Box, in drawing units, that an instrument tile's trace is drawn into. */
+export function tileTraceBox(sensor) {
+  const w = sensor.pid.w ?? TILE.w;
+  return { x: sensor.pid.x - w / 2 + 7, y: sensor.pid.y - TILE.h / 2 + 30, w: w - 13, h: 8 };
+}
+
 /** Process line. Returns {node, flowNode} — flowNode carries the flow dashes. */
 export function renderPipe(pipe, fluidCfg) {
   const fluid = fluidCfg[pipe.fluid] || { color: '#888', width: 4 };
   const d = pipe.points.map((pt, i) => `${i === 0 ? 'M' : 'L'}${pt[0]},${pt[1]}`).join(' ');
 
+  // The fluid colour rides in as a variable so the stylesheet decides how
+  // much of it to show: a line at rest is drawn mostly grey, a live one in
+  // full colour. Width is set by page-pid.js from `lineWidth()`.
   const base = svgEl('path', {
     d,
     class: 'pid-pipe',
     id: `pipe-${pipe.id}`,
-    style: `stroke: ${fluid.color}; stroke-width: ${fluid.width}px`,
+    style: `--pipe-color: ${fluid.color}; stroke-width: ${lineWidth(fluid)}px`,
     fill: 'none',
   });
 
@@ -562,7 +604,7 @@ export function renderPipe(pipe, fluidCfg) {
     d,
     class: 'pid-flow',
     id: `flow-${pipe.id}`,
-    style: `stroke-width: ${Math.max(2, fluid.width - 2)}px`,
+    style: `stroke-width: ${Math.max(1, lineWidth(fluid) - 0.5)}px`,
     fill: 'none',
     opacity: 0,
   });
@@ -570,7 +612,18 @@ export function renderPipe(pipe, fluidCfg) {
   return { base, flow };
 }
 
+/**
+ * Drawn line weight for a fluid. The config's `width` was set for heavy
+ * 3-6px lines; the drawing now uses hairline process lines in the ratio the
+ * config asks for -- a propellant run still reads heavier than a purge line,
+ * just at roughly half the weight.
+ */
+export function lineWidth(fluid) {
+  const w = Number(fluid?.width);
+  return Math.max(1.5, (Number.isFinite(w) ? w : 4) * 0.45);
+}
+
 /** Small filled dot marking a tee, so branches read unambiguously. */
 export function renderJunction(x, y, color) {
-  return svgEl('circle', { cx: x, cy: y, r: 4.5, class: 'pid-junction', style: `fill:${color}` });
+  return svgEl('circle', { cx: x, cy: y, r: 3, class: 'pid-junction', style: `--pipe-color:${color}` });
 }

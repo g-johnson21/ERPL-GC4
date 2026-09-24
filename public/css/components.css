@@ -7,15 +7,15 @@
 .valve-grid {
   display: grid;
   grid-template-columns: repeat(var(--cols, 4), minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
 }
 
 .valve-btn {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 7px;
-  padding: 11px 12px 12px;
+  gap: 6px;
+  padding: 9px 10px 10px 11px;
   border-radius: var(--radius);
   border: 1px solid var(--border);
   background: var(--surface);
@@ -24,19 +24,20 @@
   font: inherit;
   cursor: pointer;
   overflow: hidden;
-  box-shadow: var(--shadow);
+  transition: background-color .1s, border-color .1s;
 }
+/* The group colour is a 2px tick down the left edge -- identity, not state. */
 .valve-btn::before {
   content: "";
   position: absolute;
   inset: 0 auto 0 0;
-  width: 3px;
+  width: 2px;
   background: var(--group-color, var(--idle));
+  opacity: .85;
 }
-.valve-btn:hover:not(:disabled) { border-color: var(--border-strong); }
-.valve-btn:active:not(:disabled) { transform: translateY(1px); }
-.valve-btn:disabled { opacity: .5; cursor: not-allowed; }
-.valve-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.valve-btn:hover:not(:disabled) { border-color: var(--border-strong); background: var(--surface-2); }
+.valve-btn:disabled { opacity: .45; cursor: not-allowed; }
+.valve-btn:focus-visible { outline: 1px solid var(--text-muted); outline-offset: 1px; }
 
 .valve-btn .v-top {
   display: flex;
@@ -48,7 +49,7 @@
    operator confirms and says on comms, not the thing they scan for. */
 .valve-btn .v-id {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 10.5px;
   color: var(--text-faint);
   letter-spacing: .02em;
   line-height: 1.3;
@@ -67,39 +68,44 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 9.5px;
+  font-family: var(--mono);
+  font-size: 9px;
   text-transform: uppercase;
-  letter-spacing: .07em;
+  letter-spacing: .08em;
   color: var(--text-faint);
   border: 1px solid var(--border);
-  border-radius: 3px;
-  padding: 1px 4px;
+  border-radius: var(--radius-sm);
+  padding: 0 4px;
 }
 /* The name now leads the card. `min-height` reserves two lines on every card
    whether or not this one wraps, so a long name cannot shove one card's state
    row out of line with its neighbours'. */
 .valve-btn .v-name {
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 500;
   color: var(--text);
   line-height: 1.3;
   min-height: 2.6em;
 }
+/* The state readout: caps mono in a hairline box, like a segmented control
+   showing its active half. Colour arrives only when the valve is open. */
 .valve-btn .v-state {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 7px;
-  padding: 7px;
+  padding: 5px;
   border-radius: var(--radius-sm);
-  font-weight: 800;
-  font-size: 13px;
-  letter-spacing: .08em;
-  background: var(--idle-bg);
-  color: var(--idle);
+  border: 1px solid var(--border);
+  font-family: var(--mono);
+  font-weight: 500;
+  font-size: 11px;
+  letter-spacing: .1em;
+  background: var(--bg);
+  color: var(--text-faint);
 }
 .valve-btn .v-state .led {
-  width: 9px; height: 9px;
+  width: 6px; height: 6px;
   border-radius: 50%;
   background: currentColor;
   flex: none;
@@ -107,23 +113,26 @@
 
 .valve-btn[data-state="open"] .v-state {
   background: var(--ok-bg);
+  border-color: color-mix(in srgb, var(--ok) 50%, transparent);
   color: var(--ok);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ok) 40%, transparent);
+  font-weight: 600;
 }
-.valve-btn[data-state="open"] .v-state .led { animation: pulse 1.5s ease-in-out infinite; }
-.valve-btn[data-state="open"] { border-color: color-mix(in srgb, var(--ok) 45%, var(--border)); }
+.valve-btn[data-state="open"] .v-state .led { box-shadow: 0 0 6px currentColor; }
+.valve-btn[data-state="open"] { border-color: color-mix(in srgb, var(--ok) 30%, var(--border)); }
 
 /* Igniters and other momentary/pyro actuators read as hazardous when live. */
 .valve-btn[data-hazard="true"][data-state="open"] .v-state {
   background: var(--danger-bg);
+  border-color: var(--danger);
   color: var(--danger);
 }
 .valve-btn[data-hazard="true"][data-state="open"] { border-color: var(--danger); }
+.valve-btn[data-hazard="true"][data-state="open"] .v-state .led { animation: pulse 1s ease-in-out infinite; }
 
 /* Coil current sense — a diagnostic, so it stays quiet unless it disagrees
    with the commanded state. */
 .valve-btn .v-dc {
-  margin-top: 5px;
+  margin-top: 3px;
   font-family: var(--mono);
   font-size: 9.5px;
   letter-spacing: .03em;
@@ -199,23 +208,27 @@
   min-height: 0;
 }
 
+/* Column head: an eyebrow, not a banner. The group colour lives in the
+   swatch; the label itself stays in the quiet ink every other label uses. */
 .sensor-column > .col-head {
   height: var(--col-head);
   flex: none;
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: .07em;
+  gap: 7px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: .08em;
   text-transform: uppercase;
-  color: var(--group-color, var(--text-muted));
+  color: var(--text-muted);
   min-width: 0;
+  border-bottom: 1px solid var(--border);
 }
 .col-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .col-count {
   font-family: var(--mono);
-  font-weight: 600;
+  font-weight: 400;
   letter-spacing: 0;
   color: var(--text-faint);
   margin-right: auto;
@@ -236,15 +249,14 @@
 }
 
 .sensor-card {
-  padding: 6px 8px 5px;
+  padding: 6px 8px 5px 9px;
   border-radius: var(--radius);
   border: 1px solid var(--border);
-  /* The group's colour, as an outline rather than a fill: LOX blue and Fuel
+  /* The group's colour, as a 2px tick rather than a fill: LOX blue and Fuel
      red have to be identifiable at a glance without turning the value itself
      into something that competes with the alarm colours. */
-  border-left: 3px solid var(--group-color, var(--border));
+  border-left: 2px solid var(--group-color, var(--border));
   background: var(--surface);
-  box-shadow: var(--shadow);
   position: relative;
   overflow: hidden;
   min-width: 0;
@@ -261,11 +273,11 @@
 /* The name leads. It is what an operator scans for on a wall of cards, so it
    is the biggest, boldest thing on the card — the tag below confirms. */
 .sensor-card .s-name {
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.25;
-  font-weight: 800;
-  letter-spacing: -0.01em;
-  color: var(--text);
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -283,7 +295,7 @@
 .sensor-card .s-id {
   font-family: var(--mono);
   font-size: 10px;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--text-muted);
   flex: none;
 }
@@ -308,7 +320,7 @@
 }
 
 .sensor-card .s-status {
-  width: 8px; height: 8px;
+  width: 6px; height: 6px;
   border-radius: 50%;
   background: var(--ok);
   flex: none;
@@ -331,14 +343,14 @@
 .tare-chip {
   margin-left: auto;
   padding: 1px 6px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   background: transparent;
   color: var(--text-faint);
   font-family: var(--mono);
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: .05em;
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: .08em;
   line-height: 1.5;
   cursor: pointer;
   flex: none;
@@ -358,13 +370,14 @@
 
 /* Group banner rows carry the same colour as the cards' outline. */
 .data-table tr.group-row td {
-  background: var(--surface-2);
-  font-weight: 700;
-  font-size: 10.5px;
-  letter-spacing: .07em;
+  background: var(--bg);
+  font-family: var(--mono);
+  font-weight: 500;
+  font-size: 10px;
+  letter-spacing: .08em;
   text-transform: uppercase;
-  color: var(--group-color, var(--text-muted));
-  border-left: 3px solid var(--group-color, transparent);
+  color: var(--text-muted);
+  border-left: 2px solid var(--group-color, transparent);
 }
 .data-table tr.group-row .group-swatch {
   background: var(--group-color);
@@ -386,8 +399,8 @@
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
   font-size: 20px;
-  font-weight: 650;
-  letter-spacing: -0.02em;
+  font-weight: 600;
+  letter-spacing: -0.03em;
   line-height: 1.1;
   min-height: 22px;        /* reserve the row so cards never change height */
   flex: none;
@@ -401,7 +414,7 @@
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 500;
   letter-spacing: 0;
   white-space: nowrap;
   color: var(--text-faint);
@@ -446,8 +459,8 @@
 .sensor-card .s-stat:first-of-type { margin-left: 2px; }
 .sensor-card .s-stat i {
   font-style: normal;
-  font-weight: 700;
-  letter-spacing: .06em;
+  font-weight: 500;
+  letter-spacing: .08em;
   opacity: .62;
   flex: none;
 }
@@ -462,9 +475,11 @@
   text-align: left;
   flex: none;
 }
+/* Units: smaller and dimmer than the number they follow, always. */
 .sensor-card .s-units {
-  font-size: 12px;
-  font-weight: 500;
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0;
   color: var(--text-faint);
 }
 .sensor-card .s-spark {
@@ -479,9 +494,9 @@
   margin-top: 2px;
 }
 .sensor-card .s-bar {
-  height: 3px;
+  height: 2px;
   background: var(--surface-3);
-  border-radius: 2px;
+  border-radius: 1px;
   overflow: hidden;
   margin-top: 3px;
   flex: none;
@@ -489,8 +504,8 @@
 .sensor-card .s-bar i {
   display: block;
   height: 100%;
-  background: var(--ok);
-  border-radius: 2px;
+  background: var(--text-faint);
+  border-radius: 1px;
   transition: width .1s linear;
 }
 
@@ -505,7 +520,7 @@
 .sensor-card[data-status="danger"] {
   border-color: var(--danger);
   border-left-color: var(--group-color, var(--danger));
-  background: color-mix(in srgb, var(--danger) 8%, var(--surface));
+  background: color-mix(in srgb, var(--danger) 7%, var(--surface));
 }
 .sensor-card[data-status="danger"] .s-status,
 .sensor-card[data-status="danger"] .s-bar i { background: var(--danger); }
@@ -517,59 +532,70 @@
 
 /* ---------------------------------------------------------- sidebar: ARM */
 
-.arm-panel { display: flex; flex-direction: column; gap: 8px; }
+.arm-panel { display: flex; flex-direction: column; gap: 6px; }
 
+/* ARM / DISARM read as one segmented control: caps mono, hairline, the
+   active half lit. Armed is the one place a solid red fill is allowed
+   besides ABORT -- the stand is live and nothing else on screen may look
+   like that. */
 .arm-btn {
   flex: 1;
-  padding: 13px 8px;
-  border-radius: var(--radius);
-  border: 2px solid var(--border);
-  background: var(--surface-2);
-  color: var(--text-muted);
+  padding: 10px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text-faint);
   font: inherit;
-  font-weight: 800;
-  font-size: 14px;
-  letter-spacing: .12em;
+  font-family: var(--mono);
+  font-weight: 500;
+  font-size: 12px;
+  letter-spacing: .14em;
   cursor: pointer;
 }
-.arm-btn:hover:not(:disabled) { border-color: var(--border-strong); }
-.arm-btn:disabled { opacity: .45; cursor: not-allowed; }
+.arm-btn:hover:not(:disabled) { color: var(--text); background: var(--surface-2); }
+.arm-btn:disabled { opacity: .4; cursor: not-allowed; }
 
 .arm-btn.arm[data-active="true"] {
   background: var(--danger);
   border-color: var(--danger);
   color: #fff;
+  font-weight: 700;
   animation: armed-glow 2s ease-in-out infinite;
 }
 @keyframes armed-glow {
-  0%,100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--danger) 60%, transparent); }
-  50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--danger) 0%, transparent); }
+  0%,100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--danger) 55%, transparent); }
+  50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--danger) 0%, transparent); }
 }
 .arm-btn.disarm[data-active="true"] {
   background: var(--ok-bg);
-  border-color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 60%, transparent);
   color: var(--ok);
+  font-weight: 600;
 }
 
+/* ABORT stays the loudest control on the station -- MODERN_GUI.md's one
+   deliberate exception to "neutral buttons". Solid red, caps, and a hazard
+   hairline inset so it is not just another red rectangle. */
 .abort-btn {
   width: 100%;
-  padding: 15px;
-  border-radius: var(--radius);
-  border: 2px solid #7f1d1d;
-  background: repeating-linear-gradient(-45deg, #dc2626 0 12px, #b91c1c 12px 24px);
+  padding: 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid #f87171;
+  background: #dc2626;
+  box-shadow: inset 0 0 0 3px #dc2626, inset 0 0 0 4px rgb(255 255 255 / 28%);
   color: #fff;
   font: inherit;
-  font-weight: 900;
-  font-size: 16px;
-  letter-spacing: .18em;
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: .3em;
   cursor: pointer;
-  text-shadow: 0 1px 2px rgb(0 0 0 / 45%);
 }
-.abort-btn:hover { filter: brightness(1.12); }
-.abort-btn:active { transform: translateY(1px); }
+.abort-btn:hover { background: #ef4444; box-shadow: inset 0 0 0 3px #ef4444, inset 0 0 0 4px rgb(255 255 255 / 40%); }
+.abort-btn:active { background: #b91c1c; }
 
 .abort-banner {
-  padding: 9px 11px;
+  padding: 8px 10px;
   border-radius: var(--radius-sm);
   background: var(--danger-bg);
   border: 1px solid var(--danger);
@@ -577,19 +603,19 @@
   font-size: 12px;
   margin-top: 8px;
 }
-.abort-banner strong { display: block; font-size: 12.5px; letter-spacing: .06em; }
+.abort-banner strong { display: block; font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: .1em; }
 
 /* --------------------------------------------------- sidebar: bang-bang */
 
 .bb-card {
   border: 1px solid var(--border);
-  /* Its tank's colour down the left edge, the same 3px stripe a sensor card
-     and a readout tile carry. The LOX and Fuel cards are otherwise identical
+  /* Its tank's colour down the left edge, the same tick a sensor card and a
+     readout tile carry. The LOX and Fuel cards are otherwise identical
      panels sitting one above the other, and the operations they offer — VENT,
      ABORT SIDE — are ones where picking the wrong card is the whole failure. */
-  border-left: 3px solid var(--group-color, var(--border));
+  border-left: 2px solid var(--group-color, var(--border));
   border-radius: var(--radius);
-  background: var(--bg);
+  background: var(--surface);
   padding: 9px 10px 10px;
   margin-bottom: 8px;
 }
@@ -602,7 +628,7 @@
   gap: 4px 3px;
   margin-bottom: 8px;
 }
-.bb-name { grid-area: name; font-size: 12px; font-weight: 700; }
+.bb-name { grid-area: name; font-size: 12.5px; font-weight: 500; }
 .bb-sub { grid-area: source; font-family: var(--mono); font-size: 10px; color: var(--text-faint); }
 .bb-name, .bb-sub { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -613,11 +639,12 @@
   justify-self: end;
   font-family: var(--mono);
   font-size: 9px;
-  font-weight: 700;
-  letter-spacing: .06em;
-  padding: 2px 5px;
-  border-radius: 3px;
-  background: var(--surface-3);
+  font-weight: 500;
+  letter-spacing: .08em;
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: transparent;
   color: var(--text-muted);
   flex: none;
 }
@@ -632,6 +659,9 @@
   padding: 2px 4px;
   white-space: pre-line;
   line-height: 1.3;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: .06em;
   color: var(--text-muted);
   background: var(--surface-2);
 }
@@ -693,16 +723,17 @@
   font-variant-numeric: tabular-nums;
   margin-bottom: 8px;
 }
-.bb-readout .now { font-size: 20px; font-weight: 700; display: inline-block; text-align: right; flex: none; }
-.bb-readout .tgt { font-size: 11px; color: var(--text-faint); }
+.bb-readout .now { font-size: 20px; font-weight: 600; letter-spacing: -0.03em; display: inline-block; text-align: right; flex: none; }
+.bb-readout .tgt { font-size: 10px; color: var(--text-faint); }
 .bb-readout .out {
   margin-left: auto;
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: .06em;
-  padding: 2px 6px;
-  border-radius: 3px;
-  background: var(--idle-bg);
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: .1em;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: transparent;
   color: var(--idle);
 }
 /* Toned by what the BOARD reports, not by anything this browser computed.
@@ -715,8 +746,8 @@
 
 .bb-track {
   position: relative;
-  height: 6px;
-  border-radius: 3px;
+  height: 4px;
+  border-radius: 1px;
   background: var(--surface-3);
   margin-bottom: 9px;
   overflow: hidden;
@@ -724,14 +755,14 @@
 .bb-track .band {
   position: absolute;
   top: 0; bottom: 0;
-  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  background: color-mix(in srgb, var(--group-color, var(--accent)) 45%, transparent);
 }
 .bb-track .needle {
   position: absolute;
   top: -2px; bottom: -2px;
   width: 2px;
   background: var(--text);
-  border-radius: 1px;
+  border-radius: 0;
 }
 
 .bb-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 7px; }
@@ -769,7 +800,7 @@
 }
 .bb-limits[open] > summary::before { transform: rotate(90deg); }
 .bb-limits > summary:hover { color: var(--text); }
-.bb-lim-title { font-weight: 700; letter-spacing: .04em; text-transform: uppercase; flex: none; }
+.bb-lim-title { font-family: var(--mono); font-size: 9.5px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase; flex: none; }
 /* The values get their own full-width row rather than sharing the title's.
    Four settings do not fit beside a label in a 280px sidebar, and an
    ellipsised limit is worse than no limit shown at all. */
@@ -796,26 +827,28 @@
   font-weight: 600;
 }
 .toggle input { display: none; }
+/* Switch: a squared track and a square thumb, matching the 2px radii
+   everywhere else. On, the track takes the ok hue as a tint, not a fill. */
 .toggle .track {
-  width: 34px; height: 19px;
-  border-radius: 100px;
-  background: var(--surface-3);
-  border: 1px solid var(--border);
+  width: 32px; height: 18px;
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
   position: relative;
   flex: none;
-  transition: background .15s;
+  transition: background .12s, border-color .12s;
 }
 .toggle .track::after {
   content: "";
   position: absolute;
   top: 2px; left: 2px;
-  width: 13px; height: 13px;
-  border-radius: 50%;
-  background: var(--text-muted);
-  transition: transform .15s, background .15s;
+  width: 12px; height: 12px;
+  border-radius: 1px;
+  background: var(--text-faint);
+  transition: transform .12s, background .12s;
 }
-.toggle input:checked + .track { background: var(--ok); border-color: var(--ok); }
-.toggle input:checked + .track::after { transform: translateX(15px); background: #fff; }
+.toggle input:checked + .track { background: var(--ok-bg); border-color: var(--ok); }
+.toggle input:checked + .track::after { transform: translateX(14px); background: var(--ok); }
 .toggle input:disabled + .track { opacity: .4; }
 
 /* The large variant, for the one control on a bang-bang card that hands a
@@ -827,17 +860,18 @@
   width: 100%;
   gap: 11px;
   padding: 9px 11px;
-  border-radius: var(--radius);
-  border: 1px solid var(--border);
-  background: var(--surface-2);
-  font-size: 12.5px;
-  font-weight: 750;
-  letter-spacing: .05em;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: .1em;
 }
 .toggle.lg:hover { border-color: var(--border-strong); background: var(--surface-3); }
-.toggle.lg .track { width: 50px; height: 27px; }
-.toggle.lg .track::after { top: 3px; left: 3px; width: 19px; height: 19px; }
-.toggle.lg input:checked + .track::after { transform: translateX(23px); }
+.toggle.lg .track { width: 44px; height: 24px; }
+.toggle.lg .track::after { top: 3px; left: 3px; width: 16px; height: 16px; }
+.toggle.lg input:checked + .track::after { transform: translateX(20px); }
 .toggle.lg:has(input:disabled) { opacity: .5; cursor: not-allowed; }
 
 /* Live, it is the loudest thing on the card — a tank is under closed-loop
@@ -846,6 +880,7 @@
   border-color: var(--ok);
   background: var(--ok-bg);
   color: var(--ok);
+  font-weight: 600;
 }
 
 .bb-fault {
@@ -873,10 +908,10 @@
 .bb-lim-grid { gap: 4px 5px; margin-top: 4px; }
 .bb-lim-check, .bb-lim-toggle { margin-top: 5px; }
 .bb-config-actions { margin-bottom: 5px; }
-.bb-card .toggle.lg { padding: 5px 7px; font-size: 11.5px; gap: 7px; }
-.bb-card .toggle.lg .track { width: 40px; height: 23px; }
-.bb-card .toggle.lg .track::after { width: 15px; height: 15px; }
-.bb-card .toggle.lg input:checked + .track::after { transform: translateX(17px); }
+.bb-card .toggle.lg { padding: 5px 7px; font-size: 10.5px; gap: 7px; }
+.bb-card .toggle.lg .track { width: 36px; height: 20px; }
+.bb-card .toggle.lg .track::after { width: 12px; height: 12px; }
+.bb-card .toggle.lg input:checked + .track::after { transform: translateX(16px); }
 .bb-overrides { margin-top: 5px; }
 
 /* Short laptop displays have more horizontal room than vertical room.
@@ -888,29 +923,41 @@
 
 /* --------------------------------------------------- sidebar: sequences */
 
-.seq-list { display: flex; flex-direction: column; gap: 6px; }
+/* Sequences are a list of rows, not a stack of buttons: hairline between
+   each, the name in UI ink, the duration in mono at the right. A row lights
+   on hover the way a table row does. */
+.seq-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
 
 .seq-btn {
   display: flex;
   align-items: center;
   gap: 9px;
   width: 100%;
-  padding: 9px 11px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  background: var(--bg);
+  padding: 7px 10px;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--surface);
   color: var(--text);
   font: inherit;
-  font-weight: 600;
+  font-weight: 450;
   font-size: 12.5px;
   cursor: pointer;
   text-align: left;
 }
-.seq-btn:hover:not(:disabled) { background: var(--surface-2); border-color: var(--border-strong); }
-.seq-btn:disabled { opacity: .45; cursor: not-allowed; }
+.seq-btn:last-child { border-bottom: none; }
+.seq-list:empty { display: none; }
+.seq-btn:hover:not(:disabled) { background: var(--surface-3); }
+.seq-btn:disabled { opacity: .4; cursor: not-allowed; }
 .seq-btn .seq-dot {
-  width: 8px; height: 8px;
-  border-radius: 2px;
+  width: 6px; height: 6px;
+  border-radius: 1px;
   background: var(--idle);
   flex: none;
 }
@@ -924,17 +971,15 @@
 .seq-btn[data-style="caution"] .seq-dot { background: var(--warn); }
 .seq-btn[data-style="danger"] .seq-dot { background: var(--danger); }
 .seq-btn[data-style="danger"] {
-  border-color: color-mix(in srgb, var(--danger) 50%, var(--border));
   color: var(--danger);
-  font-weight: 800;
-  letter-spacing: .04em;
+  font-weight: 600;
 }
 
 .seq-running {
-  border: 1px solid var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--border));
   border-radius: var(--radius);
   padding: 9px 10px;
-  background: color-mix(in srgb, var(--accent) 9%, var(--bg));
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
   margin-bottom: 8px;
 }
 .seq-running .sr-head {
@@ -943,16 +988,17 @@
   align-items: baseline;
   margin-bottom: 6px;
 }
-.seq-running .sr-name { font-weight: 700; font-size: 12.5px; }
+.seq-running .sr-name { font-weight: 500; font-size: 12.5px; }
 .seq-running .sr-t {
   font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
   font-size: 15px;
-  font-weight: 700;
-  color: var(--accent);
+  font-weight: 600;
+  color: var(--text);
 }
 .seq-running .sr-bar {
-  height: 4px;
-  border-radius: 2px;
+  height: 2px;
+  border-radius: 1px;
   background: var(--surface-3);
   overflow: hidden;
   margin-bottom: 7px;
@@ -1010,57 +1056,61 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 10.5px;
   line-height: 1.5;
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg);
-  padding: 5px 6px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 2px 0;
 }
-.log-line { display: flex; gap: 7px; padding: 1px 0; }
+.log-line { display: flex; gap: 8px; padding: 2px 8px; color: var(--text-muted); }
+.log-line:hover { background: var(--surface-3); }
 .log-line .lt { color: var(--text-faint); flex: none; }
 .log-line .lm { word-break: break-word; }
 .log-line[data-level="abort"] .lm { color: var(--danger); font-weight: 700; }
 .log-line[data-level="error"] .lm { color: var(--danger); }
 .log-line[data-level="warn"] .lm { color: var(--warn); }
-.log-line[data-level="arm"] .lm { color: var(--accent); font-weight: 700; }
+.log-line[data-level="arm"] .lm { color: var(--text); font-weight: 600; }
 .log-line[data-level="sequence"] .lm { color: var(--info); }
 .log-line[data-level="record"] .lm { color: var(--ok); }
 .log-line[data-level="control"] .lm { color: var(--text-faint); }
 
 /* --------------------------------------------------------------- tables */
 
+/* The telemetry table: hairline rows, eyebrow headers, mono values
+   right-aligned. Rows are 26px -- dense, but every line still a target. */
 .data-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12.5px;
+  font-size: 12px;
   background: var(--surface);
   border-radius: var(--radius);
   overflow: hidden;
-  box-shadow: var(--shadow);
 }
 .data-table.fixed { table-layout: fixed; }
 .data-table.fixed td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .data-table th {
   text-align: left;
-  padding: 8px 11px;
-  background: var(--surface-2);
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: .07em;
+  padding: 7px 10px;
+  background: var(--surface);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: .08em;
   text-transform: uppercase;
-  color: var(--text-muted);
-  border-bottom: 1px solid var(--border);
+  color: var(--text-faint);
+  border-bottom: 1px solid var(--border-strong);
   position: sticky;
   top: 0;
   z-index: 1;
 }
 .data-table td {
-  padding: 6px 11px;
+  padding: 4px 10px;
+  height: 26px;
   border-bottom: 1px solid var(--border);
 }
 .data-table tr:last-child td { border-bottom: none; }
-.data-table tbody tr:hover { background: var(--surface-2); }
+.data-table tbody tr:hover { background: var(--surface-3); }
 .data-table .num {
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
@@ -1078,24 +1128,122 @@
   border: 1px solid var(--border);
 }
 
+/* Segmented control -- ENABLED | DISABLED, CARDS | TABLE. Caps mono; the
+   active half gets a raised grey and bright ink, never a colour fill. */
 .seg {
   display: inline-flex;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
   overflow: hidden;
+  background: var(--bg);
 }
 .seg button {
-  padding: 6px 12px;
+  padding: 4px 10px;
   border: none;
-  background: var(--surface);
-  color: var(--text-muted);
+  background: transparent;
+  color: var(--text-faint);
   font: inherit;
-  font-size: 12px;
-  font-weight: 600;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: .08em;
+  text-transform: uppercase;
   cursor: pointer;
 }
-.seg button + button { border-left: 1px solid var(--border); }
-.seg button.active { background: var(--accent); color: var(--accent-ink); }
+.seg button:hover:not(.active) { color: var(--text-muted); }
+.seg button + button { border-left: 1px solid var(--border-strong); }
+.seg button.active { background: var(--surface-3); color: var(--text); }
+
+/* ------------------------------------------------------ time-window chips */
+
+/* `10s 30s 1m 2m 5m` over a plot. Lighter than a segmented control: loose
+   mono labels, and only the active one is boxed. */
+.win-chips {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+}
+.win-chips button {
+  padding: 2px 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-faint);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: .02em;
+  line-height: 1.4;
+  cursor: pointer;
+}
+.win-chips button:hover:not(.active) { color: var(--text-muted); }
+.win-chips button.active {
+  border-color: var(--border-strong);
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+/* -------------------------------------------------------- telemetry table */
+
+.telemetry-wrap {
+  max-height: none;
+  height: 100%;
+  background: var(--surface);
+}
+.data-table.telemetry td { height: 28px; padding-top: 0; padding-bottom: 0; }
+.data-table.telemetry tr.group-first td { border-top: 1px solid var(--border-strong); }
+.data-table.telemetry tbody tr:first-child td { border-top: none; }
+
+.data-table.telemetry .t-sub {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+.data-table.telemetry .t-sub .group-swatch {
+  display: inline-block;
+  vertical-align: middle;
+  margin-right: 7px;
+  background: var(--group-color);
+}
+.data-table.telemetry .t-tag {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.data-table.telemetry .t-name { color: var(--text); }
+
+.data-table.telemetry .t-trend { padding: 3px 12px; }
+.t-spark {
+  display: block;
+  width: 100%;
+  height: 20px;
+}
+
+.data-table.telemetry .t-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.data-table.telemetry .t-units {
+  margin-left: 4px;
+  font-size: 9.5px;
+  font-weight: 400;
+  color: var(--text-faint);
+  display: inline-block;
+  min-width: 3.2em;
+  text-align: left;
+}
+.data-table.telemetry .t-stat {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-faint);
+}
+
+/* Status paints the value and the row, never a column of words. */
+.data-table.telemetry tr[data-status="warn"] .t-value { color: var(--warn); }
+.data-table.telemetry tr[data-status="danger"] .t-value { color: var(--danger); }
+.data-table.telemetry tr[data-status="danger"] td { background: color-mix(in srgb, var(--danger) 7%, transparent); }
+.data-table.telemetry tr[data-status="stale"] td:not(.tare-cell) { opacity: .45; }
 
 /* ------------------------------------------------------------ config page */
 
@@ -1111,13 +1259,13 @@
   tab-size: 2;
 }
 .config-status {
-  padding: 9px 12px;
+  padding: 7px 11px;
   border-radius: var(--radius-sm);
-  font-size: 12.5px;
+  font-size: 12px;
   border: 1px solid var(--border);
   background: var(--surface);
 }
-.config-status.ok { border-color: var(--ok); background: var(--ok-bg); color: var(--ok); }
+.config-status.ok { border-color: color-mix(in srgb, var(--ok) 35%, var(--border)); background: transparent; color: var(--ok); }
 .config-status.error { border-color: var(--danger); background: var(--danger-bg); color: var(--danger); }
 .config-status ul { margin: 6px 0 0; padding-left: 18px; }
 .config-status li { font-family: var(--mono); font-size: 11.5px; }
@@ -1127,10 +1275,9 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 14px;
-  box-shadow: var(--shadow);
 }
-.card h3 { margin: 0 0 4px; font-size: 13.5px; }
-.card p { margin: 0 0 12px; font-size: 12.5px; color: var(--text-muted); }
+.card h3 { margin: 0 0 4px; font-size: 15px; font-weight: 400; letter-spacing: -0.015em; }
+.card p { margin: 0 0 12px; font-size: 12px; color: var(--text-muted); }
 
 .kv-grid {
   display: grid;
@@ -1146,20 +1293,22 @@
   border-bottom: 1px solid var(--border);
   margin-bottom: 12px;
 }
+/* Step tabs, as in a wizard: dim until active, then bright ink and a
+   one-pixel underline in the same ink. */
 .tab {
-  padding: 8px 15px;
+  padding: 7px 14px;
   border: none;
-  border-bottom: 2px solid transparent;
+  border-bottom: 1px solid transparent;
   background: transparent;
-  color: var(--text-muted);
+  color: var(--text-faint);
   font: inherit;
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 12.5px;
+  font-weight: 450;
   cursor: pointer;
   margin-bottom: -1px;
 }
-.tab:hover { color: var(--text); }
-.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.tab:hover { color: var(--text-muted); }
+.tab.active { color: var(--text); border-bottom-color: var(--text); }
 
 /* ------------------------------------------ autosequence editor -------- */
 
@@ -1195,7 +1344,6 @@
   position: sticky;
   top: calc(var(--cfg-sticky-h, 132px) + 8px);
   z-index: 1;
-  box-shadow: var(--shadow);
 }
 
 .seq-pick {
@@ -1215,12 +1363,12 @@
 }
 .seq-pick:hover { background: var(--surface-2); }
 .seq-pick.active {
-  background: color-mix(in srgb, var(--accent) 13%, var(--surface));
-  border-color: var(--accent);
+  background: var(--surface-3);
+  border-color: transparent;
 }
 .seq-pick .seq-dot {
-  width: 8px; height: 8px;
-  border-radius: 2px;
+  width: 6px; height: 6px;
+  border-radius: 1px;
   background: var(--idle);
   flex: none;
   margin-top: 5px;
@@ -1230,7 +1378,8 @@
 .seq-pick[data-style="danger"] .seq-dot,
 .seq-pick[data-style="abort"] .seq-dot { background: var(--danger); }
 .seq-pick-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.seq-pick-name { font-size: 12.5px; font-weight: 600; }
+.seq-pick-name { font-size: 12.5px; font-weight: 450; }
+.seq-pick.active .seq-pick-name { font-weight: 500; }
 .seq-pick-meta { font-size: 10.5px; color: var(--text-faint); font-family: var(--mono); }
 
 .seq-title-row {
@@ -1269,7 +1418,9 @@
   position: relative;
   height: 26px;
   border-radius: var(--radius-sm);
-  background: linear-gradient(to right, var(--surface-3), var(--surface-2));
+  background:
+    repeating-linear-gradient(to right, var(--border) 0 1px, transparent 1px 10%),
+    var(--bg);
   border: 1px solid var(--border);
 }
 .tl-mark {
@@ -1282,7 +1433,7 @@
   transform: translateX(-50%);
   cursor: pointer;
 }
-.tl-mark:hover { outline: 2px solid var(--accent); outline-offset: 1px; }
+.tl-mark:hover { outline: 1px solid var(--text); outline-offset: 1px; }
 .tl-mark[data-action="valve"] { background: var(--ok); }
 .tl-mark[data-action="bangbang"] { background: var(--info); }
 .tl-mark[data-action="log"] { background: var(--text-faint); }
@@ -1309,9 +1460,10 @@
 .step-table th {
   text-align: left;
   padding: 5px 6px;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: .07em;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: .08em;
   text-transform: uppercase;
   color: var(--text-faint);
   border-bottom: 1px solid var(--border);
@@ -1349,24 +1501,27 @@
 .setting-group .cell-input { width: auto; }
 
 .mini-tag {
+  font-family: var(--mono);
   font-size: 9px;
-  font-weight: 700;
-  letter-spacing: .06em;
-  padding: 2px 5px;
-  border-radius: 3px;
-  background: var(--danger-bg);
+  font-weight: 500;
+  letter-spacing: .08em;
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--danger) 50%, transparent);
+  background: transparent;
   color: var(--danger);
   flex: none;
 }
 
 .row-actions { display: flex; gap: 4px; }
 .mini-btn {
-  width: 24px; height: 24px;
+  width: 22px; height: 22px;
   display: grid;
   place-items: center;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
-  background: var(--surface-2);
+  background: transparent;
+
   color: var(--text-muted);
   font: inherit;
   font-size: 12px;
@@ -1390,6 +1545,8 @@ body.shift-armed [data-needs-shift="true"]:not(:disabled) {
   outline-offset: 1px;
 }
 body.shift-armed .valve-btn[data-needs-shift="true"]:not(:disabled) { outline-offset: -1px; }
+/* The list clips its rows, so the outline has to sit inside the row. */
+body.shift-armed .seq-btn[data-needs-shift="true"]:not(:disabled) { outline-offset: -2px; }
 body.shift-armed .toggle.lg[data-needs-shift="true"] {
   border-color: var(--warn);
   outline-offset: -1px;
