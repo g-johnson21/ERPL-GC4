@@ -28,7 +28,7 @@
  *   EVT:... BB_ERROR:... CMD_ERROR:... Arming! Disarming! SEQ_...
  *
  * OUTBOUND (host -> board):
- *   S<ch><0|1>   set solenoid; <ch> is 1-9 then A,B,C for 10-12
+ *   S<ch><0|1>   set solenoid; <ch> is two decimal digits, 01-16
  *   a            arm
  *   r            disarm / abort
  *   h            liveness heartbeat, 5 Hz   (see NOTE ON COMMS LOSS)
@@ -818,17 +818,17 @@ export class PandaDriver {
     return true;
   }
 
-  /** Solenoid channels are 1-9 then A,B,C for 10-12. */
+  /** Solenoid channels are two decimal digits, 01-16. */
   static channelToken(channel) {
     const n = Number(channel);
-    if (!Number.isInteger(n) || n < 1 || n > 12) return null;
-    return n <= 9 ? String(n) : String.fromCharCode(65 + n - 10);
+    if (!Number.isInteger(n) || n < 1 || n > 16) return null;
+    return String(n).padStart(2, '0');
   }
 
   setValve(valve, state) {
     const token = PandaDriver.channelToken(valve.channel);
     if (token === null) {
-      throw new Error(`${valve.id}: channel ${valve.channel} is outside the PANDA's 1-12 range`);
+      throw new Error(`${valve.id}: channel ${valve.channel} is outside the PANDA's 1-16 range`);
     }
     // A normally-open valve is energized to CLOSE, so the coil state is not
     // the flow state. Resolve it here so callers only ever speak flow state.

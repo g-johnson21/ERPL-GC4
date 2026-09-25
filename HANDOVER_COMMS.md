@@ -903,7 +903,7 @@ Raw ASCII the board understands. Each is newline-terminated by the bridge.
 
 | Command | Meaning |
 |---------|---------|
-| `S<ch><state>` | Set solenoid. `<ch>` is hex-ish: `1`–`9` then `A`,`B`,`C` for 10–12. `<state>` is `0`/`1`. e.g. `SA1` = channel 10 on |
+| `S<ch><state>` | Set solenoid. `<ch>` is two decimal digits, `01`–`16`. `<state>` is `0`/`1`. e.g. `S101` = channel 10 on |
 | `a` | Arm → board replies `Arming!` |
 | `r` | Disarm / emergency stop / abort → replies `Disarming!`, runs `forceSafe()` on both BB sides |
 | `B1<0\|1>`, `B2<0\|1>` | Legacy bang-bang enable (fuel / lox) used by the older UI. **Collides in prefix with the modern `B<L\|F>...` config command** — disambiguated only by the second character being a digit rather than `L`/`F`. Avoid in new code |

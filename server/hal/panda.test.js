@@ -260,13 +260,13 @@ test('P lines are ignored so psi is only ever derived from p', () => {
   assert.equal(d.raw.get('pt0'), undefined);
 });
 
-test('solenoid channels encode 1-9 then A,B,C', () => {
-  assert.equal(PandaDriver.channelToken(1), '1');
-  assert.equal(PandaDriver.channelToken(9), '9');
-  assert.equal(PandaDriver.channelToken(10), 'A');
-  assert.equal(PandaDriver.channelToken(12), 'C');
+test('solenoid channels encode as two decimal digits, 01-16', () => {
+  assert.equal(PandaDriver.channelToken(1), '01');
+  assert.equal(PandaDriver.channelToken(9), '09');
+  assert.equal(PandaDriver.channelToken(10), '10');
+  assert.equal(PandaDriver.channelToken(16), '16');
   assert.equal(PandaDriver.channelToken(0), null);
-  assert.equal(PandaDriver.channelToken(13), null);
+  assert.equal(PandaDriver.channelToken(17), null);
 });
 
 test('normally-open valves energize to CLOSE', () => {
@@ -279,14 +279,14 @@ test('normally-open valves energize to CLOSE', () => {
   d.setValve(nc, 'open');
   d.setValve(nc, 'closed');
 
-  assert.deepEqual(d.sent, ['S41', 'S40', 'S21', 'S20']);
+  assert.deepEqual(d.sent, ['S041', 'S040', 'S021', 'S020']);
 });
 
-test('a valve outside the 1-12 range is refused, not silently dropped', () => {
+test('a valve outside the 1-16 range is refused, not silently dropped', () => {
   const d = makeDriver();
   assert.throws(
     () => d.setValve({ id: 'SV-X', channel: 20, normallyOpen: false }, 'open'),
-    /outside the PANDA's 1-12 range/,
+    /outside the PANDA's 1-16 range/,
   );
 });
 
@@ -447,8 +447,8 @@ test('safeAll disarms the board and drives every valve to its safe state', () =>
   // and `e<side>1` is refused once the arm latch is down — so this is the last
   // moment either can be put back to a state the host knows.
   assert.deepEqual(d.sent.slice(0, 5), ['bL0', 'bF0', 'eL0', 'eF0', 'r']);
-  assert.ok(d.sent.includes('S40'));       // NO vent de-energized => open
-  assert.ok(d.sent.includes('S20'));       // NC press de-energized => closed
+  assert.ok(d.sent.includes('S040'));       // NO vent de-energized => open
+  assert.ok(d.sent.includes('S020'));       // NC press de-energized => closed
 });
 
 test('armHardware can be disabled for boards without an arm latch', () => {
