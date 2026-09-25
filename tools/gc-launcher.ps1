@@ -504,6 +504,7 @@ $preview.Location = New-Object System.Drawing.Point(18, 630)
 $preview.Size = New-Object System.Drawing.Size(566, 58)
 $form.Controls.Add($preview)
 
+$btnUpdate = Add-Button $form 'Check for update' 18 700 150 32
 $btnCancel = Add-Button $form 'Cancel' 340 700 100 32
 $btnLaunch = Add-Button $form 'Launch' 452 700 132 32
 $btnLaunch.Font = $FONT_BOLD
@@ -751,6 +752,84 @@ $btnHardware.Add_Click({
 })
 
 $btnCancel.Add_Click({ $form.Close() })
+
+# ---------------------------------------------------------------- update ----
+
+# Runs git with its output captured. Not `& git ... 2>&1`: under
+# ErrorActionPreference=Stop, Windows PowerShell turns git's ordinary progress
+# chatter on stderr into a terminating error.
+function Invoke-Git {
+  param([string[]]$GitArgs)
+  $psi = New-Object System.Diagnostics.ProcessStartInfo
+  $psi.FileName = 'git'
+  $psi.Arguments = ($GitArgs | ForEach-Object { if ($_ -match '\s') { "`"$_`"" } else { $_ } }) -join ' '
+  $psi.WorkingDirectory = $Root
+  $psi.UseShellExecute = $false
+  $psi.CreateNoWindow = $true
+  $psi.RedirectStandardOutput = $true
+  $psi.RedirectStandardError = $true
+  # Never hang the window on a credential prompt nobody can see.
+  $psi.EnvironmentVariables['GIT_TERMINAL_PROMPT'] = '0'
+  $proc = [System.Diagnostics.Process]::Start($psi)
+  $errTask = $proc.StandardError.ReadToEndAsync()
+  $out = $proc.StandardOutput.ReadToEnd()
+  $proc.WaitForExit()
+  [pscustomobject]@{ Code = $proc.ExitCode; Out = $out.Trim(); Err = $errTask.Result.Trim() }
+}
+
+# Checks GitHub's main for commits this copy does not have, and on a yes
+# fast-forwards to them. Fast-forward only: this never merges, rebases or
+# discards anything, so local edits either survive the pull or stop it with
+# git's own explanation.
+$btnUpdate.Add_Click({
+  if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+    Show-Problem "Git is not installed or not on PATH, so the launcher cannot check for updates."
+    return
+  }
+  $form.UseWaitCursor = $true
+  $btnUpdate.Enabled = $false
+  try {
+    $branch = (Invoke-Git @('rev-parse', '--abbrev-ref', 'HEAD')).Out
+    $fetch = Invoke-Git @('fetch', 'origin', 'main')
+    if ($fetch.Code -ne 0) {
+      Show-Problem "Could not reach GitHub to check for updates.`r`n`r`n$($fetch.Err)"
+      return
+    }
+    $behind = [int](Invoke-Git @('rev-list', '--count', 'HEAD..origin/main')).Out
+    if ($behind -eq 0) {
+      Show-Problem 'GC-4 is up to date with main on GitHub.' 'Check for update' 'Information'
+      return
+    }
+    $log = (Invoke-Git @('log', '--oneline', '--no-decorate', '-n', '15', 'HEAD..origin/main')).Out
+    if ($behind -gt 15) { $log += "`r`n... and $($behind - 15) more" }
+    if ($branch -ne 'main') {
+      Show-Problem "There are $behind new commit(s) on main, but this copy is on branch '$branch'.`r`n`r`nSwitch to main to update from the launcher."
+      return
+    }
+    $answer = [System.Windows.Forms.MessageBox]::Show(
+      "An update is available: $behind new commit(s) on main.`r`n`r`n$log`r`n`r`nUpdate now?",
+      'Update available',
+      [System.Windows.Forms.MessageBoxButtons]::YesNo,
+      [System.Windows.Forms.MessageBoxIcon]::Question)
+    if ($answer -ne [System.Windows.Forms.DialogResult]::Yes) { return }
+
+    $before = (Invoke-Git @('rev-parse', 'HEAD')).Out
+    $pull = Invoke-Git @('pull', '--ff-only', 'origin', 'main')
+    if ($pull.Code -ne 0) {
+      Show-Problem "The update did not apply. Nothing was changed.`r`n`r`n$($pull.Err)`r`n`r`nLocal edits to the same files are the usual cause. Commit or stash them, then try again." 'Update failed' 'Error'
+      return
+    }
+    $changed = (Invoke-Git @('diff', '--name-only', $before, 'HEAD')).Out -split "`n"
+    $notes = @()
+    if ($changed -match '^package(-lock)?\.json$') { $notes += 'Dependencies changed: run  npm install  in this folder before launching.' }
+    if ($changed -match '^tools/gc-launcher\.ps1$') { $notes += 'The launcher itself was updated: close this window and start it again to use the new version.' }
+    Show-Problem ((@("Updated to the latest main ($behind commit(s)).") + $notes) -join "`r`n`r`n") 'Update complete' 'Information'
+    Update-Form
+  } finally {
+    $form.UseWaitCursor = $false
+    $btnUpdate.Enabled = $true
+  }
+})
 
 $script:launch = $false
 $btnLaunch.Add_Click({
