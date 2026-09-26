@@ -42,6 +42,15 @@ test('p lines convert shunt volts through mA to psi', () => {
   assert.equal(Math.round(d.raw.get('pt0')), 500);
 });
 
+test('P lines carry the bang-bang PTs as board-scaled psi', () => {
+  const d = makeDriver({
+    channelMap: { bbpt0: 'LOX-TANK-PT', bbpt1: 'FUEL-TANK-PT' },
+    config: { sensors: [{ id: 'LOX-TANK-PT' }, { id: 'FUEL-TANK-PT' }], valves: [] },
+  });
+  d.onLine('P312.40000,P298.10000');
+  assert.deepEqual(d.read(), { 'LOX-TANK-PT': 312.4, 'FUEL-TANK-PT': 298.1 });
+});
+
 test('psi is clamped to the channel range, so a pinned value is not saturation', () => {
   const d = makeDriver({
     defaultShuntOhms: 47,

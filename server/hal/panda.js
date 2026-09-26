@@ -290,7 +290,11 @@ export class PandaDriver {
         values.forEach((v, i) => this.raw.set(`pt${i}`, this.toPsi(i, v)));
         break;
       case 'P':
-        break;                     // legacy pre-scaled PSI; recomputed from `p`
+        // V2 bang-bang PTs: the board's own scaled, tared, median-filtered
+        // PSI — exactly what its regulator acts on. Map bbpt0 (LOX) and
+        // bbpt1 (fuel) in channelMap to show the controller's view.
+        values.forEach((v, i) => this.raw.set(`bbpt${i}`, v));
+        break;
       case 'l':
         values.forEach((v, i) => this.raw.set(`lc${i}`, v));
         break;

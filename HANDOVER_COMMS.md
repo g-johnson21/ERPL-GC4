@@ -333,7 +333,7 @@ Every line is ASCII, `\n`-terminated. Classification is by prefix, per §3.3.
 | Prefix | Kind | Delimiter | Payload |
 |--------|------|-----------|---------|
 | `p` | PT telemetry | comma | 16 raw values (shunt volts on current firmware) |
-| `P` | PT telemetry, pre-scaled PSI (legacy V1) | comma | **discarded by the host** |
+| `P` | Bang-bang PT pressure, board-scaled PSI (V2) | comma | stored as `bbpt0`/`bbpt1`; map in `channelMap` |
 | `l` | Load cells (legacy) | comma | 6 values |
 | `t` | Combined LC + TC | comma | see §4.1.3 — implementations disagree on the split |
 | `s` | Solenoid/DC currents | comma | up to 16 values, **Amps** |
@@ -378,7 +378,7 @@ Note this strips embedded letters anywhere, not just a prefix, and does not vali
 p0.712,0.698,0.705,0.700,0.694,0.703,0.711,0.699,0.702,0.697,0.708,0.701,0.696,0.705,0.700,0.703
 ```
 
-**`P` — legacy V1 pre-scaled PSI.** Explicitly **dropped** by both implementations (`if id_char == 'P': continue`). The host recomputes PSI from the `p` stream so that raw / mA / psi stay mutually consistent. If your firmware emits only `P`, you must change this.
+**`P` — bang-bang PT pressure.** On V1 this was a legacy pre-scaled copy and was dropped. On V2 it is the board's scaled, tared, median-filtered PSI for the two bang-bang PTs — the value its regulator acts on — so GC-4 stores it as `bbpt0` (LOX) and `bbpt1` (fuel). Map those in `panda.channelMap` to display the controller's own view of tank pressure.
 
 **`l` — load cells, legacy.** 6 values, mapped to LC channels 1–6.
 

@@ -16,7 +16,8 @@
     "",
     "PTs follow the same diagram's PT connector numbering. PT1 (LOX tank)",
     "and PT2 (fuel tank) are the PANDA's own bang-bang inputs, mux A ch 0",
-    "and 1, read in mA. PT3-PT12 are on the NI-9208 at ai2-ai11 (connector",
+    "and 1, read from the 'P' line: the board-scaled PSI its bang-bang",
+    "loop acts on (bbpt0, bbpt1). PT3-PT12 are on the NI-9208 at ai2-ai11 (connector",
     "PTn -> ai(n-1)); ai0, ai1 and ai12-ai15 are unused. maxPsi is a",
     "placeholder sized to each line; set it from the installed transducers."
   ],
@@ -69,8 +70,8 @@
     "dcThresholdA": 0.1,
     "armHardware": true,
     "channelMap": {
-      "pt0": "LOX-TANK-PT",
-      "pt1": "FUEL-TANK-PT"
+      "bbpt0": "LOX-TANK-PT",
+      "bbpt1": "FUEL-TANK-PT"
     },
     "_dcChannels": [
       "Wire position in the board's 's' line -> the channel it senses.",
