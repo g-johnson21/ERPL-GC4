@@ -170,6 +170,30 @@ export function fmtBytes(n) {
   return `${(n / 1024 / 1024).toFixed(2)} MB`;
 }
 
+/**
+ * A span of time as an operator reads it off a card: 4.2 s, 38 s, 3m 05s,
+ * 2h 14m. Tenths only under ten seconds, where they are the part moving.
+ */
+export function fmtElapsed(ms) {
+  if (!Number.isFinite(ms)) return '––';
+  const secs = Math.max(0, ms) / 1000;
+  if (secs < 10) return `${secs.toFixed(1)} s`;
+  if (secs < 60) return `${Math.floor(secs)} s`;
+  if (secs < 3600) return `${Math.floor(secs / 60)}m ${String(Math.floor(secs % 60)).padStart(2, '0')}s`;
+  return `${Math.floor(secs / 3600)}h ${String(Math.floor((secs % 3600) / 60)).padStart(2, '0')}m`;
+}
+
+/** A stopwatch face: 0:07.3, 12:04.9, 1:02:33. */
+export function fmtStopwatch(ms) {
+  const t = Math.max(0, Math.floor(ms / 100));
+  const tenths = t % 10;
+  const s = Math.floor(t / 10) % 60;
+  const m = Math.floor(t / 600) % 60;
+  const h = Math.floor(t / 36000);
+  const pad = (n) => String(n).padStart(2, '0');
+  return h ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}.${tenths}`;
+}
+
 export function fmtClock(ms) {
   const d = new Date(ms);
   return d.toTimeString().slice(0, 8);
@@ -202,6 +226,9 @@ const ICON_PATHS = {
   zoom: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>',
   eye: '<path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z"/><circle cx="12" cy="12" r="2.8"/>',
   eyeOff: '<path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z"/><circle cx="12" cy="12" r="2.8"/><path d="M4 3.5 20 20.5"/>',
+  pause: '<rect x="6.5" y="5" width="4" height="14" rx="1" fill="currentColor" stroke="none"/><rect x="13.5" y="5" width="4" height="14" rx="1" fill="currentColor" stroke="none"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  timer: '<circle cx="12" cy="13.5" r="7.5"/><path d="M12 13.5V9.5M9.5 2.5h5M12 2.5V6M18.5 6.5l1.5-1.5"/>',
 };
 
 export function icon(name, size = 16) {

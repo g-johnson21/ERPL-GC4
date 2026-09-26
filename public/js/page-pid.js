@@ -13,6 +13,7 @@ import {
   tileTraceBox, lineWidth, symbolDefs,
 } from './pid-symbols.js';
 import { WINDOWS, windowChips, tracePath, drawTrace, statusColor, cssVar, windowed } from './spark.js';
+import { attachValveTip } from './valve-tip.js';
 
 const content = await bootPage('pid');
 fitSidebar();
@@ -117,6 +118,10 @@ for (const valve of bus.config.valves) {
   if (!valve.pid) continue;
   const group = bus.group(valve.group);
   const node = renderValve(valve, group?.color || '#64748b');
+  // The hover card replaces the symbol's static <title>: it counts how long
+  // the valve has been in its position, live, where a <title> is frozen.
+  node.querySelector(':scope > title')?.remove();
+  attachValveTip(node, valve);
   if (bus.spectator) {
     node.removeAttribute('tabindex');
     node.setAttribute('role', 'img');
@@ -862,9 +867,14 @@ function update() {
     if (!node) continue;
     const state = bus.valveState(valve.id);
     node.dataset.state = state;
+    // Under a live bang-bang loop: drawn yellow, labelled BB, and no claim
+    // about open or closed — the board is pulsing it and GC is not told each
+    // edge. See bangbang.js trackOwnership().
+    const owner = bus.valveOwner(valve.id);
+    node.dataset.bb = String(Boolean(owner));
 
     const label = document.getElementById(`pvs-${valve.id}`);
-    if (label) label.textContent = state === 'open' ? valve.openLabel : valve.closedLabel;
+    if (label) label.textContent = owner ? 'BB' : state === 'open' ? valve.openLabel : valve.closedLabel;
 
     const next = state === 'open' ? 'closed' : 'open';
     const gate = bus.spectator ? { ok: false } : bus.canCommand(valve.id, next);
@@ -872,8 +882,8 @@ function update() {
     // Lights up while SHIFT is held — the same guard the Control Grid uses.
     node.dataset.needsShift = String(gate.ok && next !== valve.safeState);
 
-    node.setAttribute('aria-label', `${valve.name || valve.id}: ${state}`);
-    updateCoil(valve, state);
+    node.setAttribute('aria-label', `${valve.name || valve.id}: ${owner ? 'bang-bang' : state}`);
+    updateCoil(valve, state, owner);
   }
 
   updateInstruments();
@@ -898,11 +908,23 @@ function update() {
  *   fault    the coil is not doing what it was told
  *   unknown  no current sense on this channel, so nothing is claimed
  */
-function updateCoil(valve, state) {
+function updateCoil(valve, state, owner = null) {
   const dot = document.getElementById(`pvc-${valve.id}`);
   if (!dot) return;
 
   const dc = bus.state.valves?.[valve.id]?.dc;
+
+  // A pulsing coil disagrees with the last commanded state half the time by
+  // design, so under bang-bang the dot shows the measured current and never
+  // claims a fault.
+  if (owner) {
+    const known = dc && typeof dc.energized === 'boolean';
+    dot.dataset.coil = known ? (dc.energized ? 'on' : 'off') : 'unknown';
+    dot.firstChild.textContent = known
+      ? `${dc.id}: coil ${dc.energized ? 'ENERGIZED' : 'de-energized'} · ${fmtCurrent(dc.amps)}\npulsed by ${owner.name}`
+      : '';
+    return;
+  }
   const coil = coilState(valve, state, dc);
   dot.dataset.coil = coil;
 

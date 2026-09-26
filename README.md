@@ -131,7 +131,8 @@ Try this to see the whole system work:
 4. Shift-click **PB1** and **PB3** to close the tank vents — with a vent open
    the press pulses just blow through it, and the tank stalls at a hundred psi
    or so. Then shift-enable both bang-bang controllers: the emulated board
-   takes over, S1 and S2 pulse, and the tanks come up to setpoint. Watch the
+   takes over, S1 and S2 turn yellow for as long as it has them, and the
+   tanks come up to setpoint. Watch the
    board's PT and the DAQ's disagree slightly on the card; that divergence is
    modelled on purpose. The purge bus (PT32) only comes alive now: R1 is fed
    off the fuel leg.
@@ -170,6 +171,18 @@ what is gone is the second click, not the rule.
 
 **Opening a valve takes a held SHIFT.** Closing it does not. See
 [Shift to actuate](#shift-to-actuate).
+
+**Hover a valve to see how long it has been where it is** — "OPEN for
+2m 14s", who commanded it and when, and what a click would do. The card keeps
+counting while the pointer rests on it, and the P&ID has the same card. The
+clock restarts only when the valve actually changes position: SAFE ALL
+re-commanding a valve that is already closed does not reset it.
+
+**A valve a bang-bang loop owns is drawn yellow**, labelled BANG-BANG here and
+BB on the P&ID, for exactly as long as the loop is live. It shows no open or
+closed: the board is pulsing the coil and reports it only in a 1 Hz heartbeat,
+so any position drawn from that would be a sampled guess presented as fact.
+See [What the screen shows while the board regulates](#what-the-screen-shows-while-the-board-regulates).
 
 ### P&ID (`/pid.html`)
 
@@ -363,9 +376,50 @@ property than a modal, and it does not cost a click every time a channel is
 zeroed before a test. What a tare *is* refused for is covered in the
 [safety model](#safety-model).
 
+### PT alerts
+
+Any PT reading outside its bounds raises an alert in a tray along the bottom
+of the page: **minor** (yellow) past `warnLow`/`warnHigh`, **major** (red,
+flashing, with a repeating tone) past `dangerLow`/`dangerHigh`. Each row names
+the PT, its reading, the bound it crossed and how long it has been out. The
+bang-bang boards' own transducers are watched too.
+
+- **MUTE ALL** silences the tray and its tone on *every* operator station until
+  someone unmutes it, and the mute is logged. A muted tray still shows one line
+  counting what is active — muting silences the alarm, it does not blind you.
+- **✕** on a row dismisses that alert on this station only. It comes back if it
+  escalates from minor to major; **SHOW ALL** brings dismissed rows back.
+- An alert clears after its PT has read in bounds for 1.5 s, so a transducer
+  sitting on a threshold does not blink rows in and out.
+
+**Valve alerts** share the same tray. Each is a rule — a valve, a state (open,
+closed, or under bang-bang), a time limit, a level, and an optional message —
+so "LOX Vent open longer than 2:00 is MAJOR: close before pressurizing" raises
+exactly that once the vent has been open two minutes. The time is measured on
+the server's clock from when the valve last changed position (or from when
+bang-bang took it), so every station agrees. Several rules on the same valve and
+state are one alert that escalates: a minor at 1:00 and a major at 5:00 show as
+one row that turns red at five minutes. The alert clears the moment the valve
+leaves that state.
+
+The tray is a display, not an interlock — it moves nothing. The stand's trips
+are `abortAbove` and sequence abort conditions. Bounds are set on the Config
+page's **Alerts** tab; `alerts.enabled` and `alerts.sound` in the config turn
+the tray and its tone off.
+
+### Timers
+
+**T** (or the stopwatch in the header) opens a new timer: a name, a
+stopwatch or a countdown, and optionally one PT to watch. With a PT it is a
+leak check — the card records the pressure when the clock starts and shows the
+change since, and the average rate in psi/min. Timers can be paused, restarted
+(which re-records the starting pressure) and dragged anywhere on screen. They
+belong to this station: they survive moving between pages, but nothing about
+them reaches the server, the CSV or another operator.
+
 ### Config (`/config.html`)
 
-Three tabs:
+Four tabs:
 
 - **Autosequences** — a timeline editor. Pick a sequence from the list on the
   left; the editor shows it three ways at once:
@@ -412,6 +466,17 @@ Three tabs:
   sequence being edited, an amber playhead follows it live. Esc is **not** an
   editor key: it is ABORT, on this page as on every other. The file stores
   absolute times, so what the sequencer executes is unchanged.
+- **Alerts** — every PT in one table: major low, minor low, minor high, major
+  high, blank for no bound, with the live reading coloured by what the bounds
+  being typed would make of it. These are each sensor's own
+  `warn*`/`danger*` fields, so they also colour its tile and card. A save that
+  changes only these (Ctrl+S) goes straight through with no reload warning and
+  applies live on every station — no page reloads, and nothing is re-pushed to
+  the board. Bounds must nest (major low ≤ minor low < minor high ≤ major high).
+  Below the PT table, **Valve alerts** lists the custom valve rules: **+ Add
+  valve alert**, pick the valve and state, type the limit as `m:ss` or seconds,
+  choose minor or major, and optionally a message. They live in
+  `alerts.valves` and save live the same way.
 - **General** — the settings that change most often: branding, accent colour,
   theme, grid density, loop and CSV rates, recording directory, ARM policy,
   the control-port [PIN](#control-pin).
@@ -548,6 +613,20 @@ The wire protocol is documented in `HANDOVER_COMMS.md` §5 and implemented in
 | `max_open_ms` pulse limit | The abort threshold |
 | Auto-vent trigger | Display, logging, the enable handshake |
 | **The actual valve state** | |
+
+#### What the screen shows while the board regulates
+
+While a controller is live, its press (and vent, if configured) valve is drawn
+**yellow** on the Control Grid and the P&ID, and neither open nor closed. The
+screen used to copy the heartbeat's press bit onto the valve icon, but that bit
+arrives once a second and a pulse shorter than that never appears in it at all
+— it drew an impression of the loop, not the valve. The bang-bang card still
+reports what the board says (FILLING, press OPEN), labelled as the board's
+account.
+
+When the controller lets go, the press valve is recorded **closed**: every way
+out of SUSTAIN (`b<side>0`, disarm, a latched abort) closes it on the board. The
+vent is left as it was, since `b<side>0` leaves it untouched.
 
 The three ground-station trips exist because the protocol has no equivalent for
 them. They are **supervisory**: each can send `b<side>0` or `x<side>` — stop
@@ -1769,7 +1848,7 @@ correctly months later, after the stand has been rebuilt twice.
 |---|---|
 | **`Esc`** | **ABORT, immediately** |
 | `Shift` (held) | Arms every control that moves the stand away from safe |
-| `T` | Toggle light / dark theme |
+| `T` | New timer / stopwatch (optionally a PT leak check) |
 | `\` | Show / hide the control sidebar |
 | `0` | Reset P&ID zoom and pan |
 | `+` / `-` | Zoom the P&ID |
@@ -1847,6 +1926,7 @@ rejected command can never leave a valve looking open when it is closed.
 | `GET` | `/api/stream` | SSE: `state`, `log`, `config` events |
 | `GET` | `/api/state` `/api/config` `/api/history` `/api/events` | Snapshots |
 | `POST` | `/api/arm` `/api/abort` `/api/abort/clear` | Stand state |
+| `POST` | `/api/alerts/mute` | `{muted}` — mute or unmute the PT alert tray on every station |
 | `POST` | `/api/valve` `/api/safe-all` | Actuation |
 | `POST` | `/api/tare` | Zero instrumentation: `{sensors:[…]}` or `{kind:"pressure"}`, plus `clear` to undo |
 | `POST` | `/api/controller` | Bang-bang: `enabled`, `setpoint`, `deadband`, `maxOpenMs`, `minIntervalMs`, `ventTrigger`, `ventAuto`, `maxOpenSeconds`, plus the overrides `vent` and `abort`. **Not** `abortAbove` — that is a `stand.json` setting and is refused here |
@@ -1856,7 +1936,7 @@ rejected command can never leave a valve looking open when it is closed.
 | `POST` | `/api/sim/valve` `/api/sim/regulator` | Simulator only: `{id, state}` or `{id, toggle:true}` for a hand valve, `{id, psi}` for a regulator. 409 on any other driver |
 | `POST` | `/api/record/start` `/api/record/stop` | Recording |
 | `GET` | `/api/record/list` `/api/record/download/:name` | Recorded files |
-| `PUT` | `/api/config` | Validate, back up, save, hot-reload. While armed, accepts autosequence changes only |
+| `PUT` | `/api/config` | Validate, back up, save, hot-reload. With `safety.requireDisarmToEditConfig`, an armed stand accepts only autosequence and alert-bound changes |
 
 The [spectator port](#spectator-view) serves only the `GET` rows of that table,
 minus the recordings, and refuses every other method before it looks at the

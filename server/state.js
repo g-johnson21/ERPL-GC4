@@ -31,6 +31,11 @@ export class StandController extends EventEmitter {
     this.armed = false;
     this.armedAt = 0;
     this.abortState = { active: false, reason: null, at: 0 };
+    // Out-of-bounds PT alerts are raised in the browser, from the thresholds
+    // in config. The MUTE lives here so it is one decision for every operator
+    // station and survives a page reload — a mute that came undone every time
+    // someone switched to the P&ID would be no mute at all.
+    this.alertsMuted = { muted: false, at: 0, by: null };
 
     this.valveStates = {};      // id -> 'open' | 'closed'
     this.valveMeta = {};        // id -> {at, source}
@@ -62,7 +67,13 @@ export class StandController extends EventEmitter {
       // divergence the CFG_PUSH echo exists to catch. This is also what makes
       // an ARMED reconfiguration honest: the board is holding values from the
       // old file until this line runs.
-      this.bangbang.pushAll('reload');
+      //
+      // Skipped when the save moved nothing the board holds — retuning an
+      // alert bound mid-test should not put config traffic on the link to a
+      // board that is regulating.
+      const boardUntouched = changed.length > 0 &&
+        changed.every((k) => ['autosequences', '$schema', 'alertBounds', 'alerts'].includes(k));
+      if (!boardUntouched) this.bangbang.pushAll('reload');
       this.log('info',
         changed.length
           ? `Configuration reloaded — ${changed.join(', ')}`
@@ -274,7 +285,11 @@ export class StandController extends EventEmitter {
     }
 
     this.valveStates[id] = state;
-    this.valveMeta[id] = { at: Date.now(), source };
+    // `at` is when the valve entered the position it is in, which the UI
+    // shows as "open for 2m 14s". Re-commanding the position it already holds
+    // (safe-all, a sequence step that repeats one) does not move it, so it
+    // does not restart that clock either.
+    if (previous !== state || !this.valveMeta[id]) this.valveMeta[id] = { at: Date.now(), source };
 
     if (previous !== state && !opts.internal) {
       this.log('command', `${valve.id} (${valve.name}) -> ${state.toUpperCase()}`, source);
@@ -572,6 +587,18 @@ export class StandController extends EventEmitter {
     return { ok: true };
   }
 
+  // --------------------------------------------------------------- ALERTS ----
+
+  /** Mute or unmute the PT alert tray on every station. Logged either way. */
+  setAlertsMuted(muted, source = 'operator') {
+    muted = Boolean(muted);
+    if (muted === this.alertsMuted.muted) return { ok: true, muted };
+    this.alertsMuted = { muted, at: Date.now(), by: source };
+    this.log(muted ? 'warn' : 'info', muted ? 'PT ALERTS MUTED' : 'PT alerts unmuted', source);
+    this.emit('telemetry', this.snapshot());
+    return { ok: true, muted };
+  }
+
   // --------------------------------------------------------------- EVENTS ----
 
   log(level, message, source = 'system') {
@@ -609,10 +636,22 @@ export class StandController extends EventEmitter {
     // drew current, which a commanded state alone cannot tell you.
     const dc = this.driver.dcStatus?.() || {};
 
+    // Valves a live bang-bang loop owns. While it does, `state` is only what
+    // GC last commanded: the board is pulsing the coil and GC is not told
+    // each edge, so the UI draws these as "under bang-bang" rather than
+    // claiming open or closed. `bbSince` is when that ownership began.
+    const owned = this.bangbang.ownedValves();
+    const bbSnap = owned.size ? this.bangbang.snapshot() : {};
+
     const valves = {};
     for (const v of this.config.valves) {
       valves[v.id] = { state: this.valveStates[v.id], at: this.valveMeta[v.id]?.at, source: this.valveMeta[v.id]?.source };
       if (dc[v.id]) valves[v.id].dc = dc[v.id];
+      const owner = owned.get(v.id);
+      if (owner) {
+        valves[v.id].bb = owner.id;
+        valves[v.id].bbSince = bbSnap[owner.id]?.liveSince ?? null;
+      }
     }
 
     return {
@@ -620,6 +659,7 @@ export class StandController extends EventEmitter {
       armed: this.armed,
       armedAt: this.armedAt,
       abort: this.abortState,
+      alerts: { ...this.alertsMuted },
       driver: driverStatus(this.driver),
       valves,
       sensors,

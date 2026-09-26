@@ -473,6 +473,23 @@ body.spectator .pid-valve { cursor: default; pointer-events: none; }
 
 .pid-valve[data-locked="true"] { opacity: .45; cursor: not-allowed; }
 
+/* Owned by a live bang-bang loop. Yellow for as long as the loop is live,
+   whatever GC last commanded: the board is pulsing this coil and reports it
+   only in a 1 Hz heartbeat, so any open/closed drawn here would be a guess.
+   Declared after the open-state rules so it wins over them, and at full
+   strength rather than dimmed like a locked valve. */
+.pid-valve[data-bb="true"] .sym-fill,
+.pid-valve[data-bb="true"] .sym-fill-strong {
+  fill: color-mix(in srgb, var(--warn) 28%, var(--bg));
+  stroke: var(--warn);
+  stroke-width: 2;
+}
+.pid-valve[data-bb="true"] .sym-line { stroke: var(--warn); }
+.pid-valve[data-bb="true"] .sym-ball { fill: var(--warn); }
+.pid-valve[data-bb="true"] .sym-winding { stroke: color-mix(in srgb, var(--warn) 75%, transparent); }
+.pid-valve[data-bb="true"] .sym-glyph { fill: var(--warn); }
+.pid-valve[data-bb="true"][data-locked="true"] { opacity: 1; }
+
 /* The state chip under each valve's tag: a hairline box, faint when closed,
    lit in the open colour when open. */
 .pid-state-box {
@@ -487,6 +504,10 @@ body.spectator .pid-valve { cursor: default; pointer-events: none; }
 .pid-valve[data-hazard="true"][data-state="open"] .pid-state-box {
   fill: color-mix(in srgb, var(--danger) 16%, var(--bg));
   stroke: var(--danger);
+}
+.pid-valve[data-bb="true"] .pid-state-box {
+  fill: color-mix(in srgb, var(--warn) 18%, var(--bg));
+  stroke: var(--warn);
 }
 .pid-valve:hover .pid-state-box { stroke: var(--text-muted); }
 
@@ -536,6 +557,7 @@ body.shift-armed .pid-valve[data-needs-shift="true"] .pid-hit {
 }
 .pid-valve[data-state="open"] .pid-valve-state { fill: var(--ok); font-weight: 600; }
 .pid-valve[data-hazard="true"][data-state="open"] .pid-valve-state { fill: var(--danger); }
+.pid-valve[data-bb="true"] .pid-valve-state { fill: var(--warn); font-weight: 600; }
 
 /* --------------------------------------------------------- instruments --- */
 

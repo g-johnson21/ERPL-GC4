@@ -410,18 +410,51 @@ test('a per-side abort is latched, and the board refuses to restart', () => {
 
 // ----------------------------------------------------- mirroring and display ---
 
-test('the board\'s heartbeat drives what the P&ID shows', () => {
+test('the heartbeat does not drive the valve icons while the board regulates', () => {
+  // The loop runs on the board and the heartbeat is 1 Hz: copying its press
+  // bit into the valve state drew a sampled impression of the loop as though
+  // it were the valve's position. The valves are flagged as owned instead.
   const stand = makeStand();
   const bank = new BangBangBank(stand);
   bringUp(bank, stand, 10);                   // low pressure -> the board presses
 
-  assert.equal(stand.valveStates['SV-LOXBB'], 'open');
-  assert.equal(stand.valveMeta['SV-LOXBB'].source, 'board');
+  assert.equal(bank.snapshot()['bb-ox'].board.press, true, 'the board is pressing');
+  assert.equal(stand.valveStates['SV-LOXBB'], 'closed', 'press icon not mirrored from the heartbeat');
+  assert.equal(stand.valveStates['SV-LOXV'], 'open', 'vent icon untouched');
+  assert.deepEqual([...bank.ownedValves().keys()].sort(), ['SV-LOXBB', 'SV-LOXV']);
+  assert.equal(bank.snapshot()['bb-ox'].liveSince, 0, 'ownership stamped on the tick clock');
+  assert.deepEqual(stand.commands, [], 'and the host still never commands a valve');
+});
 
-  // A normally-open vent reports a COIL state, and coil-energised is
-  // flow-closed. Reading the bit straight through would draw an open vent on
-  // a tank that is sealed.
-  assert.equal(stand.valveStates['SV-LOXV'], 'open', 'de-energised NO vent reads open');
+test('releasing a regulating side records its press valve closed', () => {
+  // Every exit from SUS closes the press valve on the board (b<side>0,
+  // disarm, abort). That is documented behaviour, not a guess, so the press
+  // icon follows it; the vent is left alone.
+  const stand = makeStand();
+  const bank = new BangBangBank(stand);
+  stand.valveStates['SV-LOXBB'] = 'open';     // as GC last knew it before enabling
+  bringUp(bank, stand, 10);
+
+  bank.set('bb-ox', { enabled: false });
+  stand.driver.tick({ l: 10 }, 1000);
+  bank.update({ PT4: 10 }, 1000);
+
+  assert.equal(bank.snapshot()['bb-ox'].liveSince, null);
+  assert.equal(stand.valveStates['SV-LOXBB'], 'closed');
+  assert.equal(stand.valveMeta['SV-LOXBB'].source, 'board-release');
+  assert.equal(stand.valveStates['SV-LOXV'], 'open', 'vent untouched');
+  assert.equal(bank.ownedValves().size, 0);
+});
+
+test('a controller that never reached the board does not touch the press icon', () => {
+  const stand = makeStand();
+  const bank = new BangBangBank(stand);
+  stand.valveStates['SV-LOXBB'] = 'open';
+  bank.set('bb-ox', { enabled: true });
+  bank.update({ PT4: 50 }, 0);                // intent only; board still OFF
+  bank.set('bb-ox', { enabled: false });
+  bank.update({ PT4: 50 }, 10);
+  assert.equal(stand.valveStates['SV-LOXBB'], 'open');
 });
 
 test('nothing is mirrored while the board is OFF', () => {

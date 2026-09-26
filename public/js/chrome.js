@@ -8,6 +8,8 @@
 import { bus } from './bus.js';
 import { $, el, clear, icon, fmtDuration, fmtBytes, fmtValue, fmtClock, confirmAction, promptAction, shiftGate, setShiftRequired, toast, valueWidthCh } from './util.js';
 import { currentTheme, toggleTheme, applyConfigDefault } from './theme.js';
+import { mountAlerts } from './alerts.js';
+import { mountTimers, openTimerDialog } from './timers.js';
 
 // ============================================================== HEADER =====
 
@@ -53,8 +55,14 @@ export function mountHeader(activePage) {
     // flow and click-through, so it never moves or covers a control.
     el('div.link-alert#link-alert', { role: 'status', 'aria-live': 'assertive' }),
     el('span.clock#header-clock', { text: '--:--:--' }),
+    el('button.icon-btn#timer-btn', {
+      title: 'New timer / stopwatch — optionally watching a PT for a leak check (T)',
+      'aria-label': 'New timer',
+      html: icon('timer'),
+      onclick: openTimerDialog,
+    }),
     el('button.icon-btn#theme-toggle', {
-      title: 'Toggle light / dark theme (T)',
+      title: 'Toggle light / dark theme',
       'aria-label': 'Toggle theme',
       onclick: () => { toggleTheme(); syncThemeIcon(); },
     }),
@@ -98,11 +106,11 @@ export function mountHeader(activePage) {
   // spectator does not have, and ABORT in particular must not be bound on a
   // window that cannot abort: a viewer who hits Escape expecting the stand to
   // safe, and is told it did nothing only by a toast, is worse off than one
-  // who never believed the key was theirs. Theme stays — it is local.
+  // who never believed the key was theirs. Timers stay — they are local.
   if (spectator) {
     document.addEventListener('keydown', (e) => {
       if (e.target instanceof Element && e.target.matches('input, textarea, select')) return;
-      if (e.key.toLowerCase() === 't' && !e.ctrlKey && !e.metaKey) { toggleTheme(); syncThemeIcon(); }
+      if (isTimerKey(e)) { e.preventDefault(); openTimerDialog(); }
     });
     return;
   }
@@ -123,10 +131,20 @@ export function mountHeader(activePage) {
     // rest of the hotkeys down with it.
     if (e.target instanceof Element && e.target.matches('input, textarea, select')) return;
     if (e.key === '\\') { toggleSidebar(); }
-    if (e.key.toLowerCase() === 't' && !e.ctrlKey && !e.metaKey) { toggleTheme(); syncThemeIcon(); }
+    if (isTimerKey(e)) { e.preventDefault(); openTimerDialog(); }
   });
 
   trackShiftKey();
+}
+
+/**
+ * T opens a new timer. It used to toggle the theme, which now lives only on
+ * its header button — a timer is reached for mid-test, the theme once a day.
+ * No modifiers, so Ctrl+T and friends still belong to the browser.
+ */
+function isTimerKey(e) {
+  return e.key.toLowerCase() === 't' && !e.ctrlKey && !e.metaKey && !e.altKey
+    && !document.querySelector('.modal-backdrop');
 }
 
 /**
@@ -1420,7 +1438,7 @@ function updateSidebar() {
 // ------------------------------------------------------------- PAGE SETUP --
 
 /** Standard page boot: config, theme, header, layout shell. */
-export async function bootPage(pageId, { sidebar = true } = {}) {
+export async function bootPage(pageId, { sidebar = true, alerts = true } = {}) {
   await bus.init();
   applyConfigDefault(bus.config);
   setShiftRequired(bus.config.ui?.requireShiftToActuate !== false);
@@ -1438,6 +1456,10 @@ export async function bootPage(pageId, { sidebar = true } = {}) {
   // The sidebar is the actuation surface — ARM, controllers, sequences. A
   // spectator page never mounts it, whatever the caller asked for.
   if (sidebar && !bus.spectator) mountSidebar(body);
+  // Out-of-bounds PT alerts along the bottom of every screen that shows the
+  // stand, and the station's own timers on every page.
+  if (alerts) mountAlerts(content);
+  mountTimers();
 
   requestAnimationFrame(() => document.body.classList.add('theme-ready'));
   return content;

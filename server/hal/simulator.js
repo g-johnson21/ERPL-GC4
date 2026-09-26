@@ -611,9 +611,16 @@ export class SimulatorDriver {
     // any other, and applying that every tick would silently undo every S1
     // or S2 command an operator or a sequence sent by hand.
     const outputs = this.firmware.outputs();
+    this.bbOwned ??= {};
     for (const [side, wiring] of Object.entries(this.bbSides)) {
       const demand = outputs[side];
-      if (!demand || !this.boardOwns(side)) continue;
+      const owns = this.boardOwns(side);
+      // The real board closes the press valve on every way out of SUS/AV
+      // (b<side>0, disarm, abort). Without this the model kept whatever the
+      // last pulse left it at, while the ground station records it closed.
+      if (!owns && this.bbOwned[side] && wiring.valve) this.applyCoil(wiring.valve, false);
+      this.bbOwned[side] = owns;
+      if (!demand || !owns) continue;
       if (wiring.valve) this.applyCoil(wiring.valve, demand.press);
       if (wiring.ventValve) this.applyCoil(wiring.ventValve, demand.vent);
     }

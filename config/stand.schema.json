@@ -812,6 +812,32 @@
         }
       }
     },
+    "alerts": {
+      "type": "object",
+      "description": "The out-of-bounds PT alert tray at the bottom of the control screens. The bounds are each pressure sensor's warnLow/warnHigh (minor, yellow) and dangerLow/dangerHigh (major, flashing red); edit them on the Config page's Alerts tab.",
+      "properties": {
+        "enabled": { "type": "boolean", "default": true, "description": "Raise alerts at all." },
+        "sound": { "type": "boolean", "default": true, "description": "Sound a tone while a major alert is active and not muted." },
+        "valves": {
+          "type": "array",
+          "description": "Custom valve alerts: raise an alert when a valve has been in a state longer than a limit. Rules on the same valve and state combine into one alert that escalates.",
+          "items": {
+            "type": "object",
+            "required": ["valve", "state"],
+            "properties": {
+              "valve": { "type": "string", "description": "Valve id." },
+              "state": { "enum": ["open", "closed", "bb"], "description": "open, closed, or bb (under a live bang-bang loop)." },
+              "afterSeconds": { "type": "number", "minimum": 0, "default": 0, "description": "Raise once the valve has been in the state this long. 0 = as soon as it is." },
+              "level": { "enum": ["minor", "major"], "default": "minor" },
+              "message": { "type": "string", "description": "Shown on the alert row, e.g. what to do about it." },
+              "enabled": { "type": "boolean", "default": true }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
     "recording": {
       "type": "object",
       "properties": {

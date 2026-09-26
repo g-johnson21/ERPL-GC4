@@ -97,13 +97,41 @@ export class ConfigStore extends EventEmitter {
   sequence(id) { return this.config.autosequences.find((s) => s.id === id); }
 }
 
-/** Top-level sections in which two normalized configs differ. */
+/**
+ * Top-level sections in which two normalized configs differ.
+ *
+ * One pseudo-section: a change to `sensors` or `bangbang` that touches
+ * nothing but warn/danger thresholds is reported as `alertBounds` instead.
+ * Thresholds are read live everywhere they are used, so retuning an alert is
+ * not the kind of change that has to reload every control screen — and it is
+ * exactly the change an operator wants to make quickly, mid-test.
+ */
 function diffSections(before, after) {
   const changed = [];
+  let alertBounds = false;
   for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
-    if (canonical(before[key]) !== canonical(after[key])) changed.push(key);
+    if (canonical(before[key]) === canonical(after[key])) continue;
+    if (ALERT_SECTIONS.has(key) &&
+        canonical(withoutAlertBounds(key, before[key])) === canonical(withoutAlertBounds(key, after[key]))) {
+      alertBounds = true;
+    } else {
+      changed.push(key);
+    }
   }
+  if (alertBounds) changed.push('alertBounds');
   return changed;
+}
+
+/** The threshold fields an alert is raised from. */
+export const ALERT_KEYS = ['warnLow', 'warnHigh', 'dangerLow', 'dangerHigh'];
+const ALERT_SECTIONS = new Set(['sensors', 'bangbang']);
+
+/** A section with every alert threshold stripped out, for comparison. */
+function withoutAlertBounds(key, value) {
+  if (!Array.isArray(value)) return value;
+  const strip = (o) => Object.fromEntries(Object.entries(o).filter(([k]) => !ALERT_KEYS.includes(k)));
+  if (key === 'sensors') return value.map((s) => (s && typeof s === 'object' ? strip(s) : s));
+  return value.map((b) => (b?.boardSensor ? { ...b, boardSensor: strip(b.boardSensor) } : b));
 }
 
 /**
@@ -156,6 +184,18 @@ function normalizeConfig(c) {
   // Empty runs the port open. Enforced in server/auth.js; the spectator port
   // never sees this section at all.
   cfg.safety.controlPin ??= '';
+
+  // The out-of-bounds PT alert tray. The bounds themselves are each sensor's
+  // warn*/danger* fields; these are only the tray's own switches.
+  cfg.alerts ??= {};
+  cfg.alerts.enabled ??= true;
+  cfg.alerts.sound ??= true;
+  // Custom valve alerts: "LOX-VENT open longer than 120 s is MAJOR".
+  cfg.alerts.valves ??= [];
+  for (const r of cfg.alerts.valves) {
+    r.level ??= 'minor';
+    r.afterSeconds ??= 0;
+  }
 
   cfg.valveGroups ??= [];
   cfg.sensorGroups ??= [];
@@ -345,6 +385,7 @@ export function validateConfig(c) {
     else if (usedSensorChannels.has(s.channel)) err(`${where} (${s.id}): channel ${s.channel} already used by ${usedSensorChannels.get(s.channel)}`);
     else usedSensorChannels.set(s.channel, s.id);
     if (s.min != null && s.max != null && Number(s.min) >= Number(s.max)) err(`${where} (${s.id}): min must be < max`);
+    checkAlertBounds(s, `${where} (${s.id})`, err);
   }
 
   const usedSides = new Map();
@@ -368,6 +409,7 @@ export function validateConfig(c) {
     if (b.ventValve != null && !valveIds.has(b.ventValve)) {
       err(`${where} (${b.id}): ventValve "${b.ventValve}" is not a defined valve`);
     }
+    if (b.boardSensor) checkAlertBounds(b.boardSensor, `${where} (${b.id}) boardSensor`, err);
     if (typeof b.setpoint !== 'number') err(`${where} (${b.id}): setpoint must be a number`);
     if (b.deadband != null && Number(b.deadband) <= 0) err(`${where} (${b.id}): deadband must be > 0`);
     if (b.ventTrigger != null && (!Number.isFinite(Number(b.ventTrigger)) || Number(b.ventTrigger) < 0)) {
@@ -500,5 +542,49 @@ export function validateConfig(c) {
     err('ui.tankLevel.heightIn must be a positive number of inches');
   }
 
+  // Custom valve alerts. A rule naming a valve that does not exist, or a state
+  // the tray does not know, would never fire — which reads as a working alert
+  // right up until it matters.
+  const valveRules = c.alerts?.valves;
+  if (valveRules != null && !Array.isArray(valveRules)) err('alerts.valves must be an array');
+  for (const [i, r] of (Array.isArray(valveRules) ? valveRules : []).entries()) {
+    const where = `alerts.valves[${i}]`;
+    if (!r || typeof r !== 'object') { err(`${where}: must be an object`); continue; }
+    if (!valveIds.has(r.valve)) err(`${where}: valve "${r.valve}" is not a defined valve`);
+    if (!VALVE_ALERT_STATES.includes(r.state)) err(`${where}: state must be one of ${VALVE_ALERT_STATES.join(', ')}`);
+    if (r.afterSeconds != null && (typeof r.afterSeconds !== 'number' || !Number.isFinite(r.afterSeconds) || r.afterSeconds < 0)) {
+      err(`${where}: afterSeconds must be a number of seconds >= 0`);
+    }
+    if (r.level != null && r.level !== 'minor' && r.level !== 'major') err(`${where}: level must be "minor" or "major"`);
+    if (r.message != null && typeof r.message !== 'string') err(`${where}: message must be text`);
+  }
+
   return errors;
+}
+
+/** What a valve alert rule can watch for: flow state, or bang-bang ownership. */
+const VALVE_ALERT_STATES = ['open', 'closed', 'bb'];
+
+/**
+ * Alert thresholds must be numbers (or absent) and nest the right way round:
+ * major low <= minor low < minor high <= major high. A minor bound outside
+ * its major one would raise the major alert first and the minor one never,
+ * which reads as a working alert right up until it matters.
+ */
+function checkAlertBounds(s, where, err) {
+  const b = {};
+  for (const k of ALERT_KEYS) {
+    if (s[k] == null) continue;
+    if (typeof s[k] !== 'number' || !Number.isFinite(s[k])) { err(`${where}: ${k} must be a number or null`); continue; }
+    b[k] = s[k];
+  }
+  const pairs = [
+    ['dangerLow', 'warnLow', '<='], ['warnHigh', 'dangerHigh', '<='],
+    ['warnLow', 'warnHigh', '<'], ['dangerLow', 'dangerHigh', '<'],
+    ['warnLow', 'dangerHigh', '<'], ['dangerLow', 'warnHigh', '<'],
+  ];
+  for (const [lo, hi, op] of pairs) {
+    if (b[lo] === undefined || b[hi] === undefined) continue;
+    if (op === '<=' ? b[lo] > b[hi] : b[lo] >= b[hi]) err(`${where}: ${lo} (${b[lo]}) must be ${op} ${hi} (${b[hi]})`);
+  }
 }

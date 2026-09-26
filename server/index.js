@@ -63,10 +63,16 @@ const SPECTATOR_PORT = args['no-spectator'] || args.spectator === 'false'
  * — and a page builds that DOM from config exactly once, at boot. So a save
  * that moves anything else has to reach the stations as a reload.
  *
+ * `alertBounds` is not a real key: config-store reports it in place of
+ * `sensors` (or `bangbang`) when the only thing that moved there was a
+ * warn/danger threshold. Those are read live — by the server's sensor status
+ * and by the alert tray — so retuning an alert mid-test must not reload every
+ * control screen. `alerts` holds the tray's own switches and is read live too.
+ *
  * This is a DISPLAY fact, not a permission: see `safety.requireDisarmToEditConfig`
  * for whether such a save is allowed while armed at all.
  */
-const IN_PLACE_SECTIONS = new Set(['autosequences', '$schema']);
+const IN_PLACE_SECTIONS = new Set(['autosequences', '$schema', 'alertBounds', 'alerts']);
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -415,6 +421,9 @@ async function handleApi(req, res, pathname, url) {
     case 'POST /api/abort/clear':
       return sendJson(res, 200, withState(stand.clearAbort(who)));
 
+    case 'POST /api/alerts/mute':
+      return sendJson(res, 200, withState(stand.setAlertsMuted(body.muted, who)));
+
     case 'POST /api/valve': {
       const result = body.toggle
         ? stand.toggleValve(body.id, { source: who })
@@ -481,8 +490,17 @@ async function handleApi(req, res, pathname, url) {
     }
 
     case 'POST /api/config/validate': {
-      const errors = validateConfig(body.config ?? body);
-      return sendJson(res, 200, { ok: errors.length === 0, errors });
+      const draft = body.config ?? body;
+      const errors = validateConfig(draft);
+      // What a save of this draft would move, so the Config page can say
+      // truthfully whether it applies live or reloads every station.
+      const changed = errors.length ? [] : configStore.changedSections(draft);
+      return sendJson(res, 200, {
+        ok: errors.length === 0,
+        errors,
+        changed,
+        inPlace: changed.every((k) => IN_PLACE_SECTIONS.has(k)),
+      });
     }
 
     case 'PUT /api/config': {

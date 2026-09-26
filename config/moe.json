@@ -467,8 +467,8 @@
       "decimals": 0,
       "min": 0,
       "max": 5000,
-      "warnHigh": 4300,
-      "dangerHigh": 4600,
+      "warnHigh": 4000,
+      "dangerHigh": 4500,
       "calibration": {
         "slope": 1,
         "offset": 0
@@ -629,8 +629,8 @@
       "decimals": 1,
       "min": 0,
       "max": 500,
-      "warnHigh": 180,
-      "dangerHigh": 200,
+      "warnHigh": 115,
+      "dangerHigh": 120,
       "calibration": {
         "slope": 1,
         "offset": 0
@@ -737,8 +737,8 @@
       "decimals": 0,
       "min": 0,
       "max": 10000,
-      "warnHigh": 6200,
-      "dangerHigh": 6500,
+      "warnHigh": 6005,
+      "dangerHigh": 6050,
       "calibration": {
         "slope": 1,
         "offset": 0
@@ -763,9 +763,9 @@
       "channel": 10,
       "decimals": 1,
       "min": 0,
-      "max": 500,
-      "warnHigh": 150,
-      "dangerHigh": 200,
+      "max": 200,
+      "warnHigh": 115,
+      "dangerHigh": 120,
       "calibration": {
         "slope": 1,
         "offset": 0
@@ -882,14 +882,18 @@
           "action": "bangbang",
           "target": "bb-ox",
           "enabled": true,
-          "setpoint": 700
+          "deadband": 0,
+          "minIntervalMs": 0,
+          "maxOpenMs": 0
         },
         {
           "t": 0,
           "action": "bangbang",
           "target": "bb-fuel",
           "enabled": true,
-          "setpoint": 700
+          "deadband": 0,
+          "minIntervalMs": 0,
+          "maxOpenMs": 0
         },
         {
           "t": 0,
@@ -897,54 +901,78 @@
           "message": "T-0.5 OX LEAD"
         },
         {
-          "t": 0,
-          "action": "valve",
-          "target": "MOV",
-          "state": "open"
-        },
-        {
           "t": 0.5,
           "action": "log",
           "message": "T-0 MAIN FUEL OPEN"
         },
         {
-          "t": 0.5,
+          "t": 2,
+          "action": "valve",
+          "target": "MOV",
+          "state": "open"
+        },
+        {
+          "t": 2.3,
           "action": "valve",
           "target": "MFV",
           "state": "open"
         },
         {
-          "t": 5.5,
-          "action": "log",
-          "message": "CUTOFF"
-        },
-        {
-          "t": 5.5,
-          "action": "valve",
-          "target": "MOV",
-          "state": "closed"
-        },
-        {
-          "t": 6,
+          "t": 4,
           "action": "valve",
           "target": "MFV",
           "state": "closed"
         },
         {
-          "t": 6,
+          "t": 7,
+          "action": "log",
+          "message": "CUTOFF"
+        },
+        {
+          "t": 7,
+          "action": "valve",
+          "target": "MOV",
+          "state": "closed"
+        },
+        {
+          "t": 7.25,
           "action": "bangbang",
           "target": "*",
           "enabled": false
         },
         {
-          "t": 6,
+          "t": 7.25,
+          "action": "valve",
+          "target": "FUEL-VENT",
+          "state": "open"
+        },
+        {
+          "t": 7.25,
+          "action": "valve",
+          "target": "LOX-VENT",
+          "state": "open"
+        },
+        {
+          "t": 7.5,
           "action": "log",
           "message": "HOT FIRE COMPLETE — tanks still pressurized, detank when ready"
+        },
+        {
+          "t": 8.25,
+          "action": "valve",
+          "target": "LOX-VENT",
+          "state": "closed"
+        },
+        {
+          "t": 8.25,
+          "action": "valve",
+          "target": "FUEL-VENT",
+          "state": "closed"
         }
       ],
       "abortConditions": [],
       "hidden": false,
-      "duration": 6
+      "duration": 8.25
     },
     {
       "id": "seq-detank",
@@ -1084,6 +1112,59 @@
       ],
       "abortConditions": [],
       "duration": 0.3
+    },
+    {
+      "id": "seq-custom-5",
+      "name": "Fuel Side Checkout",
+      "abbrev": "NEW",
+      "description": "",
+      "style": "normal",
+      "requiresArm": true,
+      "confirm": true,
+      "abortConditions": [],
+      "steps": [
+        {
+          "t": 0,
+          "action": "log",
+          "message": "Sequence start"
+        },
+        {
+          "t": 2,
+          "action": "bangbang",
+          "target": "bb-fuel",
+          "enabled": true,
+          "maxOpenMs": 0,
+          "deadband": 0,
+          "minIntervalMs": 0
+        },
+        {
+          "t": 2,
+          "action": "valve",
+          "target": "MFV",
+          "state": "open"
+        },
+        {
+          "t": 4,
+          "action": "valve",
+          "target": "MFV",
+          "state": "closed"
+        },
+        {
+          "t": 4,
+          "action": "bangbang",
+          "target": "bb-fuel",
+          "enabled": false
+        },
+        {
+          "t": 4.05,
+          "action": "valve",
+          "target": "FUEL-VENT",
+          "state": "open"
+        }
+      ],
+      "hidden": false,
+      "duration": 4.05,
+      "timeMode": "absolute"
     }
   ],
   "recording": {
@@ -1773,7 +1854,7 @@
             575
           ],
           [
-            830,
+            860,
             575
           ]
         ],
@@ -1787,12 +1868,12 @@
         "fluid": "n2",
         "points": [
           [
-            830,
+            860,
             575
           ],
           [
-            830,
-            608
+            860,
+            605
           ]
         ],
         "flowWhen": [
@@ -1805,7 +1886,7 @@
         "fluid": "n2",
         "points": [
           [
-            830,
+            860,
             575
           ],
           [
@@ -2783,5 +2864,18 @@
       }
     ],
     "pressurizedPsi": 50
+  },
+  "alerts": {
+    "enabled": true,
+    "sound": true,
+    "valves": [
+      {
+        "valve": "FUEL-VENT",
+        "state": "closed",
+        "afterSeconds": 30,
+        "level": "minor",
+        "message": "FUEL VENT OPEN FOR 30 MINS"
+      }
+    ]
   }
 }

@@ -140,6 +140,10 @@ export class BangBangBank {
         predictiveRetryAt: prev?.predictiveRetryAt ?? null,
         pressSince: prev?.pressSince ?? null,
         lastPress: prev?.lastPress ?? false,
+        // When this controller last became live (see trackOwnership), and
+        // whether the board was actually seen regulating during that stretch.
+        liveSince: prev?.liveSince ?? null,
+        boardRan: prev?.boardRan ?? false,
         cycles: prev?.cycles ?? 0,
         fault: prev?.fault ?? null,
         lastError: prev?.lastError ?? null,
@@ -600,7 +604,7 @@ export class BangBangBank {
       if (rt.awaitingEcho && rt.configPushedAt == null) rt.configPushedAt = now;
 
       this.trackCycles(rt, board, now);
-      this.mirrorValves(cfg, rt, board);
+      this.trackOwnership(cfg, rt, board, now);
 
       if (!rt.side) continue;
 
@@ -831,38 +835,49 @@ export class BangBangBank {
   }
 
   /**
-   * Reflect the board's own account of its solenoids into the stand's valve
-   * state, so the P&ID and the actuation screen show what is really happening.
+   * Note when a controller takes its valves and when it gives them back.
    *
-   * This deliberately bypasses commandValve(): we are not commanding anything,
-   * we are recording an observation, and routing it through the command path
-   * would send a redundant `S<ch>` back at the board for a valve it already
-   * has open.
+   * THE VALVE ICONS ARE NOT DRIVEN FROM THE HEARTBEAT. They used to be: the
+   * press and vent bits in each `BB:` line were copied into the stand's valve
+   * state, so the P&ID flickered open and closed. But the loop runs on the
+   * board, the heartbeat is 1 Hz, and a pulse shorter than a second never
+   * appears in it at all — the drawing was a sampled impression of the loop
+   * presented as its state. Now a live controller's valves are drawn as
+   * "under bang-bang" for as long as it is live (state.js flags them from
+   * `ownedValves()`), and nothing here claims to know which way they are.
    *
-   * Only while the board's loop actually owns the valve. In OFF the board's
-   * press bit reports its own regulator's demand, which says nothing about a
-   * solenoid an operator has since driven by hand — mirroring then would show
-   * a manually-opened valve as closed.
+   * On the way out, the press valve IS known. Every exit from a live state —
+   * `b<side>0`, disarm, a latched abort — leaves the press closed (§2.4), so
+   * it is recorded de-energized. Only if the board was actually seen running:
+   * a controller that never got as far as `b<side>1` never touched the valve.
+   * The vent is left as it was: `b<side>0` leaves it untouched, and whether
+   * the board opened it is not something the heartbeat says reliably in OFF.
    */
-  mirrorValves(cfg, rt, board) {
-    if (!board || board.stale || board.state === 'OFF') return;
-
-    if (cfg.valve) this.setObservedValve(cfg.valve, board.press);
-    if (cfg.ventValve) this.setObservedValve(cfg.ventValve, board.vent);
+  trackOwnership(cfg, rt, board, now) {
+    const live = this.isLive(cfg.id);
+    if (live) {
+      if (rt.liveSince == null) { rt.liveSince = now; rt.boardRan = false; }
+      if (board && !board.stale && board.state !== 'OFF') rt.boardRan = true;
+      return;
+    }
+    if (rt.liveSince == null) return;
+    rt.liveSince = null;
+    if (rt.boardRan && cfg.valve) this.recordReleased(cfg.valve);
+    rt.boardRan = false;
   }
 
-  setObservedValve(valveId, energized) {
+  /** Record a press valve the board has let go of as de-energized. */
+  recordReleased(valveId) {
     const valve = this.stand.configStore.valve(valveId);
     if (!valve) return;
-    // The board reports COIL state; the stand speaks FLOW state. For a
-    // normally-open valve those are opposites, and the same rule that
-    // resolves it on the way out has to resolve it on the way back in.
-    const state = valve.normallyOpen
-      ? (energized ? 'closed' : 'open')
-      : (energized ? 'open' : 'closed');
+    // De-energized is the SPRING position, which is flow-open on a
+    // normally-open valve. Not routed through commandValve(): this is the
+    // board's documented behaviour being recorded, not a command, and an
+    // `S<ch>` sent back at it would be redundant.
+    const state = valve.normallyOpen ? 'open' : 'closed';
     if (this.stand.valveStates[valveId] === state) return;
     this.stand.valveStates[valveId] = state;
-    this.stand.valveMeta[valveId] = { at: Date.now(), source: 'board' };
+    this.stand.valveMeta[valveId] = { at: Date.now(), source: 'board-release' };
     this.stand.emit('valve-change', valveId, state);
   }
 
@@ -879,6 +894,8 @@ export class BangBangBank {
         side: rt.side,
         // What we have asked the board for.
         enabled: rt.enabled,
+        // When this controller took its valves, or null while it has none.
+        liveSince: rt.liveSince,
         setpoint: rt.setpoint,
         deadband: rt.deadband,
         maxOpenMs: rt.maxOpenMs,

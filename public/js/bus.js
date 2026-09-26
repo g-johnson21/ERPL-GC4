@@ -54,6 +54,7 @@ class Bus {
     } catch { this.events = []; }
 
     this.state = await fetch('/api/state').then((r) => r.json());
+    this.stateAt = Date.now();
     // That fetch returning is proof the server is reachable, so start
     // connected rather than waiting for the EventSource to open. Otherwise
     // every page load flashes LINK LOST beside the hardware link indicators
@@ -101,6 +102,7 @@ class Bus {
       if (!this.connected) { this.connected = true; this.emit('connection', true); }
       const snap = JSON.parse(e.data);
       this.state = snap;
+      this.stateAt = Date.now();
       this.pushHistory(snap);
       this.emit('state', snap);
     });
@@ -134,7 +136,10 @@ class Bus {
       // edited is an ordinary thing to do, and answering it with "autosequences
       // updated" tells the operator something happened that did not.
       if (inPlace) {
-        toast(changed.length ? 'Autosequences updated' : 'Configuration saved — no changes',
+        const what = changed
+          .map((k) => ({ autosequences: 'Autosequences', alertBounds: 'Alert bounds', alerts: 'Alert settings' })[k])
+          .filter(Boolean);
+        toast(what.length ? `${what.join(' and ')} updated` : 'Configuration saved — no changes',
           'info', 2500);
         return;
       }
@@ -277,7 +282,7 @@ class Bus {
     }
     // The server returns a fresh snapshot with every command, so the UI
     // reflects the true post-command state without waiting for a frame.
-    if (json.state) { this.state = json.state; this.emit('state', json.state); }
+    if (json.state) { this.state = json.state; this.stateAt = Date.now(); this.emit('state', json.state); }
     if (!json.ok && json.error) toast(json.error, 'error', 6000);
     return json;
   }
@@ -298,6 +303,8 @@ class Bus {
   /** psi currently subtracted from one tank's head, 0 when untared. */
   tankLevelTare(id) { return Number(this.state?.tankLevelTares?.[id]) || 0; }
   setController(id, patch) { return this.post('/api/controller', { id, ...patch }); }
+  /** Mute or unmute the PT alert tray — one decision for every station. */
+  setAlertsMuted(muted) { return this.post('/api/alerts/mute', { muted }); }
   startSequence(id) { return this.post('/api/sequence/start', { id }); }
   stopSequence() { return this.post('/api/sequence/stop'); }
   /**
@@ -445,6 +452,35 @@ class Bus {
 
   valveState(id) { return this.state?.valves?.[id]?.state ?? 'closed'; }
 
+  /**
+   * The bang-bang controller driving this valve right now, or null.
+   *
+   * While a loop owns a valve its `state` is only what GC last commanded — the
+   * board is pulsing the coil and GC is not told each edge — so every screen
+   * draws it as "under bang-bang" instead of open or closed.
+   */
+  valveOwner(id) {
+    const cid = this.state?.valves?.[id]?.bb;
+    return cid ? (this.controller(cid) || { id: cid, name: cid }) : null;
+  }
+
+  /**
+   * The server's clock, now. Snapshot times are server times, and a station
+   * whose own clock is a minute off must not show a valve as a minute older
+   * than it is — so the age is measured on the server's clock at the last
+   * snapshot and extended locally from when that snapshot arrived.
+   */
+  serverNow() {
+    const t = this.state?.t;
+    if (!Number.isFinite(t)) return Date.now();
+    return t + Math.max(0, Date.now() - (this.stateAt || Date.now()));
+  }
+
+  /** Milliseconds since a server-clock timestamp, or null. */
+  sinceServer(t) {
+    return Number.isFinite(t) && t > 0 ? Math.max(0, this.serverNow() - t) : null;
+  }
+
   reading(id) {
     const bs = this.boardSensor(id);
     return bs ? this.boardPressure(bs) : (this.state?.sensors?.[id]?.v ?? null);
@@ -492,6 +528,11 @@ class Bus {
   canCommand(valveId, toState) {
     const valve = this.valve(valveId);
     if (!valve || !this.state) return { ok: false, reason: 'No state' };
+    // Ahead of the safe-direction pass: the server refuses a hand command on
+    // an owned valve in EITHER direction, because it would put a second
+    // command source on a solenoid the board is pulsing.
+    const owner = this.valveOwner(valveId);
+    if (owner) return { ok: false, reason: `Driven by bang-bang (${owner.name}) — disable it to command by hand`, bb: true };
     if (toState === valve.safeState) return { ok: true };
     if (this.state.abort.active) return { ok: false, reason: 'Stand is in ABORT' };
     if (this.config.safety.requireArmToActuate && valve.requiresArm && !this.state.armed) {

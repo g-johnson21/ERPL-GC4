@@ -204,3 +204,79 @@ test('backups are named and pruned per config file, so two stands keep their own
   assert.equal(backups.filter((f) => f.startsWith('stand.')).length, 1, 'the Draco backup survives MOE\'s pruning');
   assert.equal(backups.filter((f) => f.startsWith('moe.')).length, 20, 'MOE keeps its own twenty');
 });
+
+// ---------------------------------------------------------- alert bounds --
+
+test('a threshold-only edit is reported as alertBounds, not as sensors', (t) => {
+  // Retuning an alert mid-test must not reload every control screen, and it
+  // is only safe not to because nothing but the thresholds moved.
+  const { store } = tempStore(t);
+  const next = structuredClone(store.get());
+  const pt = next.sensors.find((s) => s.kind === 'pressure');
+  pt.warnHigh = 123;
+  pt.dangerHigh = 456;
+  assert.deepEqual(store.changedSections(next), ['alertBounds']);
+
+  // A board sensor's thresholds are in `bangbang`, and the same rule holds.
+  const bs = next.bangbang.find((b) => b.boardSensor);
+  if (bs) {
+    bs.boardSensor.warnHigh = 111;
+    assert.deepEqual(store.changedSections(next), ['alertBounds']);
+  }
+});
+
+test('a threshold edit riding with a real sensor change is still structural', (t) => {
+  const { store } = tempStore(t);
+  const next = structuredClone(store.get());
+  next.sensors[0].warnHigh = 1;
+  next.sensors[0].decimals = (next.sensors[0].decimals ?? 1) + 1;
+  assert.deepEqual(store.changedSections(next), ['sensors']);
+});
+
+test('alert thresholds must nest minor inside major', (t) => {
+  const { store } = tempStore(t);
+  const bad = structuredClone(store.get());
+  const pt = bad.sensors.find((s) => s.kind === 'pressure');
+  pt.warnHigh = 500;
+  pt.dangerHigh = 400;
+  const result = store.save(bad);
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.some((e) => /warnHigh \(500\) must be <= dangerHigh \(400\)/.test(e)), result.errors.join('\n'));
+
+  const clean = structuredClone(store.get());
+  const pt2 = clean.sensors.find((s) => s.kind === 'pressure');
+  pt2.warnLow = null;
+  pt2.dangerLow = null;
+  pt2.warnHigh = 100;
+  pt2.dangerHigh = 200;
+  assert.equal(store.save(clean).ok, true, 'null means "no bound"');
+});
+
+test('valve alert rules are validated and apply as the alerts section', (t) => {
+  const { store } = tempStore(t);
+  const valve = store.get().valves[0].id;
+
+  const good = structuredClone(store.get());
+  good.alerts.valves = [{ valve, state: 'open', afterSeconds: 120, level: 'major', message: 'vent it' }];
+  assert.deepEqual(store.changedSections(good), ['alerts'], 'a rule edit reloads no station');
+  assert.equal(store.save(good).ok, true);
+
+  const bad = structuredClone(store.get());
+  bad.alerts.valves = [
+    { valve: 'NOPE', state: 'open', afterSeconds: 1 },
+    { valve, state: 'ajar', afterSeconds: -1, level: 'huge' },
+  ];
+  const result = store.save(bad);
+  assert.equal(result.ok, false);
+  for (const re of [/"NOPE" is not a defined valve/, /state must be one of/, /afterSeconds must be/, /level must be/]) {
+    assert.ok(result.errors.some((e) => re.test(e)), `${re} in:\n${result.errors.join('\n')}`);
+  }
+});
+
+test('the alerts section defaults on, and is its own section', (t) => {
+  const { store } = tempStore(t);
+  assert.deepEqual(store.get().alerts, { enabled: true, sound: true, valves: [] });
+  const next = structuredClone(store.get());
+  next.alerts.sound = false;
+  assert.deepEqual(store.changedSections(next), ['alerts']);
+});

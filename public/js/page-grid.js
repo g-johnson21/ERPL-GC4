@@ -3,6 +3,7 @@ import { bus } from './bus.js';
 import { bootPage } from './chrome.js';
 import { fitSidebar } from './sidebar-fit.js';
 import { $, el, clear, icon, fmtValue, fmtRate, fmtCurrent, shiftGate, valueWidthCh } from './util.js';
+import { attachValveTip } from './valve-tip.js';
 
 const content = await bootPage('grid');
 fitSidebar();
@@ -141,11 +142,11 @@ function buildValveGrid() {
 function valveButton(valve, group) {
   const hazard = valve.type === 'igniter' || valve.momentary;
 
-  return el('button.valve-btn', {
+  const btn = el('button.valve-btn', {
     id: `vb-${valve.id}`,
-    dataset: { state: 'closed', valveId: valve.id, hazard: String(hazard) },
+    dataset: { state: 'closed', valveId: valve.id, hazard: String(hazard), bb: 'false' },
     style: { '--group-color': group.color },
-    title: `${valve.id} — ${valve.name}\nchannel ${valve.channel} · ${valve.normallyOpen ? 'normally open' : 'normally closed'}\nsafe state: ${valve.safeState}`,
+    'aria-label': `${valve.id} — ${valve.name}`,
     onclick: (e) => onValveClick(valve, e),
   },
     // The NAME leads, on a line of its own, and the tag sits under it beside
@@ -170,6 +171,21 @@ function valveButton(valve, group) {
     el('div.v-dc.hidden', { id: `vd-${valve.id}` }),
     el('span.v-lock.hidden', { id: `vl-${valve.id}`, html: icon('lock', 12) })
   );
+  // The hover card, not a `title`: it keeps counting how long the valve has
+  // been where it is, where a native tooltip freezes the moment it opens.
+  attachValveTip(btn, valve, { detail: valveTipDetail });
+  return btn;
+}
+
+/** The lines under the hover card's headline: wiring, and what a click would do. */
+function valveTipDetail(valve) {
+  const lines = [`channel ${valve.channel} · ${valve.normallyOpen ? 'normally open' : 'normally closed'} · safe ${valve.safeState}`];
+  if (bus.valveOwner(valve.id)) return lines;
+  const next = bus.valveState(valve.id) === 'open' ? 'closed' : 'open';
+  const gate = bus.canCommand(valve.id, next);
+  if (!gate.ok) lines.push(`🔒 ${gate.reason}`);
+  else if (next !== valve.safeState) lines.push(`Hold SHIFT and click to ${next === 'open' ? 'OPEN' : 'CLOSE'}.`);
+  return lines;
 }
 
 /**
@@ -206,7 +222,11 @@ function updateValves() {
 
     const state = bus.valveState(valve.id);
     btn.dataset.state = state;
-    $(`#vs-${valve.id}`).textContent = state === 'open' ? valve.openLabel : valve.closedLabel;
+    // Under a live bang-bang loop the board is pulsing the coil, and the
+    // last commanded state is not its position — so neither is shown.
+    const owner = bus.valveOwner(valve.id);
+    btn.dataset.bb = String(Boolean(owner));
+    $(`#vs-${valve.id}`).textContent = owner ? 'BANG-BANG' : state === 'open' ? valve.openLabel : valve.closedLabel;
 
     // Current sense: what the coil is actually drawing, versus what we
     // commanded. A disagreement is the interesting case, so flag it.
@@ -214,7 +234,12 @@ function updateValves() {
     const dcEl = $(`#vd-${valve.id}`);
     if (dcEl) {
       dcEl.classList.toggle('hidden', !dc);
-      if (dc) {
+      dcEl.dataset.mismatch = 'false';
+      if (dc && owner) {
+        // Pulsing, so "energized" and "commanded" disagree half the time by
+        // design. Show the current; claim no mismatch.
+        dcEl.textContent = `${dc.id} · ${fmtCurrent(dc.amps)}`;
+      } else if (dc) {
         dcEl.textContent = `${dc.id} · ${fmtCurrent(dc.amps)}`;
         // A normally-open valve is energized to CLOSE, so current while
         // closed is correct. Compare against the expected COIL state, not
@@ -237,14 +262,9 @@ function updateValves() {
     // the modifier, the one that closes it does not.
     btn.dataset.needsShift = String(nextGate.ok && next !== valve.safeState);
     const lock = $(`#vl-${valve.id}`);
-    lock.classList.toggle('hidden', nextGate.ok);
-    if (!nextGate.ok) btn.title = `${valve.name}\n🔒 ${nextGate.reason}`;
-    else if (next !== valve.safeState) {
-      btn.title = `${valve.name}\nchannel ${valve.channel} · safe state: ${valve.safeState}\n`
-                + `Hold SHIFT and click to ${next === 'open' ? 'OPEN' : 'CLOSE'}.`;
-    } else {
-      btn.title = `${valve.name}\nchannel ${valve.channel} · safe state: ${valve.safeState}`;
-    }
+    // No lock badge on a bang-bang valve: the yellow state already says why
+    // it will not take a click, and a padlock would read as an interlock.
+    lock.classList.toggle('hidden', nextGate.ok || Boolean(owner));
     void locked;
   }
 }
