@@ -10,6 +10,7 @@ import { $, el, clear, icon, fmtDuration, fmtBytes, fmtValue, fmtClock, confirmA
 import { currentTheme, toggleTheme, applyConfigDefault } from './theme.js';
 import { mountAlerts } from './alerts.js';
 import { mountTimers, openTimerDialog } from './timers.js';
+import { mountCopvPress, openCopvPressDialog } from './copv-press.js';
 
 // ============================================================== HEADER =====
 
@@ -132,6 +133,7 @@ export function mountHeader(activePage) {
     if (e.target instanceof Element && e.target.matches('input, textarea, select')) return;
     if (e.key === '\\') { toggleSidebar(); }
     if (isTimerKey(e)) { e.preventDefault(); openTimerDialog(); }
+    if (isPressKey(e)) { e.preventDefault(); openCopvPressDialog(); }
   });
 
   trackShiftKey();
@@ -144,6 +146,12 @@ export function mountHeader(activePage) {
  */
 function isTimerKey(e) {
   return e.key.toLowerCase() === 't' && !e.ctrlKey && !e.metaKey && !e.altKey
+    && !document.querySelector('.modal-backdrop');
+}
+
+/** C opens the COPV Press Tool's setup. Operator stations only. */
+function isPressKey(e) {
+  return e.key.toLowerCase() === 'c' && !e.ctrlKey && !e.metaKey && !e.altKey
     && !document.querySelector('.modal-backdrop');
 }
 
@@ -1460,6 +1468,9 @@ export async function bootPage(pageId, { sidebar = true, alerts = true } = {}) {
   // stand, and the station's own timers on every page.
   if (alerts) mountAlerts(content);
   mountTimers();
+  // The COPV Press Tool window, if this station has one open. It commands the
+  // stand, so it is never mounted on a spectator page.
+  mountCopvPress();
 
   requestAnimationFrame(() => document.body.classList.add('theme-ready'));
   return content;

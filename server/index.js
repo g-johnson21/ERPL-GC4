@@ -455,6 +455,19 @@ async function handleApi(req, res, pathname, url) {
       return sendJson(res, result.ok ? 200 : 409, withState(result));
     }
 
+    // COPV Press Tool: one opening of GROUND GN2 PRESS, closed by the
+    // server on target or max time.
+    //   { target: psi, maxMs [, sensor: PT id] [, force: true] } | { stop: true }
+    case 'POST /api/press-step': {
+      const result = body.stop
+        ? stand.pressStep.stop(body.reason || 'stopped by operator', who)
+        : stand.pressStep.start({
+          target: body.target, maxMs: body.maxMs, force: body.force === true,
+          ...(body.sensor ? { sensor: String(body.sensor) } : {}),
+        }, who);
+      return sendJson(res, result.ok ? 200 : 409, withState(result));
+    }
+
     case 'POST /api/sequence/panda/config': {
       const result = await stand.sequencer.sendToPanda(body.id, who);
       return sendJson(res, result.ok ? 200 : 409, { ...result, state: stand.snapshot() });

@@ -17,6 +17,7 @@ import { EventEmitter } from 'node:events';
 import { BangBangBank } from './bangbang.js';
 import { Sequencer } from './sequencer.js';
 import { Recorder } from './recorder.js';
+import { PressStep } from './press-step.js';
 
 const MAX_EVENTS = 500;
 
@@ -55,6 +56,7 @@ export class StandController extends EventEmitter {
     this.bangbang = new BangBangBank(this);
     this.sequencer = new Sequencer(this);
     this.recorder = new Recorder(this, baseDir);
+    this.pressStep = new PressStep(this);
 
     this.initFromConfig();
 
@@ -167,6 +169,7 @@ export class StandController extends EventEmitter {
 
     this.bangbang.update(this.readings, now);
     this.sequencer.update(this.readings, now);
+    this.pressStep.update(this.readings, now);
     this.recorder.sample(now, this.readings);
 
     const autoDisarm = this.config.safety.autoDisarmAfterSeconds;
@@ -560,6 +563,7 @@ export class StandController extends EventEmitter {
     this.log('abort', `*** ABORT *** ${reason}`, 'system');
 
     this.bangbang.setAll({ enabled: false }, 'abort');
+    this.pressStep.stop('abort', 'abort');
     if (this.sequencer.running) this.sequencer.stop('abort', 'abort');
 
     const abortSeqId = this.config.safety.abortSequenceId;
@@ -668,6 +672,8 @@ export class StandController extends EventEmitter {
       // entry is untared; the browser turns what is left into inches.
       tankLevelTares: { ...this.tankLevelTares },
       sequence: this.sequencer.snapshot(),
+      // The COPV Press Tool's one-shot actuation: in progress, and the last.
+      pressStep: this.pressStep.snapshot(),
       recording: this.recorder.snapshot(),
       eventSeq: this.eventSeq,
       configVersion: this.config.meta.configVersion,

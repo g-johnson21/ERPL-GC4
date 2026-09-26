@@ -2496,6 +2496,120 @@ body.shift-armed .pid-valve[data-needs-shift="true"] { outline: none; }
 .timer-modal .seg button { flex: 1; }
 .timer-hint { margin-top: 4px; font-size: var(--fs-sm); color: var(--text-faint); }
 
+/* ========================================================== COPV PRESS === */
+
+.press-win {
+  position: fixed;
+  z-index: 81;
+  width: 320px;
+  max-width: calc(100vw - 16px);
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-left: 2px solid var(--accent);
+  box-shadow: var(--shadow-lg);
+}
+.press-win[hidden] { display: none; }
+.press-grip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 4px 4px 10px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  border-radius: var(--radius) var(--radius) 0 0;
+  font-family: var(--mono);
+  font-size: var(--fs-2xs);
+  letter-spacing: .12em;
+  color: var(--text-faint);
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+.press-grip:active { cursor: grabbing; }
+.press-title { color: var(--text); font-weight: 600; }
+.press-step-count { min-width: 76px; text-align: center; font-variant-numeric: tabular-nums; }
+.press-grip-fill { flex: 1; }
+.press-caret {
+  width: 18px; height: 20px;
+  display: grid; place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+.press-caret:hover:not(:disabled) { background: var(--surface-3); color: var(--text); border-color: var(--border); }
+.press-caret:disabled { opacity: .3; cursor: default; }
+.press-body { padding: 8px 10px 10px; }
+.press-reading { display: flex; align-items: baseline; gap: 8px; }
+.press-reading-label { font-family: var(--mono); font-size: var(--fs-xs); font-weight: 600; color: var(--text-muted); }
+.press-reading-value {
+  font-family: var(--mono);
+  font-size: 28px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+  margin-left: auto;
+}
+.press-unit { font-family: var(--mono); font-size: var(--fs-xs); color: var(--text-faint); }
+.press-delta {
+  margin-top: 2px;
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.press-delta[data-dir="up"] { color: var(--info); }
+.press-delta[data-dir="down"] { color: var(--warn); }
+.press-delta[data-dir="flat"] { color: var(--text-faint); }
+.press-boxes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 8px; }
+.press-box {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  min-width: 0;
+}
+.press-box-label { font-size: var(--fs-2xs); color: var(--text-muted); line-height: 1.2; }
+.press-box-input { display: flex; align-items: baseline; gap: 3px; }
+.press-box-input input { width: 100%; min-width: 0; text-align: right; }
+.press-box-sub {
+  min-height: 1.2em;
+  font-family: var(--mono);
+  font-size: var(--fs-2xs);
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.press-status {
+  margin-top: 8px;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+.press-status[data-kind="active"] { color: var(--info); font-weight: 600; animation: pulse 1s ease-in-out infinite; }
+.press-status[data-kind="wait"] { color: var(--text); }
+.press-status[data-kind="blocked"] { color: var(--warn); }
+.press-status[data-kind="ready"] { color: var(--ok); }
+.press-status[data-kind="override"] { color: var(--warn); font-weight: 600; }
+.btn.override { background: var(--warn-bg, var(--surface-3)); border-color: var(--warn); color: var(--warn); }
+.press-actions { display: flex; gap: 6px; margin-top: 8px; }
+.press-actions .btn { flex: 1; }
+
+.press-modal { width: min(460px, calc(100vw - 32px)); max-height: calc(100vh - 48px); overflow-y: auto; }
+.press-modal .press-field { margin-bottom: 12px; }
+.press-field-pair { display: flex; gap: 16px; }
+.press-targets { display: flex; flex-direction: column; gap: 4px; }
+.press-target-row { display: flex; align-items: center; gap: 8px; }
+.press-target-row > span:first-child { width: 56px; font-size: var(--fs-sm); color: var(--text-muted); }
+.press-target-row input { width: 110px; text-align: right; }
+
 /* ============================================================ VALVE TIP === */
 
 /* The valve hover card. Never takes the pointer, so it cannot steal the

@@ -109,9 +109,9 @@ const MOE_REGULATORS = {
 const tune = {
   supplyStartPsi: 6000,
   supplyDrain: 0.02,       // supply psi lost per psi delivered to the bus
-  regFlowGn2: 900,         // psi/s the ground regulator can push into the fill line
+  regFlowGn2: 2500,        // psi/s the ground regulator can push into the fill line
   fillLineVent: 3,         // fill line blowdown through GROUND GN2 VENT
-  busFill: 0.18,           // bus psi/s per psi of fill line above it, through the QD
+  busFill: 0.6,            // bus psi/s per psi of fill line above it, through the QD
   busVent: 0.35,           // GN2 VENT blowdown
   burstPsi: 5000,
   pressFlow: 0.011,        // tank psi/s per psi of bus above the tank
