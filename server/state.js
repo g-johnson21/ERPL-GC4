@@ -18,6 +18,7 @@ import { BangBangBank } from './bangbang.js';
 import { Sequencer } from './sequencer.js';
 import { Recorder } from './recorder.js';
 import { PressStep } from './press-step.js';
+import { GoxPurge } from './gox-purge.js';
 
 const MAX_EVENTS = 500;
 
@@ -57,6 +58,7 @@ export class StandController extends EventEmitter {
     this.sequencer = new Sequencer(this);
     this.recorder = new Recorder(this, baseDir);
     this.pressStep = new PressStep(this);
+    this.goxPurge = new GoxPurge(this);
 
     this.initFromConfig();
 
@@ -170,6 +172,7 @@ export class StandController extends EventEmitter {
     this.bangbang.update(this.readings, now);
     this.sequencer.update(this.readings, now);
     this.pressStep.update(this.readings, now);
+    this.goxPurge.update(this.readings, now);
     this.recorder.sample(now, this.readings);
 
     const autoDisarm = this.config.safety.autoDisarmAfterSeconds;
@@ -219,6 +222,7 @@ export class StandController extends EventEmitter {
       this.log('arm', '*** STAND ARMED *** — actuators are live', source);
     } else {
       this.log('arm', 'STAND DISARMED', source);
+      this.goxPurge.disable('stand disarmed', 'disarm', { quiet: true });
       // Disarming drops closed-loop control; it does not move valves by itself.
       this.bangbang.setAll({ enabled: false }, 'disarm');
     }
@@ -251,6 +255,10 @@ export class StandController extends EventEmitter {
       if (this.sequencer.ownsValve(id)) {
         return { ok: false, error: `${valve.name} is driven by the Panda autosequencer — stop the sequence first` };
       }
+      // PB6 under the GOX purge controller: a hand OPEN is refused, a hand
+      // CLOSE is taken as "stop purging" and turns the controller off.
+      const purge = this.goxPurge.handCommand(id, state, source);
+      if (!purge.ok) return purge;
       const owner = this.bangbang.ownedValves().get(id);
       if (owner) {
         return {
@@ -564,6 +572,7 @@ export class StandController extends EventEmitter {
 
     this.bangbang.setAll({ enabled: false }, 'abort');
     this.pressStep.stop('abort', 'abort');
+    this.goxPurge.disable('abort', 'abort', { quiet: true });
     if (this.sequencer.running) this.sequencer.stop('abort', 'abort');
 
     const abortSeqId = this.config.safety.abortSequenceId;
@@ -674,6 +683,8 @@ export class StandController extends EventEmitter {
       sequence: this.sequencer.snapshot(),
       // The COPV Press Tool's one-shot actuation: in progress, and the last.
       pressStep: this.pressStep.snapshot(),
+      // Draco's GOX purge loop on PB6 / Dragon TC. `available` false elsewhere.
+      goxPurge: this.goxPurge.snapshot(),
       recording: this.recorder.snapshot(),
       eventSeq: this.eventSeq,
       configVersion: this.config.meta.configVersion,

@@ -11,6 +11,7 @@ import { currentTheme, toggleTheme, applyConfigDefault } from './theme.js';
 import { mountAlerts } from './alerts.js';
 import { mountTimers, openTimerDialog } from './timers.js';
 import { mountCopvPress, openCopvPressDialog } from './copv-press.js';
+import { mountGoxPurge, openGoxPurgeDialog } from './gox-purge.js';
 
 // ============================================================== HEADER =====
 
@@ -134,6 +135,7 @@ export function mountHeader(activePage) {
     if (e.key === '\\') { toggleSidebar(); }
     if (isTimerKey(e)) { e.preventDefault(); openTimerDialog(); }
     if (isPressKey(e)) { e.preventDefault(); openCopvPressDialog(); }
+    if (isGoxKey(e)) { e.preventDefault(); openGoxPurgeDialog(); }
   });
 
   trackShiftKey();
@@ -152,6 +154,12 @@ function isTimerKey(e) {
 /** C opens the COPV Press Tool's setup. Operator stations only. */
 function isPressKey(e) {
   return e.key.toLowerCase() === 'c' && !e.ctrlKey && !e.metaKey && !e.altKey
+    && !document.querySelector('.modal-backdrop');
+}
+
+/** G opens Draco's GOX purge controller setup. Operator stations only. */
+function isGoxKey(e) {
+  return e.key.toLowerCase() === 'g' && !e.ctrlKey && !e.metaKey && !e.altKey
     && !document.querySelector('.modal-backdrop');
 }
 
@@ -1471,6 +1479,9 @@ export async function bootPage(pageId, { sidebar = true, alerts = true } = {}) {
   // The COPV Press Tool window, if this station has one open. It commands the
   // stand, so it is never mounted on a spectator page.
   mountCopvPress();
+  // Draco's GOX purge controller window, likewise operator-only. It shows on
+  // every station while the loop is on, whoever turned it on.
+  mountGoxPurge();
 
   requestAnimationFrame(() => document.body.classList.add('theme-ready'));
   return content;

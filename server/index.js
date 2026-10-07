@@ -468,6 +468,13 @@ async function handleApi(req, res, pathname, url) {
       return sendJson(res, result.ok ? 200 : 409, withState(result));
     }
 
+    // Draco GOX purge controller (PB6 on the Dragon TC):
+    //   { enable: true, openAt, closeAt, maxOpenMs } | { enable: false } | { openAt, closeAt, maxOpenMs }
+    case 'POST /api/gox-purge': {
+      const result = stand.goxPurge.set(body, who);
+      return sendJson(res, result.ok ? 200 : 409, withState(result));
+    }
+
     case 'POST /api/sequence/panda/config': {
       const result = await stand.sequencer.sendToPanda(body.id, who);
       return sendJson(res, result.ok ? 200 : 409, { ...result, state: stand.snapshot() });

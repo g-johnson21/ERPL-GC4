@@ -70,6 +70,12 @@ export class Sequencer {
       return { ok: false, error: 'Stand is in ABORT — clear the abort before running a sequence' };
     }
 
+    // The GOX purge controller goes off, and PB6 closed, before anything of
+    // this sequence can run — on the board or here. A PB6 that cannot be
+    // closed refuses the start (the abort sequence excepted). See gox-purge.js.
+    const purge = this.stand.goxPurge?.beforeSequence(cfg, source);
+    if (purge && !purge.ok) return purge;
+
     let remote = null;
     if (cfg.usePandaAutosequencer) {
       if (!this.stand.armed) return { ok: false, error: 'Panda sequences require the stand to be ARMED' };

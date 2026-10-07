@@ -817,7 +817,14 @@ export class SimulatorDriver {
     const fill = s.oxMass / tune.oxMassFull;
     const topTarget = fill > 0.85 ? LOX_F + 30 : fill > 0.05 ? LOX_F + 60 + (1 - fill) * 140 : AMBIENT_F;
     s.oxTankTopT += (topTarget - s.oxTankTopT) * relax(wetted ? 0.12 : 0.02);
-    s.oxLineT += ((wetted ? LOX_F + 20 : AMBIENT_F) - s.oxLineT) * relax(wetted ? 0.25 : 0.03);
+    // The Dragon TC at the main valve. With LOX moving past it (the main
+    // open, or PB6 bleeding the line) it reads near liquid. Sitting still, the
+    // line boils and a GOX pocket collects at the valve, so it creeps warm —
+    // which is what the GOX purge controller holds PB6 against.
+    const lineFlowing = oxOpen || this.isOpen('goxVent');
+    const lineTarget = !wetted ? AMBIENT_F : lineFlowing ? LOX_F + 12 : LOX_F + 110;
+    const lineRate = !wetted ? 0.03 : lineFlowing ? 0.6 : s.oxLineT > lineTarget ? 0.25 : 0.04;
+    s.oxLineT += (lineTarget - s.oxLineT) * relax(lineRate);
     const goxCold = oxOpen || (this.isOpen('goxVent') && wetted);
     s.goxLineT += ((goxCold ? LOX_F + 35 : AMBIENT_F) - s.goxLineT) * relax(goxCold ? 0.8 : 0.03);
     const chamberTarget = s.burning ? Math.min(2200, 1400 + s.chamberP * 2) : AMBIENT_F;

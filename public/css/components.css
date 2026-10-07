@@ -2602,6 +2602,47 @@ body.shift-armed .pid-valve[data-needs-shift="true"] { outline: none; }
 .press-actions { display: flex; gap: 6px; margin-top: 8px; }
 .press-actions .btn { flex: 1; }
 
+.gox-chip {
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  font-weight: 600;
+}
+.gox-chip[data-on="true"] { color: var(--ok); border-color: var(--ok); background: var(--ok-bg); }
+.gox-win[data-on="true"] { border-left-color: var(--ok); }
+.gox-band {
+  position: relative;
+  height: 8px;
+  margin: 8px 0 4px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--info) 35%, transparent), color-mix(in srgb, var(--warn) 35%, transparent));
+}
+.gox-band-zone {
+  position: absolute; top: 0; bottom: 0;
+  background: var(--surface-3);
+  border-left: 1px solid var(--text-faint);
+  border-right: 1px solid var(--text-faint);
+}
+.gox-band-mark {
+  position: absolute; top: -3px;
+  width: 3px; height: 14px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--text);
+}
+.gox-band-mark[data-side="open"] { background: var(--warn); }
+.gox-band-mark[data-side="close"] { background: var(--info); }
+.gox-valve {
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+.gox-valve[data-state="open"] { color: var(--warn); }
+.gox-win .press-boxes { grid-template-columns: repeat(2, 1fr); }
+.gox-hint { margin: -4px 0 12px; }
+
 .press-modal { width: min(460px, calc(100vw - 32px)); max-height: calc(100vh - 48px); overflow-y: auto; }
 .press-modal .press-field { margin-bottom: 12px; }
 .press-field-pair { display: flex; gap: 16px; }
