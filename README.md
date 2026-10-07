@@ -1648,30 +1648,21 @@ Two traps the workbook sets, both of which will silently mis-wire a channel:
   (`PT5E`), while the tag the drawing shows is the leading token of the
   `name` column (`PT4 LOX Tank Downstream` → `PT4`). They are offset from
   each other by the wiring.
-- **A DC channel's report position is not its actuation channel.** The
-  workbook's `channel` is where the board *reports* current on its `s` line;
-  the numeric part of `id` is the channel it *actuates* (`S5`).
-  `hardware.json` keys `dcChannels` by report position and carries the
-  actuation channel in `id`, so both stay explicit.
-
-  **The workbook's report order is wrong, and was measured instead.** The
-  board reports two banks, each one reversed:
+- **DC current is reported in channel order.** `hardware.json` keys
+  `dcChannels` by position on the board's `s` line and carries the channel
+  in `id`; position N is DC(N+1), so the first reading is DC1. Each entry's
+  `valve` must be the valve whose `channel` in `stand.json` is that DC
+  number — change both together.
 
   | `s` position | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 |
   |---|---|---|---|---|---|---|---|---|---|---|---|---|
-  | channel | DC8 | DC7 | DC6 | DC5 | DC4 | DC3 | DC2 | DC1 | — | DC11 | DC10 | DC9 |
+  | channel | DC1 | DC2 | DC3 | DC4 | DC5 | DC6 | DC7 | DC8 | DC9 | DC10 | DC11 | DC12 |
+  | valve | S2 Fuel BB | S1 LOX BB | PB3 Fuel vent | PB1 LOX vent | PB4 Fuel run | PB2 LOX run | S4 LOX purge | S5 Fuel purge | S3 Muscle bus vent | PB5 LOX fill | spare | PB6 GOX purge |
 
-  Bank A is DC8…DC1, bank B is DC12…DC9. DC12 does not exist, which is why
-  position 8 reads nothing — it is the empty head of the second reversed
-  bank rather than a random gap, and a DC12 added later would land there.
-
-  Taken from the workbook instead, ten of the eleven channels landed on the
-  wrong valve — and plausibly so, because the wrong valve was always a real
-  one drawing real current at the time. Only the muscle bus vent, which sits
-  at its own mirror point, happened to be right. The order in `hardware.json`
-  now comes from actuating each valve from GC and recording which channel
-  drew current (2026-08-31). Re-derive it the same way if the harness
-  changes; do not read it back off the workbook.
+  An earlier board revision reported two reversed banks (DC8…DC1, then
+  DC12…DC9); that order no longer applies (2026-10-07). Verify by actuating
+  each valve from GC and watching which channel draws current; do not read
+  the order off the workbook.
 
 Valve `abbrev`s are prefixed with the drawing tag (`PB2 OX RUN`) so a button
 in the UI can be matched to a symbol on the P&ID without a lookup table.
