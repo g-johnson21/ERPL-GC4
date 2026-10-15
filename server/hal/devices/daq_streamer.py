@@ -94,6 +94,21 @@ def _try_set(target, prop, value, label):
         return False
 
 
+def reserve_chassis(chassis):
+    """Re-take the network chassis reservation. Best-effort; never raises.
+
+    A cDAQ-9189 that drops off the network can come back unreserved (or still
+    held by the dead session), and then every task start fails until someone
+    reserves it in NI MAX. This is the only host that drives the chassis, so
+    overriding an existing reservation is the right call.
+    """
+    try:
+        nidaqmx.system.Device(chassis).reserve_network_device(
+            override_reservation=True)
+    except Exception as exc:
+        note(f'[daq] reserve {chassis} failed: {str(exc).splitlines()[0]}')
+
+
 def find_device(chassis, model, slot, exclude=()):
     """Scan for <chassis>Mod* whose product_type contains the model number.
 
@@ -283,32 +298,75 @@ class TcCard:
         self.thread = None
         self.running = False
 
+    def _open(self):
+        """Build and start the task. Leaves self.task None if anything fails."""
+        task = nidaqmx.Task(new_task_name='')
+        try:
+            meta = self.cfg.get('channelMeta', {})
+            logical = 0
+            for mod in self.modules:
+                for ch in range(mod['channels']):
+                    kind = str(meta.get(str(logical), {}).get('type', 'K')).upper()
+                    tc_type = TC_TYPES.get(kind) or ThermocoupleType.K
+                    task.ai_channels.add_ai_thrmcpl_chan(
+                        f"{mod['device']}/ai{ch}",
+                        min_val=-320.0, max_val=2282.0,  # degF; -328 is the Type-K floor
+                        units=TemperatureUnits.DEG_F,
+                        thermocouple_type=tc_type,
+                        cjc_source=CJCSource.BUILT_IN, cjc_val=77.0)
+                    logical += 1
+            # Deliberately NO cfg_samp_clk_timing: the 9211 has no sample clock.
+            task.start()
+        except Exception:
+            try:
+                task.close()
+            except Exception:
+                pass
+            raise
+        self.task = task
+
+    def _close(self):
+        task, self.task = self.task, None
+        if task is not None:
+            try:
+                task.close()
+            except Exception:
+                pass
+
     def start(self):
-        self.task = nidaqmx.Task(new_task_name='')
-        meta = self.cfg.get('channelMeta', {})
-        logical = 0
-        for mod in self.modules:
-            for ch in range(mod['channels']):
-                kind = str(meta.get(str(logical), {}).get('type', 'K')).upper()
-                tc_type = TC_TYPES.get(kind) or ThermocoupleType.K
-                self.task.ai_channels.add_ai_thrmcpl_chan(
-                    f"{mod['device']}/ai{ch}",
-                    min_val=-320.0, max_val=2282.0,  # degF; -328 is the Type-K floor
-                    units=TemperatureUnits.DEG_F,
-                    thermocouple_type=tc_type,
-                    cjc_source=CJCSource.BUILT_IN, cjc_val=77.0)
-                logical += 1
-        # Deliberately NO cfg_samp_clk_timing: the 9211 has no sample clock.
-        self.task.start()
+        # The reader starts even when this first open fails (chassis not up
+        # yet): it is what reopens the task, so it must be running regardless.
         self.running = True
-        self.thread = threading.Thread(target=self._reader, daemon=True)
-        self.thread.start()
+        try:
+            self._open()
+        finally:
+            self.thread = threading.Thread(target=self._reader, daemon=True)
+            self.thread.start()
 
     def _reader(self):
-        """~350 ms per read. Runs off the main loop so nothing ever blocks on it."""
+        """~350 ms per read. Runs off the main loop so nothing ever blocks on it.
+
+        Owns the task's lifetime. A read error is not retried on the same task:
+        when the chassis link drops, DAQmx aborts the task ("transfer was
+        aborted by the client") and every later read on it fails
+        identically, forever. The task is closed and rebuilt immediately
+        instead, and re-tried with no backoff so the card is back the moment
+        the chassis is.
+        """
+        failures = 0
         while self.running:
             try:
-                raw = self.task.read(number_of_samples_per_channel=1, timeout=5.0)
+                if self.task is None:
+                    try:
+                        self._open()
+                    except Exception:
+                        # After a link drop the chassis can come back without
+                        # this host's reservation; take it back and go again.
+                        reserve_chassis(self.cfg['chassis'])
+                        self._open()
+                # A healthy read is ~350 ms per module; 2 s is margin enough
+                # and bounds how long a silent link loss goes unnoticed.
+                raw = self.task.read(number_of_samples_per_channel=1, timeout=2.0)
                 if self.count == 1:
                     values = [raw[0] if isinstance(raw, list) else raw]
                 else:
@@ -316,11 +374,20 @@ class TcCard:
                 with self.lock:
                     self.latest = values
                     self.seq += 1
+                if failures:
+                    note(f'[daq] tc read recovered after {failures} failed attempt(s)')
+                    failures = 0
             except Exception as exc:
-                note(f'[daq] tc read failed: {exc}')
+                if not self.running:
+                    break  # shutdown() aborting the read is not a fault
+                failures += 1
+                note(f'[daq] tc read failed: {exc}; reopening task')
                 with self.lock:
                     self.latest = None
-                time.sleep(0.5)
+                self._close()
+                # Only enough to keep an instantly-failing open from spinning
+                # a core; an unreachable chassis already blocks in the open.
+                time.sleep(0.05)
 
     def snapshot(self):
         """(values, fresh) -- fresh is False when this reading was already sent."""
@@ -378,7 +445,12 @@ class Streamer:
     def start(self):
         for card in self.cards + ([self.tc] if self.tc else []):
             try:
-                card.start()
+                # A card that fails here is left with no task, and read_card
+                # reopens it every pass until the chassis answers.
+                if card is self.tc:
+                    card.start()
+                else:
+                    self._start_card(card)
                 note(f'[daq] {card.label} on {card.device}')
             except Exception as exc:
                 note(f'[daq] FAILED to start {card.label}: {exc}')
@@ -404,6 +476,9 @@ class Streamer:
         """
         task = card.task
         if task is None:
+            # A restart that failed (chassis unreachable) leaves no task. Keep
+            # trying, or the card is gone until the whole sidecar is bounced.
+            self.reopen_card(card)
             return None
         try:
             task.in_stream.relative_to = ReadRelativeTo.CURRENT_READ_POSITION
@@ -425,7 +500,14 @@ class Streamer:
                     text = f'{text} / recovery: {exc2}'
 
             self.misses[card.kind] += 1
-            if self.misses[card.kind] >= 5:
+            # A task DAQmx has aborted (the chassis link dropped) will fail
+            # every read from here on, so waiting out the miss count only
+            # delays recovery. Rebuild it now. Other errors may be transient
+            # and still get the grace period.
+            lowered = text.lower()
+            dead = 'aborted' in lowered or 'no transfer is in progress' in lowered \
+                or 'network' in lowered or 'not reserved' in lowered
+            if dead or self.misses[card.kind] >= 5:
                 self.restart_card(card, text)
             return None
 
@@ -439,10 +521,37 @@ class Streamer:
         except Exception:
             pass
         card.task = None
+        self.reopen_card(card)
+
+    def reopen_card(self, card):
+        """Rebuild a card's task. Called every pass until it succeeds -- no
+        backoff, so the card is back on the first pass the chassis answers."""
+        try:
+            self._start_card(card)
+        except Exception:
+            # After a link drop the chassis can come back without this host's
+            # reservation; take it back and try once more this pass.
+            reserve_chassis(card.cfg['chassis'])
+            try:
+                self._start_card(card)
+            except Exception as exc:
+                note(f'[daq] reopen of {card.label} failed: {exc}')
+                return
+        note(f'[daq] {card.label} reopened')
+
+    @staticmethod
+    def _start_card(card):
         try:
             card.start()
-        except Exception as exc:
-            note(f'[daq] restart of {card.label} failed: {exc}')
+        except Exception:
+            # start() assigns card.task before configuring it; don't leak the
+            # half-built task or leave it looking alive.
+            try:
+                card.task.close()
+            except Exception:
+                pass
+            card.task = None
+            raise
 
     def build_frame(self, now):
         channels = []
