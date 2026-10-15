@@ -19,6 +19,7 @@ import { Sequencer } from './sequencer.js';
 import { Recorder } from './recorder.js';
 import { PressStep } from './press-step.js';
 import { GoxPurge } from './gox-purge.js';
+import { LoopClock } from './loop-clock.js';
 
 const MAX_EVENTS = 500;
 
@@ -149,8 +150,12 @@ export class StandController extends EventEmitter {
     this.bangbang.attach();
     this.bangbang.pushAll('system');
 
-    const period = 1000 / this.config.telemetry.sampleRateHz;
-    this.timer = setInterval(() => this.tick(), period);
+    // Not setInterval: on Windows that runs a 50 Hz loop at ~33 Hz. The clock
+    // also ticks on fresh DAQ data, so each tick sees a value that just
+    // landed. See loop-clock.js.
+    this.clock = new LoopClock({ hz: this.config.telemetry.sampleRateHz, onTick: () => this.tick() });
+    this.driver.setDataListener?.(() => this.clock.poke());
+    this.clock.start();
     this.log('info', `Control loop running at ${this.config.telemetry.sampleRateHz} Hz`, 'system');
   }
 
@@ -701,7 +706,8 @@ export class StandController extends EventEmitter {
   }
 
   async shutdown() {
-    clearInterval(this.timer);
+    this.clock?.stop();
+    this.driver.setDataListener?.(null);
     for (const t of this.momentaryTimers.values()) clearTimeout(t);
     if (this.recorder.active) this.recorder.stop('server shutdown', 'system');
     this.safeAll('shutdown');
@@ -730,7 +736,7 @@ function driverStatus(driver) {
       failed: false,
       lastRxAt: status.lastRxAt ?? 0,
       waitingSince: status.waitingSince ?? null,
-      rxSampleHz: status.rxSampleHz ?? null,
+      rxUpdateHz: status.rxUpdateHz ?? null,
       rxFrameHz: status.rxFrameHz ?? null,
       rxCards: status.rxCards ?? null,
       lostReason: status.lostReason ?? null,

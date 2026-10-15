@@ -43,7 +43,7 @@ export class Recorder {
     this.file = null;
     this.pending = [];
     this.pendingEvents = [];
-    this.lastSampleAt = 0;
+    this.tickIndex = 0;
   }
 
   get cfg() { return this.stand.config.recording; }
@@ -83,7 +83,7 @@ export class Recorder {
     this.active = true;
     this.rows = 0;
     this.startedAt = Date.now();
-    this.lastSampleAt = 0;
+    this.tickIndex = 0;
     this.file = filename;
     this.filePath = filePath;
     this.pending = [];
@@ -190,13 +190,23 @@ export class Recorder {
     return cols;
   }
 
-  /** Called every control tick; decimates to recording.rateHz. */
+  /**
+   * Called every control tick; decimates to recording.rateHz.
+   *
+   * Decimation counts TICKS — one row every round(loop / recording rate)
+   * ticks — rather than measuring time since the last row. Timing it dropped
+   * any tick that came a little early: on Windows' 15.6 ms timer grid a 50 Hz
+   * loop ticks at 15.6 / 31 ms intervals, every 15.6 one was skipped, and a
+   * 50 Hz recording came out at ~30 Hz. Counting ticks, a recording at the
+   * loop rate gets every tick, and a loop that really is running slow shows
+   * as fewer rows rather than being hidden.
+   */
   sample(now, readings) {
     if (!this.active) return;
 
-    const period = 1000 / Math.max(1, this.cfg.rateHz);
-    if (now - this.lastSampleAt < period - 0.5) return;
-    this.lastSampleAt = now;
+    const loopHz = this.stand.config.telemetry?.sampleRateHz || this.cfg.rateHz;
+    const every = Math.max(1, Math.round(loopHz / Math.max(1, this.cfg.rateHz)));
+    if (this.tickIndex++ % every !== 0) return;
 
     const snap = {
       now,

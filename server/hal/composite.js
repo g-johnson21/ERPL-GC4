@@ -84,6 +84,11 @@ export class CompositeDriver {
     }
   }
 
+  /** Forwarded to every device that can say when fresh data has landed. */
+  setDataListener(fn) {
+    for (const dev of this.devices) dev.driver.setDataListener?.(fn);
+  }
+
   read() {
     const out = {};
     for (const dev of this.devices) {
@@ -224,7 +229,7 @@ export class CompositeDriver {
         waitingSince: s.waitingSince ?? null,
         // Measured receive rate, where the device reports one. Absent on
         // devices that do not measure it, and the header simply omits it.
-        rxSampleHz: s.rxSampleHz ?? null,
+        rxUpdateHz: s.rxUpdateHz ?? null,
         rxFrameHz: s.rxFrameHz ?? null,
         rxCards: s.rxCards ?? null,
         lostReason: s.lostReason ?? null,

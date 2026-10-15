@@ -54,6 +54,16 @@ const RX_MIN_SPAN_S = 0.4;
 // is, for everyone watching the gauges, a DAQ that is not there.
 const DATA_TIMEOUT_MS = 2000;
 
+/**
+ * Samples per frame for one frame per control tick: 100 Hz clock / 50 Hz
+ * loop = 2. Never below 1, so a loop faster than the clock gets a frame per
+ * sample rather than a fraction. Falls back to 10 without a loop rate.
+ */
+export function framesPerTick(sampleClockHz, loopHz) {
+  if (!(loopHz > 0) || !(sampleClockHz > 0)) return 10;
+  return Math.max(1, Math.round(sampleClockHz / loopHz));
+}
+
 /** True when any channel in a telemetry frame carries at least one sample. */
 function frameHasData(msg) {
   return (msg.channels || []).some((ch) => Array.isArray(ch.samples) && ch.samples.length > 0);
@@ -65,7 +75,11 @@ export class NiDaqDriver {
     this.python = options.python || process.env.GC_PYTHON || 'python';
     this.chassis = options.chassis || 'cDAQ9189-2462EFD';
     this.sampleClockHz = Number(options.sampleClockHz || 100);
-    this.samplesPerRead = Number(options.samplesPerRead || 10);
+    // Samples per sidecar frame. Unset means one frame per control tick, worked
+    // out in init() once the loop rate is known: only the latest value of
+    // each frame reaches the stand, so frames slower than the loop leave
+    // ticks re-reading an old value, and the old fixed 10 held PT at 10 Hz.
+    this.samplesPerRead = options.samplesPerRead ? Number(options.samplesPerRead) : null;
     this.cards = options.cards || {};
     this.channelMap = options.channelMap || {};
     this.startupTimeoutMs = Number(options.startupTimeoutMs || 8000);
@@ -100,6 +114,7 @@ export class NiDaqDriver {
 
   async init(config) {
     this.config = config;
+    this.samplesPerRead ??= framesPerTick(this.sampleClockHz, config?.telemetry?.sampleRateHz);
 
     const payload = {
       chassis: this.chassis,
@@ -206,6 +221,7 @@ export class NiDaqDriver {
         if (frameHasData(msg)) {
           this.lastRxAt = this.lastFrameAt;
           this.setConnected(true);
+          this.dataListener?.();
         }
       } else if (msg.type === 'status') {
         if (!msg.ok) this.onEvent(`NI-DAQ: ${msg.message}`);
@@ -405,6 +421,16 @@ export class NiDaqDriver {
     return out;
   }
 
+  /**
+   * Called after every frame that carried data. The control loop ticks off
+   * this rather than only off its own timer: on Windows a Node timer fires on
+   * a ~15.6 ms grid (a 50 Hz setInterval measured 32.7 Hz), but a pipe read
+   * wakes the event loop within a fraction of a millisecond.
+   */
+  setDataListener(fn) {
+    this.dataListener = fn;
+  }
+
   setValve() { /* read-only device */ }
 
   /**
@@ -430,6 +456,9 @@ export class NiDaqDriver {
       const len = Array.isArray(ch.samples) ? ch.samples.length : 0;
       n[ch.card] = Math.max(n[ch.card] ?? 0, len);
     }
+    // n[card] > 0 also means the card produced a NEW value this frame. That,
+    // not the sample count, is what the stand sees: only the latest value of
+    // each frame reaches read(), the control loop and the recording.
     this.rxWindow.push({ t, n });
 
     const cutoff = t - RX_WINDOW_MS;
@@ -440,18 +469,26 @@ export class NiDaqDriver {
 
   /**
    * How fast channels are ACTUALLY updating, measured at this end of the
-   * pipe: `{ frameHz, sampleHz, clockHz, cards }`, or null until there is
-   * enough of a window.
+   * pipe: `{ frameHz, updateHz, clockHz, cards, sampleCards }`, or null until
+   * there is enough of a window.
    *
-   * `cards` is `{ card: Hz }` — per-channel updates per second for every card
-   * that appeared in the window, zero included. The headline `sampleHz` is
-   * the SLOWEST clocked card (PT/LC): the stand is only as current as its
-   * laggiest clocked input, and the fast 9237 must not mask a stalled 9208.
-   * Thermocouples only headline when nothing else is streaming, because the
-   * 9211's ~3 Hz is its normal pace, not a fault. `clockHz` is the configured
-   * rate of the headline card, so the header compares like with like. With no
-   * cards reporting at all the rate is 0 — frames arriving empty are a live
-   * link with nothing updating, and that is what should be shown.
+   * Two rates per card, because they are different things:
+   *
+   *   cards        new values per second that reach the stand — a frame
+   *                carrying any samples for the card counts once. This is
+   *                the rate the gauges, control loop and recording move at.
+   *   sampleCards  hardware samples per second the sidecar acquired. A
+   *                frame of ten PT samples is ten here but one above: the
+   *                stand only ever sees the last of them.
+   *
+   * The headline `updateHz` is the SLOWEST clocked card's update rate (PT/LC):
+   * the stand is only as current as its laggiest clocked input, and the fast
+   * 9237 must not mask a stalled 9208. Thermocouples only headline when
+   * nothing else is streaming, because the 9211's ~3 Hz is its normal pace,
+   * not a fault. `clockHz` is the acquisition clock of the headline card, for
+   * the tooltip's acquisition line. With no cards reporting at all the rate is
+   * 0 — frames arriving empty are a live link with nothing updating, and that
+   * is what should be shown.
    *
    * This is deliberately not `performance.sample_rate_hz` from the sidecar.
    * That field is the configured sample clock echoed back — it reads 100 Hz
@@ -468,14 +505,18 @@ export class NiDaqDriver {
     const elapsed = (w[w.length - 1].t - w[0].t) / 1000;
     if (elapsed < RX_MIN_SPAN_S) return null;
 
-    const totals = {};
+    const samples = {};
+    const updates = {};
     for (let i = 0; i < w.length; i++) {
       for (const [card, n] of Object.entries(w[i].n)) {
-        totals[card] = (totals[card] ?? 0) + (i === 0 ? 0 : n);
+        samples[card] = (samples[card] ?? 0) + (i === 0 ? 0 : n);
+        updates[card] = (updates[card] ?? 0) + (i === 0 || n === 0 ? 0 : 1);
       }
     }
     const cards = {};
-    for (const [card, n] of Object.entries(totals)) cards[card] = n / elapsed;
+    const sampleCards = {};
+    for (const [card, n] of Object.entries(updates)) cards[card] = n / elapsed;
+    for (const [card, n] of Object.entries(samples)) sampleCards[card] = n / elapsed;
 
     const clocks = this.performance?.card_rates_hz || {};
     const clocked = Object.keys(cards).filter((c) => c !== 'tc');
@@ -492,10 +533,11 @@ export class NiDaqDriver {
 
     return {
       frameHz: (w.length - 1) / elapsed,
-      sampleHz: head ? cards[head] : 0,
+      updateHz: head ? cards[head] : 0,
       headCard: head,
       clockHz,
       cards,
+      sampleCards,
     };
   }
 
@@ -514,19 +556,21 @@ export class NiDaqDriver {
       // Set only while nothing has EVER arrived: when acquisition started,
       // so the header can say how long it has been waiting.
       waitingSince: this.lastRxAt ? null : (this.startedAt || null),
-      // Measured here, not reported by the sidecar — see rxRates().
-      rxSampleHz: rx ? Number(rx.sampleHz.toFixed(1)) : null,
+      // Measured here, not reported by the sidecar — see rxRates(). How often
+      // a new value reaches the stand, which is what the header shows.
+      rxUpdateHz: rx ? Number(rx.updateHz.toFixed(1)) : null,
       rxFrameHz: rx ? Number(rx.frameHz.toFixed(2)) : null,
-      // Per-card breakdown for the tooltip: measured vs. clocked.
+      // Per-card breakdown for the tooltip: updates reaching the stand, and
+      // samples acquired vs. the card's clock.
       rxCards: rx
         ? Object.entries(rx.cards).map(([card, hz]) => ({
           card,
           hz: Number(hz.toFixed(1)),
+          sampleHz: Number((rx.sampleCards[card] ?? 0).toFixed(1)),
           clockHz: Number.isFinite(clocks[card]) ? clocks[card] : null,
         }))
         : null,
-      // The clock the headline card was CONFIGURED for, so the header can say
-      // what the measured rate is falling short of. Null when the headline is
+      // The acquisition clock of the headline card. Null when the headline is
       // the unclocked 9211 — it has no nameplate to fall short of.
       sampleClockHz: rx
         ? rx.clockHz

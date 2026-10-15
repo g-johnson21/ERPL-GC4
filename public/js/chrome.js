@@ -358,7 +358,7 @@ function linkChip(dev, snapshot) {
   // scanning the header should not have to correlate two indicators to answer
   // it. Only while connected — a rate printed next to an age would be a
   // number from before the link dropped.
-  const rate = dev.connected && Number.isFinite(dev.rxSampleHz) ? dev.rxSampleHz : null;
+  const rate = dev.connected && Number.isFinite(dev.rxUpdateHz) ? dev.rxUpdateHz : null;
   // The DAQ also carries its data age while LIVE. LIVE only means "within
   // the 2 s timeout", and a stream arriving in half-second lumps looks
   // exactly like a healthy one until the age is on screen.
@@ -380,32 +380,28 @@ function linkChip(dev, snapshot) {
 /**
  * The receive-rate lines of a link chip's tooltip.
  *
- * Both numbers are here because they answer different questions. The sample
- * rate is what the stand is actually logging and controlling on, and is the
- * one comparable to the configured sample clock. The frame rate is what the
- * link itself is doing — a sidecar sending ten samples per frame at 10
- * frames/s and one sending twenty at 5 both deliver 100 Hz, and only the
- * frame rate distinguishes them.
+ * The headline is the UPDATE rate: how often a new value reaches the stand,
+ * which is how fast the gauges move and how often the recording sees a
+ * change. It is not the acquisition rate. The sidecar can acquire PT at
+ * 100 Hz and still hand the stand only the last sample of each 10 Hz frame,
+ * and printing 100 Hz there made the header disagree with the data files.
  *
- * The configured clock is labelled as configured, never printed bare. A
- * shortfall is worth seeing, but only if it stays obvious which of the two
- * numbers is the measurement.
+ * Acquisition is still shown per card, against the card's clock, because a
+ * card falling behind its clock is a different fault from a slow link.
  */
 function rateTitle(dev, rate) {
   if (rate === null) return [];
-  const lines = [`updating at ${fmtHz(rate)} — measured here, not reported by the device`];
+  const lines = [`updating at ${fmtHz(rate)} — new values reaching the stand, measured here`];
   // Cards run on unrelated clocks, so each gets its own line; the headline
   // is the slowest clocked one.
   for (const c of dev.rxCards || []) {
-    lines.push(`  ${c.card.toUpperCase()}: ${fmtHz(c.hz)}`
-      + (Number.isFinite(c.clockHz) ? ` of ${fmtHz(c.clockHz)}` : ''));
+    let line = `  ${c.card.toUpperCase()}: ${fmtHz(c.hz)}`;
+    if (Number.isFinite(c.clockHz) && Number.isFinite(c.sampleHz)) {
+      line += ` (acquiring ${fmtHz(c.sampleHz)} of ${fmtHz(c.clockHz)})`;
+    }
+    lines.push(line);
   }
   if (Number.isFinite(dev.rxFrameHz)) lines.push(`${dev.rxFrameHz.toFixed(2)} frames/s`);
-  if (Number.isFinite(dev.sampleClockHz)) {
-    const short = dev.sampleClockHz - rate;
-    lines.push(`configured for ${fmtHz(dev.sampleClockHz)}`
-      + (short > dev.sampleClockHz * 0.05 ? ` — running ${fmtHz(short)} short` : ''));
-  }
   return lines;
 }
 

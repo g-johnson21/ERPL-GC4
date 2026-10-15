@@ -23,7 +23,6 @@
     "python": "python",
     "chassis": "cDAQ9189-2462EFD",
     "sampleClockHz": 100,
-    "samplesPerRead": 10,
     "cards": {
       "pt": {
         "slot": 2,

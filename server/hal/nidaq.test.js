@@ -13,7 +13,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { NiDaqDriver } from './nidaq.js';
+import { NiDaqDriver, framesPerTick } from './nidaq.js';
 
 const CHANNEL_MAP = {
   pt2: 'PT1', pt4: 'PT4', pt8: 'PT14',
@@ -188,37 +188,43 @@ function feed(driver, { startMs, count, periodMs, samples }) {
   }
 }
 
-test('the receive rate is measured from arrivals, not from the configured clock', () => {
+test('the headline is how often a new value arrives, not how many samples', () => {
   const d = makeDriver();
-  // 10 frames/s carrying 10 samples each — a 100 Hz sample clock, keeping up.
+  d.performance = { sample_rate_hz: 100, card_rates_hz: { pt: 100 } };
+  // 10 frames/s carrying 10 samples each: the 9208 acquires at 100 Hz, but
+  // the stand only sees the last sample of each frame, so PT moves at 10 Hz.
+  // The header used to print 100 Hz here while the data files showed 10.
   feed(d, { startMs: 1_000_000, count: 21, periodMs: 100, samples: 10 });
 
   const rx = d.rxRates();
   assert.equal(rx.frameHz, 10);
-  assert.equal(rx.sampleHz, 100);
+  assert.equal(rx.updateHz, 10);
+  assert.equal(rx.sampleCards.pt, 100, 'acquisition is still measured');
+
+  d.connected = true;
+  assert.equal(d.status.rxUpdateHz, 10);
+  assert.deepEqual(d.status.rxCards, [{ card: 'pt', hz: 10, sampleHz: 100, clockHz: 100 }]);
 });
 
-test('a link running at half rate reports half, not the nameplate', () => {
+test('a link running at half rate reports half', () => {
   const d = makeDriver();
   d.performance = { sample_rate_hz: 100 };
   feed(d, { startMs: 1_000_000, count: 11, periodMs: 200, samples: 10 });
 
   d.connected = true;
   const status = d.status;
-  assert.equal(status.rxSampleHz, 50);
+  assert.equal(status.rxUpdateHz, 5);
   assert.equal(status.rxFrameHz, 5);
-  // The configured clock is still reported, so the header can name the gap.
-  assert.equal(status.sampleClockHz, 100);
 });
 
-test('short reads lower the rate, because that is what a starved DAQ does', () => {
+test('short reads lower the acquisition rate but not the update rate', () => {
   const d = makeDriver();
   // Frames arrive on time but carry 4 samples instead of 10.
   feed(d, { startMs: 1_000_000, count: 21, periodMs: 100, samples: 4 });
 
   const rx = d.rxRates();
-  assert.equal(rx.frameHz, 10);
-  assert.equal(rx.sampleHz, 40);
+  assert.equal(rx.updateHz, 10);
+  assert.equal(rx.sampleCards.pt, 40);
 });
 
 test('each card is measured on its own, and the slowest clocked card headlines', () => {
@@ -236,12 +242,29 @@ test('each card is measured on its own, and the slowest clocked card headlines',
   }
   d.connected = true;
   const rx = d.rxRates();
-  assert.equal(rx.cards.pt, 100, 'channels on one card are not summed');
-  assert.equal(rx.cards.lc, 1600);
+  assert.equal(rx.sampleCards.pt, 100, 'channels on one card are not summed');
+  assert.equal(rx.sampleCards.lc, 1600);
+  assert.equal(rx.cards.pt, 10);
+  assert.equal(rx.cards.lc, 10);
   assert.ok(Math.abs(rx.cards.tc - 3) < 0.6, `tc ${rx.cards.tc}`);
-  // The fast 9237 must not stand in for the whole DAQ.
-  assert.equal(d.status.rxSampleHz, 100);
+  assert.equal(d.status.rxUpdateHz, 10);
   assert.equal(d.status.sampleClockHz, 100);
+});
+
+test('the update rate falls when PT values arrive in fewer frames', () => {
+  const d = makeDriver();
+  // Frames at 10/s, but PT has data in only every fourth one: 2.5 updates/s,
+  // even though LC streams in every frame.
+  for (let i = 0; i < 21; i++) {
+    d.lastFrameAt = 1_000_000 + i * 100;
+    d.noteRx({ channels: [
+      { card: 'pt', samples: i % 4 === 0 ? new Array(40).fill(0) : [] },
+      { card: 'lc', samples: new Array(160).fill(0) },
+    ] });
+  }
+  const rx = d.rxRates();
+  assert.equal(rx.headCard, 'pt');
+  assert.equal(rx.updateHz, 2.5);
 });
 
 test('frames with no samples report zero, not the frame rate', () => {
@@ -252,7 +275,7 @@ test('frames with no samples report zero, not the frame rate', () => {
   }
   d.connected = true;
   assert.equal(d.rxRates().frameHz, 10);
-  assert.equal(d.status.rxSampleHz, 0);
+  assert.equal(d.status.rxUpdateHz, 0);
 });
 
 test('a stalled PT card shows even while the load cells stream', () => {
@@ -264,7 +287,7 @@ test('a stalled PT card shows even while the load cells stream', () => {
       { card: 'lc', samples: new Array(160).fill(0) },
     ] });
   }
-  assert.equal(d.rxRates().sampleHz, 0);
+  assert.equal(d.rxRates().updateHz, 0);
   assert.equal(d.rxRates().headCard, 'pt');
 });
 
@@ -275,7 +298,7 @@ test('thermocouples headline only when nothing clocked is reporting', () => {
     d.noteRx({ channels: [{ card: 'tc', samples: i % 4 === 0 ? [0] : [] }] });
   }
   d.connected = true;
-  assert.equal(d.status.rxSampleHz, 2.5);
+  assert.equal(d.status.rxUpdateHz, 2.5);
   // The 9211 has no sample clock, so there is no nameplate to fall short of.
   assert.equal(d.status.sampleClockHz, null);
 });
@@ -283,12 +306,12 @@ test('thermocouples headline only when nothing clocked is reporting', () => {
 test('the window forgets old frames, so a rate that drops is seen dropping', () => {
   const d = makeDriver();
   feed(d, { startMs: 1_000_000, count: 21, periodMs: 100, samples: 10 });
-  assert.equal(d.rxRates().sampleHz, 100);
+  assert.equal(d.rxRates().updateHz, 10);
 
   // Ten seconds later the link comes back at a quarter rate. The earlier
   // fast frames are long outside the window and must not prop the number up.
   feed(d, { startMs: 1_011_000, count: 13, periodMs: 400, samples: 10 });
-  assert.equal(d.rxRates().sampleHz, 25);
+  assert.equal(d.rxRates().updateHz, 2.5);
 });
 
 test('no rate is claimed from a single frame', () => {
@@ -308,7 +331,7 @@ test('a disconnected device reports no rate at all', () => {
 
   // The last measurement is still in the window, but printing it beside
   // "NO LINK" would be a rate for a link that is not delivering anything.
-  assert.equal(d.status.rxSampleHz, null);
+  assert.equal(d.status.rxUpdateHz, null);
   assert.equal(d.status.rxFrameHz, null);
 });
 
@@ -379,4 +402,28 @@ test('waitingSince is reported only until the first data arrives', () => {
   // Losing the link later ages from the last data, not from startup.
   d.checkData(d.lastRxAt + 2500);
   assert.equal(d.status.waitingSince, null);
+});
+
+// ------------------------------------------------------ frames per tick --
+
+test('the sidecar sends one frame per control tick unless told otherwise', () => {
+  assert.equal(framesPerTick(100, 50), 2);    // Draco: 50 Hz loop
+  assert.equal(framesPerTick(100, 100), 1);   // MOE at 100 Hz
+  assert.equal(framesPerTick(100, 200), 1, 'never a fraction of a sample');
+  assert.equal(framesPerTick(100, undefined), 10, 'no loop rate keeps the old default');
+});
+
+test('an explicit samplesPerRead is kept rather than derived', () => {
+  assert.equal(new NiDaqDriver({ samplesPerRead: 5 }).samplesPerRead, 5);
+  assert.equal(new NiDaqDriver({}).samplesPerRead, null, 'left for init() to derive');
+});
+
+test('the data listener fires on frames with data, not on empty ones', () => {
+  const d = makeDriver();
+  let calls = 0;
+  d.setDataListener(() => calls++);
+  frame(d, []);
+  assert.equal(calls, 0);
+  frame(d, [{ card: 'pt', channel: 0, status: 'ok', pressure_psi: 1, samples: [1] }]);
+  assert.equal(calls, 1);
 });
