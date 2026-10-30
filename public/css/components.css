@@ -2722,3 +2722,126 @@ body.shift-armed .pid-valve[data-needs-shift="true"] { outline: none; }
   font-weight: 600;
 }
 .valve-btn[data-bb="true"] .v-state .led { box-shadow: 0 0 6px currentColor; }
+
+/* ------------------------------------------------- channel editor ------ */
+
+/* Config > Channels: the Data page's columns (or the Control Grid's
+   sections) as a board of draggable cards, with the selected one open in an
+   inspector on the right. Columns scroll sideways rather than wrap, so a
+   column's position on the board is its position on the screen it edits. */
+.ch-editor { display: flex; flex-direction: column; gap: 12px; padding-bottom: 24px; }
+.ch-toolbar { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.ch-hint { font-size: var(--fs-sm); color: var(--text-faint); }
+.ch-wiring {
+  margin-left: auto;
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--mono); font-size: var(--fs-xs); color: var(--text-faint);
+}
+.ch-body { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start; }
+
+.ch-board {
+  display: flex; gap: 10px; align-items: flex-start;
+  overflow-x: auto;
+  padding-bottom: 8px;
+  min-height: 240px;
+}
+.ch-col {
+  flex: 0 0 210px;
+  display: flex; flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-top: 2px solid var(--group-color);
+  border-radius: var(--radius);
+}
+.ch-col.dragging { opacity: .4; }
+.ch-col-head {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  cursor: grab;
+}
+.ch-grip { color: var(--text-faint); font-size: 11px; letter-spacing: -2px; user-select: none; }
+.ch-col-color {
+  width: 16px; height: 16px; padding: 0;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+  background: none; cursor: pointer; flex: none;
+}
+.ch-col-color::-webkit-color-swatch-wrapper { padding: 0; }
+.ch-col-color::-webkit-color-swatch { border: none; }
+.ch-col-label {
+  flex: 1; min-width: 0;
+  padding: 2px 4px;
+  border: 1px solid transparent; background: transparent;
+  font: inherit; font-size: var(--fs-md); color: var(--text);
+}
+.ch-col-label:hover, .ch-col-label:focus { border-color: var(--border-strong); background: var(--bg); }
+.ch-col-count { font-family: var(--mono); font-size: var(--fs-xs); color: var(--text-faint); }
+.ch-x {
+  border: none; background: none; color: var(--text-faint); cursor: pointer; padding: 0 2px;
+}
+.ch-x:hover { color: var(--danger); }
+
+.ch-list { display: flex; flex-direction: column; gap: 4px; padding: 6px; min-height: 40px; }
+.ch-card {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--group-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  cursor: grab;
+  user-select: none;
+}
+.ch-card:hover { border-color: var(--border-strong); }
+.ch-card.selected { border-color: var(--text-muted); background: var(--surface-3); }
+.ch-card.dragging { opacity: .35; }
+.ch-card-name { font-size: var(--fs-md); color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ch-card-sub { display: flex; gap: 8px; justify-content: space-between; margin-top: 2px; font-family: var(--mono); font-size: var(--fs-xs); }
+.ch-card-id { color: var(--text-muted); }
+.ch-card-wire { color: var(--text-faint); white-space: nowrap; }
+.ch-card-wire.unwired { color: var(--warn); }
+/* Where a dragged card or column will land. */
+.ch-marker { height: 2px; margin: -1px 0; border-radius: 1px; background: var(--accent); }
+.ch-col-marker { flex: 0 0 2px; align-self: stretch; border-radius: 1px; background: var(--accent); }
+
+.ch-add, .ch-add-group {
+  display: flex; align-items: center; gap: 6px;
+  border: 1px dashed var(--border-strong); border-radius: var(--radius-sm);
+  background: transparent; color: var(--text-faint);
+  font: inherit; font-size: var(--fs-sm); cursor: pointer;
+}
+.ch-add { margin: 0 6px 6px; padding: 5px 8px; }
+.ch-add-group { flex: 0 0 auto; padding: 8px 12px; }
+.ch-add:hover, .ch-add-group:hover { color: var(--text); border-color: var(--text-muted); }
+.ch-add svg, .ch-add-group svg { width: 12px; height: 12px; }
+
+.ch-inspector {
+  position: sticky; top: calc(var(--cfg-sticky-h, 0px) + 8px);
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.ch-inspector.empty p { margin: 0; font-size: var(--fs-md); color: var(--text-faint); }
+.ch-insp-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 10px; }
+.ch-insp-id { font-family: var(--mono); font-weight: 600; color: var(--text); }
+.ch-insp-name { color: var(--text-muted); font-size: var(--fs-md); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ch-fields { display: flex; flex-direction: column; gap: 9px; }
+.ch-field { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.ch-field-label { font-size: var(--fs-xs); color: var(--text-faint); letter-spacing: .04em; text-transform: uppercase; }
+.ch-field-hint { font-size: var(--fs-xs); color: var(--text-faint); line-height: 1.4; }
+.ch-field input, .ch-field select { width: 100%; min-width: 0; }
+.ch-field input.mono { font-family: var(--mono); }
+.ch-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.ch-checks { display: flex; flex-direction: column; gap: 5px; }
+.ch-check { display: flex; align-items: center; gap: 7px; font-size: var(--fs-md); color: var(--text-muted); }
+.ch-note { font-size: var(--fs-sm); color: var(--text-faint); line-height: 1.4; }
+.ch-note.warn { color: var(--warn); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+@media (max-width: 900px) {
+  .ch-body { grid-template-columns: 1fr; }
+  .ch-inspector { position: static; }
+}
+.ch-glyph { display: inline-flex; }
+.ch-card, .ch-col-head { touch-action: none; }
+.ch-ghost { position: fixed; left: 0; top: 0; z-index: 200; pointer-events: none; overflow: hidden; opacity: .92; box-shadow: var(--shadow-lg); }
+body.ch-dragging, body.ch-dragging * { cursor: grabbing !important; user-select: none; }

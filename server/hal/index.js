@@ -68,13 +68,13 @@ export function createDriver(name, options = {}) {
  *
  * Wiring details (chassis name, card slots, serial port, and the channel maps
  * that tie hardware channels to sensor ids) live in `config/hardware.json`,
- * deliberately separate from `config/stand.json`. stand.json is edited through
- * the Config page and rewritten wholesale on save; hardware wiring should not
- * be reachable from a browser, and should not churn when someone retimes a
- * sequence.
+ * deliberately separate from `config/stand.json`, so the wiring does not churn
+ * when someone retimes a sequence. The Config page's Channels tab edits it
+ * while the stand is disarmed and rebuilds this driver from the result, which
+ * is why `options.hardware` may hand over the parsed file directly.
  */
 export function createStandDriver(options = {}) {
-  const hw = loadHardwareConfig(options.hardwareConfig, options.root);
+  const hw = options.hardware ?? loadHardwareConfig(options.hardwareConfig, options.root);
   checkHardwareStand(hw, options.standName, options.hardwareConfig);
 
   const daq = new NiDaqDriver({ ...hw.nidaq, onEvent: options.onEvent });

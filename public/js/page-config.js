@@ -1,18 +1,23 @@
 /* page-config.js — configuration editor.
  *
- * Four tabs:
+ * Five tabs:
  *   Autosequences — swimlane timeline editor (seq-editor.js).
+ *   Channels      — every sensor and valve: name, group, order, range and
+ *                   hardware channel, by drag and drop (channel-editor.js).
  *   Alerts        — minor/major bounds for every PT, applied live.
  *   General       — the settings that get changed most often.
  *   Advanced      — raw JSON, for everything else (P&ID layout, calibrations).
  *
- * All three edit one in-memory `draft`. Saving validates server-side, backs up
+ * All of them edit one in-memory `draft`; the Channels tab also edits
+ * `wiring.hardware`, a draft of the stand's wiring file, which goes out with
+ * the same save. Saving validates server-side, backs up
  * the current file, writes it, and hot-reloads every connected browser.
  */
 import { bus } from './bus.js';
 import { bootPage } from './chrome.js';
 import { $, el, clear, icon, toast, confirmAction, debounce } from './util.js';
 import { createSequenceEditor } from './seq-editor.js';
+import { createChannelEditor } from './channel-editor.js';
 
 const content = await bootPage('config', { sidebar: false });
 
@@ -21,6 +26,17 @@ let dirty = false;
 let activeTab = 'sequences';
 /** The server's last verdict on the draft: { ok, errors, changed, inPlace }. */
 let lastValidation = null;
+/**
+ * The wiring file, as the server last had it, and the draft of it this page
+ * edits: { available, live, file, hardware, saved }. `hardware` is null when
+ * the stand has no wiring file, and then nothing about wiring is sent.
+ */
+let wiring = await loadWiring();
+const channelEditor = createChannelEditor({
+  getDraft: () => draft,
+  getWiring: () => wiring,
+  markDirty: () => markDirty(),
+});
 const seqEditor = createSequenceEditor({
   getDraft: () => draft,
   markDirty: () => markDirty(),
@@ -79,6 +95,7 @@ function renderTabs() {
   clear(host);
   const tabs = [
     ['sequences', `Autosequences (${draft.autosequences?.length ?? 0})`],
+    ['channels', 'Channels'],
     ['alerts', 'Alerts'],
     ['general', 'General'],
     ['json', 'Advanced (JSON)'],
@@ -114,6 +131,7 @@ function render() {
   clear(panel);
   content.classList.toggle('seq-tab', activeTab === 'sequences');
   if (activeTab === 'sequences') seqEditor.mount(panel);
+  else if (activeTab === 'channels') channelEditor.mount(panel);
   else if (activeTab === 'alerts') panel.append(alertsTab());
   else if (activeTab === 'general') panel.append(generalTab());
   else panel.append(jsonTab());
@@ -537,7 +555,7 @@ async function validate(verbose) {
     res = await fetch('/api/config/validate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ config: draft }),
+      body: JSON.stringify({ config: draft, ...wiringBody() }),
     }).then((r) => r.json());
   } catch (err) {
     showStatus('error', `Could not reach the server: ${err.message}`);
@@ -608,6 +626,30 @@ async function save() {
   // recomputing that diff; a client-side copy of the rule is one more thing to
   // keep in step.
   const armed = Boolean(bus.state?.armed);
+
+  // Moving a channel closes and reopens the hardware, so the server refuses it
+  // armed whatever the edit policy, and leaves every actuator safe. Say so
+  // before the click, not in the error after it.
+  if (lastValidation?.rewire) {
+    if (armed) { toast('DISARM the stand to change channel wiring', 'error', 6000); return; }
+    const ok = await confirmAction({
+      title: 'Change channel wiring?',
+      message: [
+        'This save moves at least one sensor or valve to a different hardware channel.',
+        '',
+        wiring.live
+          ? 'The NI-DAQ and PANDA links restart on the new wiring (a second or two of no readings), '
+            + 'then EVERY ACTUATOR is driven to its safe state. Every station reloads.'
+          : 'EVERY ACTUATOR is driven to its safe state, then every station reloads. '
+            + (wiring.available ? 'The wiring file takes effect the next time the real stand is driven.' : ''),
+      ].join('\n'),
+      confirmLabel: 'Save & Rewire',
+      danger: true,
+    });
+    if (!ok) return;
+    return commitSave(valid);
+  }
+
   const locked = armed && bus.config.safety?.requireDisarmToEditConfig === true;
   const ok = await confirmAction({
     title: 'Save configuration?',
@@ -636,12 +678,17 @@ async function commitSave(valid) {
   const res = await fetch('/api/config', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ config: valid }),
+    body: JSON.stringify({ config: valid, ...wiringBody() }),
   }).then((r) => r.json());
 
   if (res.ok) {
     dirty = false;
     $('#dirty-chip')?.classList.add('hidden');
+    channelEditor.saved();
+    // A wiring-only save changes nothing in stand.json, so no reload follows
+    // to fetch the new file; take it from the server now.
+    wiring = await loadWiring();
+    if (activeTab === 'channels') render();
     // Deliberately not "reloading": whether this page reloads depends on what
     // moved, and the config event says which a moment later. Claiming a reload
     // that does not come is worse than saying less.
@@ -661,9 +708,11 @@ async function revert() {
     if (!ok) return;
   }
   draft = structuredClone(bus.config);
+  wiring = { ...wiring, hardware: structuredClone(wiring.saved) };
   dirty = false;
   $('#dirty-chip')?.classList.add('hidden');
   seqEditor.reset();
+  channelEditor.reset();
   render();
   showStatus('', 'Reverted to the running configuration.');
 }
@@ -697,6 +746,24 @@ function upload(e) {
   };
   reader.readAsText(file);
   e.target.value = '';
+}
+
+// ============================================================= WIRING =====
+
+async function loadWiring() {
+  try {
+    const res = await fetch('/api/hardware', { cache: 'no-store' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const info = await res.json();
+    return { ...info, saved: info.hardware, hardware: structuredClone(info.hardware) };
+  } catch (err) {
+    return { available: false, live: false, file: null, hardware: null, saved: null };
+  }
+}
+
+/** The wiring draft, for a validate or a save, when this stand has one. */
+function wiringBody() {
+  return wiring.available && wiring.hardware ? { hardware: wiring.hardware } : {};
 }
 
 // ======================================================= FIELD HELPERS ====

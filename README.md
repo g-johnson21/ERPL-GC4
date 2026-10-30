@@ -1620,9 +1620,14 @@ it for you:
 node server/index.js --driver=stand --config=config/moe.json --hardware-config=config/hardware-moe.json
 ```
 
-It is still deliberately a **separate file from `stand.json`**. That one is
-edited through the Config page and rewritten wholesale on save; wiring should
-not be reachable from a browser, nor churn when someone retimes a sequence.
+It is still deliberately a **separate file from `stand.json`**, so wiring
+does not churn when someone retimes a sequence. Edit it from **Config >
+Channels**: drag sensors and valves into order and between groups, and pick
+each one's name, range and hardware input (NI-DAQ card channel or PANDA input
+for a sensor, PANDA DC1–16 for a valve). The PT range max is also written as
+the NI channel's 4–20 mA span. A wiring change is refused while ARMED; saving
+one backs the file up to `config/backups/`, restarts the NI-DAQ and PANDA
+links on `--driver=stand`, and drives every actuator to its safe state.
 
 **Channel maps are the thing to get right.** DAQ channel indices restart at 0
 on every card, so a bare channel number is ambiguous. Keys carry the card:

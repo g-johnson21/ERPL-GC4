@@ -163,7 +163,9 @@ export class StandController extends EventEmitter {
     const now = Date.now();
     this.tickCount++;
 
-    try {
+    // Mid-rewire the old driver is closed and the new one not yet open; the
+    // readings simply hold for that second rather than reading a dead port.
+    if (!this.rewiring) try {
       const fresh = this.driver.read();
       if (fresh) {
         for (const [id, value] of Object.entries(fresh)) {
@@ -289,6 +291,10 @@ export class StandController extends EventEmitter {
       }
     }
 
+    if (this.rewiring) {
+      return { ok: false, error: 'Hardware is reconnecting after a wiring change — try again in a moment' };
+    }
+
     const previous = this.valveStates[id];
     try {
       this.driver.setValve(valve, state);
@@ -357,6 +363,43 @@ export class StandController extends EventEmitter {
     } else {
       this.log('command', 'ALL ACTUATORS -> SAFE STATE', source);
     }
+  }
+
+  /**
+   * Swap in a driver built from new wiring, while disarmed.
+   *
+   * The old driver is closed first: the new one opens the same serial port and
+   * the same DAQ chassis, and neither can be held twice. Closing the PANDA
+   * drives every output safe on the board, so this ends with a safeAll that
+   * brings the server's idea of each valve back in line with the copper — and
+   * puts every actuator on its NEW channel in its safe state.
+   *
+   * Throws if the new driver will not start; it has been closed again by then
+   * and `this.driver` is the closed old one, for the caller to rebuild.
+   */
+  async replaceDriver(next, source = 'operator') {
+    this.rewiring = true;
+    try {
+      try {
+        await this.driver.close?.();
+      } catch (err) {
+        this.log('warn', `Closing the old hardware driver failed: ${err.message}`, 'driver');
+      }
+      try {
+        await next.init(this.config);
+      } catch (err) {
+        await next.close?.().catch(() => {});
+        throw err;
+      }
+      this.driver = next;
+    } finally {
+      this.rewiring = false;
+    }
+    this.driver.setDataListener?.(() => this.clock?.poke());
+    this.bangbang.attach();
+    this.bangbang.pushAll(source);
+    this.log('info', `Hardware driver restarted on new wiring: ${this.driver.status.name} (${this.driver.status.detail})`, source);
+    this.safeAll(source);
   }
 
   applyAbortStates(source = 'abort') {

@@ -22,6 +22,8 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 
 import { ConfigStore, validateConfig } from './config-store.js';
+import { HardwareStore, resolveHardwarePath } from './hardware-store.js';
+import { valveWiringChanged, inventory } from '../public/js/wiring-model.js';
 import { TapHub } from './tools/tap-hub.js';
 import { createDriver, driverNames } from './hal/index.js';
 import { StandController } from './state.js';
@@ -131,9 +133,30 @@ if (args['panda-tap']) {
   console.error(`[tap] raw PANDA serial on 127.0.0.1:${tapPort}`);
 }
 
-let driver;
+/**
+ * The wiring file the Channels tab edits. On the real stand it is the file the
+ * driver is built from; on any other driver it is this stand's wiring, edited
+ * ahead of the day it is driven (and found by `stand`, so the MOE simulator
+ * does not open Draco's).
+ */
+let hardwareStore;
 try {
-  driver = createDriver(DRIVER_NAME, {
+  hardwareStore = new HardwareStore(resolveHardwarePath({
+    root: ROOT,
+    explicit: args['hardware-config'] ?? (DRIVER_NAME === 'stand' ? 'config/hardware.json' : undefined),
+    standName: configStore.get().meta?.standName,
+  }));
+} catch (err) {
+  console.error(`[hardware] wiring file unreadable, Channels tab will not edit wiring: ${err.message}`);
+  hardwareStore = new HardwareStore(null);
+}
+/** Only the composite stand driver is built from the wiring file, so only it rebuilds on a save. */
+const WIRING_LIVE = DRIVER_NAME === 'stand';
+
+let driver;
+let driverOptions;
+try {
+  driverOptions = {
     host: args.host,
     port: args['driver-port'],
     listenPort: args['listen-port'],
@@ -153,7 +176,8 @@ try {
     // controller lazily instead of closing over a binding that may not exist.
     onEvent: (message, level) => emitDriverEvent(message, level),
     onRaw: tapHub ? (direction, bytes) => tapHub.write(direction, bytes) : undefined,
-  });
+  };
+  driver = createDriver(DRIVER_NAME, driverOptions);
 } catch (err) {
   console.error(`\n  DRIVER ERROR\n  ${err.message}\n  Available drivers: ${driverNames().join(', ')}\n`);
   process.exit(1);
@@ -370,6 +394,15 @@ async function handleApi(req, res, pathname, url) {
 
   // --- read-only ---
   if (route === 'GET /api/config') return sendJson(res, 200, stand.config);
+  if (route === 'GET /api/hardware') {
+    return sendJson(res, 200, {
+      available: hardwareStore.available,
+      file: hardwareStore.path ? path.relative(ROOT, hardwareStore.path).split(path.sep).join('/') : null,
+      live: WIRING_LIVE,
+      hardware: hardwareStore.hardware,
+      inventory: inventory(hardwareStore.hardware),
+    });
+  }
   if (route === 'GET /api/state') return sendJson(res, 200, stand.snapshot());
   if (route === 'GET /api/history') return sendJson(res, 200, stand.historySnapshot());
   if (route === 'GET /api/events') {
@@ -512,6 +545,9 @@ async function handleApi(req, res, pathname, url) {
     case 'POST /api/config/validate': {
       const draft = body.config ?? body;
       const errors = validateConfig(draft);
+      if (!errors.length && hardwareStore.available) {
+        errors.push(...hardwareStore.validate(body.hardware ?? hardwareStore.hardware, draft));
+      }
       // What a save of this draft would move, so the Config page can say
       // truthfully whether it applies live or reloads every station.
       const changed = errors.length ? [] : configStore.changedSections(draft);
@@ -520,6 +556,11 @@ async function handleApi(req, res, pathname, url) {
         errors,
         changed,
         inPlace: changed.every((k) => IN_PLACE_SECTIONS.has(k)),
+        // Whether a save would move channels: refused while armed, and it
+        // leaves every actuator in its safe state.
+        rewire: errors.length === 0 && (
+          valveWiringChanged(stand.config, draft)
+          || (hardwareStore.available && body.hardware != null && hardwareStore.differs(body.hardware))),
       });
     }
 
@@ -561,7 +602,73 @@ async function handleApi(req, res, pathname, url) {
         }
       }
 
+      // Wiring: which channel each instrument and coil is on. Unlike every
+      // other section this is refused while ARMED regardless of policy -- a
+      // rewire closes and reopens the hardware and leaves every actuator in
+      // its safe state, which is not something to do under a live stand.
+      const hwNext = hardwareStore.available ? (body.hardware ?? hardwareStore.hardware) : null;
+      const hwChanged = Boolean(hwNext) && hardwareStore.differs(hwNext);
+      const valvesRewired = valveWiringChanged(stand.config, next);
+      if (hwChanged || valvesRewired) {
+        const blocked = stand.armed
+          ? 'DISARM the stand to change channel wiring'
+          : stand.bangbang.ownedValves().size
+            ? 'Disable bang-bang control before changing channel wiring'
+            : null;
+        if (blocked) return sendJson(res, 409, { ok: false, errors: [blocked] });
+      }
+      if (hwNext) {
+        const errors = [...validateConfig(next), ...hardwareStore.validate(hwNext, next)];
+        if (errors.length) return sendJson(res, 400, { ok: false, errors });
+      }
+
+      // Safe on the OLD channels first: a valve left open on the channel it is
+      // leaving would otherwise stay energized with nothing on screen for it.
+      if (hwChanged || valvesRewired) stand.safeAll(who);
+
+      const hwPrev = hardwareStore.hardware;
+      if (hwChanged) {
+        try {
+          hardwareStore.save(hwNext);
+        } catch (err) {
+          return sendJson(res, 500, { ok: false, errors: [`Could not write ${hardwareStore.path}: ${err.message}`] });
+        }
+      }
+
       const result = configStore.save(next);
+      if (!result.ok) {
+        if (hwChanged) hardwareStore.save(hwPrev);
+        return sendJson(res, 400, result);
+      }
+
+      if (hwChanged && WIRING_LIVE) {
+        try {
+          await stand.replaceDriver(createDriver('stand', { ...driverOptions, hardware: hwNext }), who);
+        } catch (err) {
+          stand.log('error', `Hardware would not start on the new wiring: ${err.message} — restoring the previous wiring`, who);
+          hardwareStore.save(hwPrev);
+          try {
+            await stand.replaceDriver(createDriver('stand', { ...driverOptions, hardware: hwPrev }), who);
+          } catch (err2) {
+            stand.log('error', `Previous wiring would not start either: ${err2.message} — restart the server`, who);
+          }
+          return sendJson(res, 500, {
+            ok: false,
+            errors: [`The hardware would not start on the new wiring (${err.message}). The previous wiring file was restored; the rest of the configuration was saved.`],
+          });
+        }
+      } else if (hwChanged || valvesRewired) {
+        stand.log('command', `Channel wiring changed${hwChanged ? ` (${path.basename(hardwareStore.path)})` : ''}`, who);
+        stand.safeAll(who);
+      }
+      result.rewired = hwChanged || valvesRewired;
+      // A save that moved only the wiring file changes nothing in stand.json,
+      // so the reload above told every station "no changes". Their current
+      // sense labels and every reading just moved; rebuild them.
+      if (hwChanged && !(result.changed || []).length) {
+        result.changed = ['wiring'];
+        stand.emit('config-reload', stand.config, result.changed);
+      }
 
       // An armed structural save is worth a line of its own in the log and the
       // CSV. It is the moment the numbers on every screen changed meaning, and
