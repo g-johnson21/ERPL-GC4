@@ -35,6 +35,18 @@ function firstAtOrAfter(times, t) {
 }
 
 /**
+ * The raw sample nearest to time `t`, or null. Read from the series itself
+ * rather than the decimated trace, so a hover reports a reading that was
+ * actually taken and not the extreme of whatever bucket it fell in.
+ */
+export function sampleAt(series, t) {
+  if (!series || !series.t.length) return null;
+  const i = firstAtOrAfter(series.t, t);
+  const j = i > 0 && (i >= series.t.length || t - series.t[i - 1] < series.t[i] - t) ? i - 1 : i;
+  return { t: series.t[j], v: series.v[j] };
+}
+
+/**
  * The last `seconds` of a series, decimated to at most `buckets` min/max
  * pairs. Returns null when there is not enough to draw a line.
  *
@@ -124,6 +136,12 @@ export function tracePath(series, seconds, w, h, x = 0, y = 0, now = Date.now())
  *   fill    true to tint under the trace (reserved for out-of-limit channels)
  *   grid    colour for a single dashed midline, or null for none
  *   axis    colour for right-edge min/max labels, or null for none
+ *   markers [{ t, color, label?, dashed? }] vertical lines at absolute times,
+ *           drawn behind the trace (valve actuations on the Data page)
+ *   cursor  { t } an absolute time to mark with a hairline and a dot on the
+ *           sample nearest it
+ *
+ * Returns the sample under the cursor, or null.
  */
 export function drawTrace(canvas, series, seconds, options = {}) {
   if (!canvas || !canvas.isConnected) return;
@@ -152,8 +170,37 @@ export function drawTrace(canvas, series, seconds, options = {}) {
   // With an axis, the trace gives up a gutter on the right for the labels
   // rather than having them printed over its newest samples.
   const pw = options.axis ? Math.max(10, w - 34) : w;
-  const win = windowed(series, seconds, pw);
-  if (!win) return;
+  const now = Date.now();
+  const t0 = now - seconds * 1000;
+  const tx = (t) => ((t - t0) / (seconds * 1000)) * pw;
+
+  // Markers go down before the early return: a valve that cycled on a
+  // channel with no data yet is still worth seeing on it.
+  if (options.markers?.length) {
+    ctx.lineWidth = 1;
+    ctx.font = '9px "JetBrains Mono", "Cascadia Mono", Consolas, monospace';
+    ctx.textBaseline = 'top';
+    ctx.textAlign = 'left';
+    for (const m of options.markers) {
+      const x = Math.round(tx(m.t)) + 0.5;
+      if (x < 0 || x > pw) continue;
+      ctx.strokeStyle = withAlpha(m.color, 0.75);
+      ctx.setLineDash(m.dashed ? [3, 2] : []);
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, h);
+      ctx.stroke();
+      // A label on a trace too short to hold one would only cover it.
+      if (m.label && h >= 24) {
+        ctx.fillStyle = m.color;
+        ctx.fillText(m.label, Math.min(x + 2, pw - ctx.measureText(m.label).width), 1);
+      }
+    }
+    ctx.setLineDash([]);
+  }
+
+  const win = windowed(series, seconds, pw, now);
+  if (!win) return null;
   const { lo, hi } = yRange(win.lo, win.hi);
   const span = hi - lo || 1;
   const px = (p) => Math.max(0, p[0]) * pw;
@@ -191,6 +238,23 @@ export function drawTrace(canvas, series, seconds, options = {}) {
     ctx.textBaseline = 'bottom';
     ctx.fillText(fmtAxis(lo), w, h - 1);
   }
+
+  if (!options.cursor) return null;
+  const s = sampleAt(series, options.cursor.t);
+  if (!s || s.t < t0) return null;
+  const cx = Math.round(Math.max(0, tx(s.t))) + 0.5;
+  const cy = h - ((s.v - lo) / span) * h;
+  ctx.strokeStyle = options.cursor.color || withAlpha(color, 0.5);
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(cx, 0);
+  ctx.lineTo(cx, h);
+  ctx.stroke();
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(cx, Math.min(h - 2, Math.max(2, cy)), 2.5, 0, Math.PI * 2);
+  ctx.fill();
+  return s;
 }
 
 function fmtAxis(v) {

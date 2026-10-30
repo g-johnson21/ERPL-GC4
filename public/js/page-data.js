@@ -15,7 +15,7 @@
 import { bus } from './bus.js';
 import { bootPage } from './chrome.js';
 import { $, el, clear, icon, fmtValue, fmtRate, normalize, valueWidthCh, toast } from './util.js';
-import { WINDOWS, drawTrace, statusColor, cssVar, windowChips } from './spark.js';
+import { WINDOWS, drawTrace, statusColor, cssVar, windowChips, sampleAt } from './spark.js';
 
 const content = await bootPage('data', { sidebar: false });
 
@@ -28,6 +28,7 @@ const RATE_SECONDS = 3;
 let mode = loadPref('gc4-data-mode', 'cards') === 'cards' ? 'cards' : 'telemetry';
 let windowSeconds = Number(loadPref('gc4-data-window', '60'));
 if (!WINDOWS.some((w) => w.s === windowSeconds)) windowSeconds = 60;
+let showValves = loadPref('gc4-data-valves', 'off') === 'on';
 
 // ------------------------------------------------------------------ shell --
 
@@ -42,6 +43,22 @@ content.append(
         savePref('gc4-data-window', String(s));
         update();
       }, 'Trend window — also the span MIN and MAX are taken over'),
+      el('div.seg', {},
+        el('button', {
+          id: 'valve-toggle',
+          class: showValves ? 'active' : '',
+          'aria-pressed': String(showValves),
+          title: 'Mark every valve actuation on the trends — green solid OPEN, red dashed CLOSED',
+          text: 'Valves',
+          onclick: (e) => {
+            showValves = !showValves;
+            savePref('gc4-data-valves', showValves ? 'on' : 'off');
+            e.currentTarget.classList.toggle('active', showValves);
+            e.currentTarget.setAttribute('aria-pressed', String(showValves));
+            update();
+          },
+        })
+      ),
       el('div.seg', {},
         el('button', { id: 'mode-cards', class: mode === 'cards' ? 'active' : '', text: 'Cards', onclick: () => setMode('cards') }),
         el('button', { id: 'mode-telemetry', class: mode === 'telemetry' ? 'active' : '', text: 'Telemetry', onclick: () => setMode('telemetry') })
@@ -178,7 +195,8 @@ async function runTare(spec, what) {
  * monospace so it still scans as an identifier.
  */
 function sensorCard(sensor) {
-  const canvas = el('canvas.s-spark', { id: `spark-${sensor.id}` });
+  // An empty title, so the card's own tooltip does not cover the hover readout.
+  const canvas = el('canvas.s-spark', { id: `spark-${sensor.id}`, title: '' });
   sparks.set(sensor.id, canvas);
   const w = valueWidthCh(sensor);
 
@@ -482,14 +500,150 @@ function windowStats(id, seconds) {
 
 function drawSpark(sensor, status) {
   const alarm = status === 'danger' || status === 'warn';
-  // The table rows are short: no midline there, just the trace.
+  // The table rows are short: no midline there, just the trace — and no
+  // marker labels, which would sit on top of it.
   const inTable = mode !== 'cards';
-  drawTrace(sparks.get(sensor.id), bus.history.get(sensor.id), windowSeconds, {
+  const hovered = hover?.id === sensor.id;
+  const sample = drawTrace(sparks.get(sensor.id), bus.history.get(sensor.id), windowSeconds, {
     color: statusColor(status),
     fill: alarm,
     grid: inTable ? null : cssVar('--border', '#232326'),
+    markers: showValves ? valveMarkers(!inTable) : null,
+    cursor: hovered ? { t: hoverTime() } : null,
   });
+  if (hovered) showHoverTip(sensor, sample);
 }
+
+// -------------------------------------------------------- valve actuations --
+
+/**
+ * Every valve transition still in the event log, oldest first.
+ *
+ * Read from the log rather than collected from snapshots so that the
+ * actuations from before this page was opened are on the trend too. The
+ * server logs each real change of position exactly once — "B2 (LOX Main)
+ * -> OPEN" when commanded, "B2 -> OPEN" when a sequence or controller moved
+ * it — and a re-command of the position a valve already holds is not logged,
+ * so nothing here is a duplicate. Bang-bang pulses are not logged edge by
+ * edge, so a regulating valve shows only the command that handed it over.
+ */
+let actuationCache = { key: null, list: [] };
+function actuations() {
+  const last = bus.events[bus.events.length - 1];
+  const key = `${bus.events.length}:${last?.seq}`;
+  if (actuationCache.key === key) return actuationCache.list;
+  const list = [];
+  for (const e of bus.events) {
+    if (e.level !== 'command' && e.level !== 'control') continue;
+    const m = /^(\S+)(?: \(.*\))? -> (OPEN|CLOSED)$/.exec(e.message);
+    if (m && bus.valve(m[1])) list.push({ t: e.t, id: m[1], state: m[2] });
+  }
+  actuationCache = { key, list };
+  return list;
+}
+
+function valveMarkers(labels) {
+  const open = cssVar('--ok', '#22c55e');
+  const closed = cssVar('--danger', '#ef4444');
+  return actuations().map((a) => ({
+    t: a.t,
+    color: a.state === 'OPEN' ? open : closed,
+    dashed: a.state !== 'OPEN',
+    label: labels ? a.id : null,
+  }));
+}
+
+// ------------------------------------------------------------ hover readout --
+
+/**
+ * Pointing at a trend reads it: the sample under the pointer, how long ago it
+ * was taken, and any valve that moved within a few pixels of it.
+ *
+ * The hover is kept as a fraction of the trace's width rather than as a time,
+ * so a pointer held still keeps reading the same spot on the screen while the
+ * data scrolls under it — the readout tracks what is under the hairline.
+ */
+let hover = null;   // { id, frac, width, x, y } — x/y are the pointer, for placing the tip
+let hoverTip = null;
+
+function hoverTime() {
+  return Date.now() - (1 - hover.frac) * windowSeconds * 1000;
+}
+
+const sparkId = (canvas) => canvas.id.replace(/^t?spark-/, '');
+
+function onSparkMove(e) {
+  const canvas = e.target.closest?.('canvas.s-spark, canvas.t-spark');
+  if (!canvas) { clearHover(); return; }
+  const r = canvas.getBoundingClientRect();
+  if (!r.width) return;
+  const prev = hover?.id;
+  hover = {
+    id: sparkId(canvas),
+    frac: Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)),
+    width: r.width,
+    x: e.clientX,
+    y: e.clientY,
+  };
+  if (prev && prev !== hover.id) redraw(prev);
+  redraw(hover.id);
+}
+
+function clearHover() {
+  if (!hover) return;
+  const id = hover.id;
+  hover = null;
+  if (hoverTip) hoverTip.hidden = true;
+  redraw(id);
+}
+
+function redraw(id) {
+  const sensor = rendered.find((s) => s.id === id);
+  if (sensor) drawSpark(sensor, bus.sensorStatus(id));
+}
+
+function showHoverTip(sensor, sample) {
+  hoverTip ??= document.body.appendChild(el('div.spark-tip', { role: 'tooltip' }));
+  if (!sample) { hoverTip.hidden = true; return; }
+  clear(hoverTip);
+  const ago = (Date.now() - sample.t) / 1000;
+  hoverTip.append(
+    el('div.st-name', {}, el('span.st-tag', { text: sensor.id }), el('span', { text: sensor.name })),
+    el('div.st-value', {},
+      el('b', { text: fmtValue(sample.v, sensor.decimals) }),
+      el('span', { text: ` ${sensor.units}` })),
+    el('div.st-time', { text: `${ago < 0.05 ? 'now' : `${ago.toFixed(1)} s ago`} · ${clockTime(sample.t)}` })
+  );
+
+  // Valves that moved within a few pixels of the hairline: close enough that
+  // the eye would attribute that marker to this spot on the trace.
+  if (showValves) {
+    const slack = (windowSeconds * 1000 * 4) / hover.width;
+    const near = actuations().filter((a) => Math.abs(a.t - sample.t) <= slack);
+    for (const a of near) {
+      const valve = bus.valve(a.id);
+      hoverTip.append(el('div.st-valve', { dataset: { state: a.state.toLowerCase() } },
+        el('b', { text: `${a.id} → ${a.state}` }),
+        el('span', { text: ` ${valve?.name ?? ''} · ${clockTime(a.t)}` })));
+    }
+  }
+
+  hoverTip.hidden = false;
+  // Beside the pointer, flipped to the other side near the window's edges.
+  const tw = hoverTip.offsetWidth, th = hoverTip.offsetHeight;
+  const left = hover.x + 14 + tw > innerWidth ? hover.x - 14 - tw : hover.x + 14;
+  const top = hover.y + 14 + th > innerHeight ? hover.y - 10 - th : hover.y + 14;
+  hoverTip.style.left = `${Math.max(4, left)}px`;
+  hoverTip.style.top = `${Math.max(4, top)}px`;
+}
+
+function clockTime(t) {
+  const d = new Date(t);
+  return d.toLocaleTimeString([], { hour12: false }) + `.${String(d.getMilliseconds()).padStart(3, '0').slice(0, 1)}`;
+}
+
+$('#data-body').addEventListener('pointermove', onSparkMove);
+$('#data-body').addEventListener('pointerleave', clearHover);
 
 // ------------------------------------------------------------------ prefs --
 

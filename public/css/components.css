@@ -2682,6 +2682,32 @@ body.shift-armed .pid-valve[data-needs-shift="true"] { outline: none; }
 .vt-sub { margin-top: 2px; font-size: var(--fs-sm); color: var(--text-faint); line-height: 1.4; }
 .vt-detail { margin-top: 4px; font-size: var(--fs-sm); color: var(--text-muted); }
 
+/* The reading under the pointer on a Data page trend. Same card as the valve
+   tip, so a hover anywhere on the station reads the same way. */
+.spark-tip {
+  position: fixed;
+  z-index: 120;
+  max-width: 320px;
+  padding: 6px 9px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-lg);
+  pointer-events: none;
+  font-size: var(--fs-sm);
+}
+.spark-tip[hidden] { display: none; }
+.st-name { display: flex; gap: 8px; align-items: baseline; color: var(--text-muted); }
+.st-tag { font-family: var(--mono); font-weight: 600; color: var(--text); }
+.st-value { margin-top: 2px; font-family: var(--mono); font-size: var(--fs-base); font-variant-numeric: tabular-nums; }
+.st-value b { font-weight: 700; color: var(--text); }
+.st-value span { color: var(--text-faint); }
+.st-time { color: var(--text-faint); font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.st-valve { margin-top: 3px; font-family: var(--mono); color: var(--text-faint); }
+.st-valve b { font-weight: 600; }
+.st-valve[data-state="open"] b { color: var(--ok); }
+.st-valve[data-state="closed"] b { color: var(--danger); }
+
 /* ------------------------------------------ bang-bang valves on the grid --- */
 
 /* Owned by a live bang-bang loop: yellow for as long as it is, with no claim
