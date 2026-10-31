@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 import {
   inventory, sourceOf, setSensorSource, setValveChannel, renameInWiring,
   removeFromWiring, validateWiring, valveWiringChanged, niSpan, syncNiSpan,
-  inputsFor, suits, tcType, setTcType,
+  inputsFor, suits, tcType, setTcType, niModules, addNiModule, removeNiModule, canAddNiModule,
 } from './wiring-model.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -152,4 +152,44 @@ test('a thermocouple type is read from and written to its NI TC channel', () => 
   assert.equal(tcType(hw, 'PT1'), null);
   setSensorSource(cfg, hw, 'TC2', { device: 'nidaq', key: 'tc7' });
   assert.equal(tcType(hw, 'TC2'), 'K');
+});
+
+test('a stand with no 9211 offers no thermocouple input until one is added', () => {
+  const hw = load('hardware-moe.json');
+  const cfg = load('moe.json');
+  assert.deepEqual(inputsFor(inventory(hw), 'temperature'), []);
+  assert.equal(canAddNiModule(hw, 'pt'), false);   // the sidecar runs one 9208
+  const first = addNiModule(hw, 'tc');
+  assert.equal(first, 0);
+  assert.equal(hw.nidaq.cards.tc.modules[0].slot, 3);
+  assert.equal(addNiModule(hw, 'tc'), 4);           // a second one chains on
+  assert.deepEqual(hw.nidaq.cards.tc.modules.map((m) => m.slot), [3, 4]);
+  const tcs = inputsFor(inventory(hw), 'temperature')[0].inputs.map((i) => i.key);
+  assert.deepEqual(tcs, ['tc0', 'tc1', 'tc2', 'tc3', 'tc4', 'tc5', 'tc6', 'tc7']);
+  assert.deepEqual(validateWiring(hw, cfg), []);
+});
+
+test('removing a chained 9211 unwires its sensors and closes the gap', () => {
+  const { cfg, hw } = draco();
+  setSensorSource(cfg, hw, 'TC2', { device: 'nidaq', key: 'tc1' });
+  setSensorSource(cfg, hw, 'PT1', { device: 'nidaq', key: 'tc5' });
+  setTcType(hw, 'PT1', 'T');
+  const unwired = removeNiModule(hw, 'tc', 0);
+  assert.ok(unwired.includes('TC2'));
+  // What was tc5 on the second module is tc1 now, type and all.
+  assert.equal(hw.nidaq.channelMap.tc1, 'PT1');
+  assert.equal(hw.nidaq.cards.tc.channelMeta['1'].type, 'T');
+  assert.deepEqual(hw.nidaq.cards.tc.modules, [{ slot: 4, channels: 4 }]);
+  assert.equal(inventory(hw)[0].inputs.filter((i) => i.card === 'tc').length, 4);
+  // Removing the last one takes the card away entirely.
+  removeNiModule(hw, 'tc', 0);
+  assert.equal(hw.nidaq.cards.tc, undefined);
+  assert.deepEqual(validateWiring(hw, cfg), []);
+});
+
+test('two modules in one slot are refused', () => {
+  const { cfg, hw } = draco();
+  hw.nidaq.cards.tc.modules[1].slot = 2;
+  assert.match(validateWiring(hw, cfg).join('\n'), /both in slot 2/);
+  assert.equal(niModules(hw).length, 4);
 });

@@ -2845,3 +2845,22 @@ body.shift-armed .pid-valve[data-needs-shift="true"] { outline: none; }
 .ch-card, .ch-col-head { touch-action: none; }
 .ch-ghost { position: fixed; left: 0; top: 0; z-index: 200; pointer-events: none; overflow: hidden; opacity: .92; box-shadow: var(--shadow-lg); }
 body.ch-dragging, body.ch-dragging * { cursor: grabbing !important; user-select: none; }
+
+/* NI-DAQ modules: one row per C Series module in the chassis. */
+.ch-modules { display: flex; flex-direction: column; gap: 12px; max-width: 880px; }
+.ch-mod-list { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.ch-mod {
+  display: grid; grid-template-columns: 110px minmax(150px, 1fr) 110px minmax(0, 1.4fr) auto;
+  gap: 12px; align-items: center; padding: 9px 12px;
+}
+.ch-mod + .ch-mod { border-top: 1px solid var(--border); }
+.ch-mod-name { display: flex; flex-direction: column; gap: 1px; font-size: var(--fs-sm); color: var(--text-faint); }
+.ch-mod-model { font-family: var(--mono); font-size: var(--fs-md); color: var(--text); }
+.ch-mod-chans { font-size: var(--fs-sm); }
+.ch-mod-wired { font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; }
+.ch-mod-wired.faint { color: var(--text-faint); }
+.ch-mod-add { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 720px) {
+  .ch-mod { grid-template-columns: 1fr auto; }
+  .ch-mod-chans, .ch-mod-wired { grid-column: 1 / -1; }
+}

@@ -13,6 +13,7 @@
  *   hardware.json  nidaq.channelMap  "pt3" -> sensor id (card + index)
  *                  panda.channelMap  "bbpt0" -> sensor id
  *                  nidaq.cards.pt.channelMeta[i].maxPsi  the 4-20 mA span
+ *                  nidaq.cards        which C Series modules are fitted, and where
  *                  panda.dcChannels[i].valve  which valve DC(i+1) current-senses
  *
  * A sensor is on at most one hardware channel. The PANDA's map overrides the
@@ -326,6 +327,17 @@ export function validateWiring(hw, cfg) {
     }
   }
 
+  const slots = new Map();
+  for (const m of niModules(hw)) {
+    const at = `${m.model}${m.card === 'tc' ? ` #${m.module + 1}` : ''}`;
+    if (!Number.isInteger(Number(m.slot)) || m.slot < 1 || m.slot > NI_SLOTS) {
+      errors.push(`nidaq: ${at} is in slot ${m.slot}, not a chassis slot (1-${NI_SLOTS})`);
+    } else if (slots.has(Number(m.slot))) {
+      errors.push(`nidaq: ${at} and ${slots.get(Number(m.slot))} are both in slot ${m.slot}`);
+    }
+    slots.set(Number(m.slot), at);
+  }
+
   for (const [index, entry] of Object.entries(hw.panda?.dcChannels || {})) {
     const i = Number(index);
     if (!Number.isInteger(i) || i < 0 || i >= DC_CHANNELS) {
@@ -348,4 +360,152 @@ export function valveWiringChanged(before, after) {
     .map((v) => [v.id, v.channel, Boolean(v.normallyOpen)])
     .sort((a, b) => String(a[0]).localeCompare(String(b[0]))));
   return key(before) !== key(after);
+}
+
+// ---------------------------------------------------------- NI cards --
+
+/**
+ * The C Series modules the NI sidecar can drive, one entry per card kind.
+ * The sidecar finds each module by product type and falls back to `slot`,
+ * so the slot only has to be right when two of the same module are fitted.
+ * It runs at most one 9208 and one 9237; 9211s chain, channels concatenating
+ * in module order.
+ */
+export const NI_MODULES = {
+  pt: { model: 'NI-9208', label: '4–20 mA (PTs)', channels: 16, slot: 2, chain: false },
+  lc: { model: 'NI-9237', label: 'Bridge (load cells)', channels: 4, slot: 1, chain: false },
+  tc: { model: 'NI-9211', label: 'Thermocouples', channels: 4, slot: 3, chain: true },
+};
+
+/** Slots on the cDAQ chassis. */
+export const NI_SLOTS = 8;
+
+/** The TC card in its `modules` form, converting the single-module shorthand. */
+function tcModules(hw) {
+  const tc = hw.nidaq.cards.tc;
+  if (!Array.isArray(tc.modules)) {
+    tc.modules = [{ slot: tc.slot ?? NI_MODULES.tc.slot, channels: tc.channels ?? NI_MODULES.tc.channels }];
+    delete tc.slot;
+    delete tc.channels;
+  }
+  return tc.modules;
+}
+
+/**
+ * Every module the wiring declares, in chassis-slot order:
+ *
+ *   [{ card: 'tc', module: 1, slot: 4, channels: 4, first: 4, model, label }]
+ *
+ * `first` is the card-wide index of the module's channel 0 ("tc4").
+ */
+export function niModules(hw) {
+  const out = [];
+  for (const [card, spec] of Object.entries(hw?.nidaq?.cards || {})) {
+    const def = NI_MODULES[card];
+    const mods = Array.isArray(spec.modules)
+      ? spec.modules
+      : [{ slot: spec.slot ?? def?.slot, channels: cardCount(spec) }];
+    let first = 0;
+    mods.forEach((m, module) => {
+      const channels = Number(m.channels) || 0;
+      out.push({ card, module, slot: m.slot, channels, first, model: def?.model ?? card.toUpperCase(), label: def?.label ?? card });
+      first += channels;
+    });
+  }
+  return out.sort((a, b) => (a.slot ?? 99) - (b.slot ?? 99));
+}
+
+/** A chassis slot no declared module is in, searching up from `prefer`; null when all are taken. */
+export function freeNiSlot(hw, prefer = 1) {
+  const used = new Set(niModules(hw).map((m) => Number(m.slot)));
+  for (let k = 0; k < NI_SLOTS; k++) {
+    const s = ((prefer - 1 + k) % NI_SLOTS) + 1;
+    if (!used.has(s)) return s;
+  }
+  return null;
+}
+
+/** Where a new module of this kind most likely sits: next to the last one, else its usual slot. */
+function usualSlot(hw, card) {
+  const last = niModules(hw).filter((m) => m.card === card).pop();
+  return last ? Number(last.slot) + 1 : NI_MODULES[card]?.slot ?? 1;
+}
+
+/** Can another module of this kind be added? (One 9208, one 9237, any number of 9211s.) */
+export function canAddNiModule(hw, card) {
+  if (!hw?.nidaq || !NI_MODULES[card]) return false;
+  if (freeNiSlot(hw) == null) return false;
+  return NI_MODULES[card].chain || !hw.nidaq.cards?.[card];
+}
+
+/**
+ * Declare a module in a slot. Returns the card-wide index of its first
+ * channel, or null when it cannot be added.
+ */
+export function addNiModule(hw, card, slot = freeNiSlot(hw, usualSlot(hw, card))) {
+  if (!canAddNiModule(hw, card) || slot == null) return null;
+  const def = NI_MODULES[card];
+  const cards = (hw.nidaq.cards ??= {});
+  if (card === 'tc') {
+    if (!cards.tc) cards.tc = { modules: [], channelMeta: {} };
+    const mods = tcModules(hw);
+    const first = mods.reduce((n, m) => n + (Number(m.channels) || 0), 0);
+    mods.push({ slot, channels: def.channels });
+    const meta = (cards.tc.channelMeta ??= {});
+    for (let i = first; i < first + def.channels; i++) meta[String(i)] ??= { type: 'K', offset: 0 };
+    return first;
+  }
+  cards[card] = card === 'lc'
+    ? { slot, channels: def.channels, excitationV: 10.0, bridgeOhms: 350.0, channelMeta: {} }
+    : { slot, channels: def.channels, channelMeta: {} };
+  return 0;
+}
+
+/** Move a module to another slot. */
+export function setNiSlot(hw, card, module, slot) {
+  const spec = hw?.nidaq?.cards?.[card];
+  if (!spec) return;
+  if (card === 'tc') tcModules(hw)[module].slot = slot;
+  else spec.slot = slot;
+}
+
+/**
+ * Take a module out of the wiring. Its sensors are unwired, and a later 9211's
+ * channels move down to close the gap (their sensors and thermocouple types
+ * with them), because the sidecar numbers the chained channels contiguously.
+ * Returns the ids that lost their input.
+ */
+export function removeNiModule(hw, card, module) {
+  const cards = hw?.nidaq?.cards;
+  if (!cards?.[card]) return [];
+  const map = (hw.nidaq.channelMap ??= {});
+  const mod = niModules(hw).find((m) => m.card === card && m.module === module);
+  if (!mod) return [];
+  const lo = mod.first;
+  const hi = mod.first + mod.channels;
+
+  const unwired = [];
+  const moved = {};
+  for (const [key, id] of Object.entries(map)) {
+    const p = parseKey(key);
+    if (p?.card !== card) continue;
+    if (p.index >= lo && p.index < hi) { unwired.push(id); delete map[key]; }
+    else if (p.index >= hi) { moved[`${card}${p.index - mod.channels}`] = id; delete map[key]; }
+  }
+  Object.assign(map, moved);
+
+  if (card === 'tc' && tcModules(hw).length > 1) {
+    const meta = cards.tc.channelMeta || {};
+    const next = {};
+    for (const [i, m] of Object.entries(meta)) {
+      const n = Number(i);
+      if (n < lo) next[i] = m;
+      else if (n >= hi) next[String(n - mod.channels)] = m;
+    }
+    cards.tc.channelMeta = next;
+    tcModules(hw).splice(module, 1);
+  } else {
+    delete cards[card];
+  }
+  return unwired;
 }

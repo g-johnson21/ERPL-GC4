@@ -19,11 +19,15 @@ import {
   inventory, sourceOf, sourceLabel, sensorOn, setSensorSource, setValveChannel,
   renameInWiring, removeFromWiring, freeSensorChannel, syncNiSpan, niSpan, hasNiSpan,
   inputsFor, suits, tcType, setTcType, KIND_DEFAULTS, TC_TYPES, DC_CHANNELS,
+  NI_MODULES, NI_SLOTS, niModules, canAddNiModule, addNiModule, setNiSlot, removeNiModule,
 } from './wiring-model.js';
 
 const SENSOR_KINDS = ['pressure', 'temperature', 'force', 'flow', 'level', 'voltage', 'other'];
 const VALVE_TYPES = ['solenoid', 'ball', 'butterfly', 'needle', 'igniter', 'motor'];
 const ID_RE = /^[A-Za-z0-9_-]+$/;
+
+/** The NI module that carries each kind, where there is one. */
+const NI_CARD_FOR = { pressure: 'pt', temperature: 'tc', force: 'lc' };
 
 /** `icon()` returns markup; as an `el` child it would be text. */
 const glyph = (name, size) => el('span.ch-glyph', { html: icon(name, size) });
@@ -34,7 +38,7 @@ const glyph = (name, size) => el('span.ch-glyph', { html: icon(name, size) });
  * @param markDirty   () => void
  */
 export function createChannelEditor({ getDraft, getWiring, markDirty }) {
-  let view = 'sensors';           // 'sensors' | 'valves'
+  let view = 'sensors';           // 'sensors' | 'valves' | 'cards'
   let selected = null;            // id of the card in the inspector
   /** Ids added since the last save: only these may be renamed. */
   const fresh = new Set();
@@ -43,7 +47,7 @@ export function createChannelEditor({ getDraft, getWiring, markDirty }) {
 
   // ------------------------------------------------------------- model --
 
-  const items = () => (view === 'sensors' ? getDraft().sensors : getDraft().valves);
+  const items = () => (view === 'sensors' ? getDraft().sensors : view === 'valves' ? getDraft().valves : []);
   const groupsKey = () => (view === 'sensors' ? 'sensorGroups' : 'valveGroups');
   const hw = () => getWiring()?.hardware ?? null;
 
@@ -267,10 +271,15 @@ export function createChannelEditor({ getDraft, getWiring, markDirty }) {
       el('div.ch-toolbar', {},
         el('div.seg', {},
           el('button', { type: 'button', class: view === 'sensors' ? 'active' : '', text: `Sensors · Data page (${getDraft().sensors.length})`, onclick: () => { view = 'sensors'; selected = null; render(); } }),
-          el('button', { type: 'button', class: view === 'valves' ? 'active' : '', text: `Valves · Control Grid (${getDraft().valves.length})`, onclick: () => { view = 'valves'; selected = null; render(); } })
+          el('button', { type: 'button', class: view === 'valves' ? 'active' : '', text: `Valves · Control Grid (${getDraft().valves.length})`, onclick: () => { view = 'valves'; selected = null; render(); } }),
+          wiring?.available && hw()?.nidaq
+            ? el('button', { type: 'button', class: view === 'cards' ? 'active' : '', text: `NI-DAQ modules (${niModules(hw()).length})`, onclick: () => { view = 'cards'; selected = null; render(); } })
+            : null
         ),
         el('span.ch-hint', {
-          text: 'Drag cards to reorder or move them between groups; drag a group\'s header to move the column.',
+          text: view === 'cards'
+            ? 'The C Series modules in the cDAQ chassis. A sensor can only be wired to a module listed here.'
+            : 'Drag cards to reorder or move them between groups; drag a group\'s header to move the column.',
         }),
         el('span.ch-wiring', {
           title: wiring?.available
@@ -282,11 +291,82 @@ export function createChannelEditor({ getDraft, getWiring, markDirty }) {
           glyph('schematic', 13),
           el('span', { text: wiring?.available ? `${wiring.file}${wiring.live ? ' · live' : ''}` : 'no wiring file' }))
       ),
-      el('div.ch-body', {},
-        board(cols),
-        inspector()
-      )
+      view === 'cards'
+        ? modulesPanel()
+        : el('div.ch-body', {},
+          board(cols),
+          inspector()
+        )
     ));
+  }
+
+  // ------------------------------------------------------- NI modules --
+
+  function modulesPanel() {
+    const mods = niModules(hw());
+    const map = hw().nidaq.channelMap || {};
+    const usedSlots = new Map(mods.map((m) => [Number(m.slot), m]));
+
+    const rows = mods.map((m) => {
+      const wired = [];
+      for (let i = m.first; i < m.first + m.channels; i++) {
+        if (map[`${m.card}${i}`]) wired.push(map[`${m.card}${i}`]);
+      }
+      const slots = [];
+      for (let n = 1; n <= NI_SLOTS; n++) {
+        const other = usedSlots.get(n);
+        if (!other || other === m) slots.push([String(n), `Slot ${n}`]);
+      }
+      return el('div.ch-mod', {},
+        el('div.ch-mod-slot', {}, select(slots, String(m.slot), (v) => { setNiSlot(hw(), m.card, m.module, Number(v)); commit(); })),
+        el('div.ch-mod-name', {},
+          el('span.ch-mod-model', { text: m.model }),
+          el('span', { text: m.label })),
+        el('span.ch-mod-chans.mono', {
+          text: m.channels ? `${sourceLabel({ device: 'nidaq', key: `${m.card}${m.first}` })}–${m.first + m.channels - 1}` : 'no channels',
+        }),
+        el('span.ch-mod-wired', {
+          text: wired.length ? wired.join(', ') : 'nothing wired',
+          class: wired.length ? '' : 'faint',
+        }),
+        el('button.btn.sm.danger', { type: 'button', onclick: () => removeModule(m, wired) }, 'Remove'));
+    });
+
+    return el('div.ch-modules', {},
+      rows.length ? el('div.ch-mod-list', {}, rows) : el('p.ch-note', { text: 'No modules are declared for this chassis yet.' }),
+      el('div.ch-mod-add', {},
+        el('span.ch-field-label', { text: 'Add a module' }),
+        Object.entries(NI_MODULES).map(([card, def]) => el('button.btn.sm', {
+          type: 'button',
+          disabled: !canAddNiModule(hw(), card),
+          title: canAddNiModule(hw(), card) ? '' : (def.chain ? 'Every chassis slot is taken' : `The NI driver runs one ${def.model}, and one is already declared`),
+          onclick: () => {
+            const first = addNiModule(hw(), card);
+            if (first == null) return;
+            const m = niModules(hw()).find((x) => x.card === card && x.first === first);
+            toast(`${def.model} added in slot ${m.slot}: ${sourceLabel({ device: 'nidaq', key: `${card}${first}` })}–${first + def.channels - 1}`, 'info', 5000);
+            commit();
+          },
+        }, glyph('plus', 12), `${def.model} · ${def.label}`))),
+      el('p.ch-note', {
+        text: 'The NI driver finds each module by its model, so the slot only matters when two of the same module are fitted. '
+          + 'Chained NI-9211s number their channels in the order they were added.',
+      }));
+  }
+
+  async function removeModule(m, wired) {
+    const ok = await confirmAction({
+      title: `Remove the ${m.model} in slot ${m.slot}?`,
+      message: wired.length
+        ? `${wired.join(', ')} will be unwired and need new inputs.`
+        : 'Nothing is wired to it.',
+      confirmLabel: 'Remove',
+      danger: true,
+    });
+    if (!ok) return;
+    const unwired = removeNiModule(hw(), m.card, m.module);
+    if (unwired.length) toast(`Unwired ${unwired.join(', ')}`, 'warn', 6000);
+    commit();
   }
 
   function board(cols) {
@@ -626,7 +706,26 @@ export function createChannelEditor({ getDraft, getWiring, markDirty }) {
         })
         : null;
       rows.push(el('div.ch-row2', {}, field('Device', deviceSel), inputSel ? field('Input', inputSel) : el('span')));
-      if (!devices.length) rows.push(el('div.ch-note.warn', { text: `This stand's wiring has no input that can carry a ${s.kind} sensor.` }));
+      // No input left for this kind: offer the module that carries it,
+      // rather than sending the operator off to edit the wiring file.
+      const niCard = NI_CARD_FOR[s.kind];
+      const anyFree = devices.some((d) => d.inputs.some((i) => !sensorOn(hw(), d.device, i.key)));
+      if ((!devices.length || (!anyFree && !src)) && niCard && canAddNiModule(hw(), niCard)) {
+        const def = NI_MODULES[niCard];
+        rows.push(el('div.ch-note.warn', {},
+          devices.length ? `Every ${s.kind} input is in use.` : `No ${def.model} is declared for this chassis.`,
+          el('button.btn.sm', {
+            type: 'button',
+            onclick: () => {
+              const first = addNiModule(hw(), niCard);
+              setSensorSource(draft, hw(), s.id, { device: 'nidaq', key: `${niCard}${first}` });
+              toast(`${def.model} added; ${s.id} is on ${sourceLabel(sourceOf(hw(), s.id))}`, 'info', 5000);
+              commit();
+            },
+          }, glyph('plus', 12), `Add an ${def.model}`)));
+      } else if (!devices.length) {
+        rows.push(el('div.ch-note.warn', { text: `This stand's wiring has no input that can carry a ${s.kind} sensor.` }));
+      }
       const tc = tcType(hw(), s.id);
       if (tc) {
         rows.push(field('Thermocouple type', select(TC_TYPES.map((t) => [t, `Type ${t}`]), tc, (t) => { setTcType(hw(), s.id, t); commit(); }),
