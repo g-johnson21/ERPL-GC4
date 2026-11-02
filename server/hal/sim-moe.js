@@ -35,9 +35,13 @@
  *   GSE muscle  compressor + surge tank (GSE MUSCLE PT), vented by GROUND
  *               PNEUMATICS VENT. Every GROUND ... valve is a spring-return
  *               pneumatic valve on this bus.
- *   GN2 GSE     supply bottles -> GROUND GN2 REG -> orifice -> GROUND GN2
- *               PRESS -> GN2 QD. GROUND GN2 VENT (normally open) bleeds the
- *               fill line. GN2 QD CONTROL releases the QD while energized.
+ *   GN2 GSE     supply bottles -> GN2 BANG-BANG PRESS -> orifice -> GROUND
+ *               GN2 PRESS -> GN2 QD. The bang-bang solenoid is the PANDA's
+ *               GN2 side (G), regulating on GN2 BUS PT; it replaced the
+ *               ground regulator, so nothing holds the line below bottle
+ *               pressure while it is open. GROUND GN2 VENT (normally open)
+ *               bleeds the fill line. GN2 QD CONTROL releases the QD while
+ *               energized.
  *   LOX GSE     dewar -> GROUND LOX FILL -> LOX QD -> check valve -> tank.
  *               GROUND LOX VENT (normally open) dumps the fill line. LOX QD
  *               CONTROL releases the QD while energized. A sealed tank cannot
@@ -61,6 +65,7 @@ const MOE_ROLES = {
     fuelFill: 'FUEL-FILL',
     gndLoxFill: 'GND-LOX-FILL',
     gndLoxVent: 'GND-LOX-VENT',
+    gn2BbPress: 'GN2-BB-PRESS',
     gndGn2Press: 'GND-GN2-PRESS',
     gndGn2Vent: 'GND-GN2-VENT',
     gn2QdRelease: 'GN2-QD-CTRL',
@@ -100,7 +105,6 @@ const MOE_HAND_VALVES = {
 
 /** Regulators, keyed by their P&ID component id. `psi` is the set pressure. */
 const MOE_REGULATORS = {
-  'GND-GN2-REG': { name: 'Ground GN2 regulator', psi: 4000, min: 0, max: 4500, step: 50 },
   'ACT-REG': { name: 'Actuator regulator', psi: 150, min: 0, max: 300, step: 5 },
   'GSE-COMP': { name: 'GSE air compressor cut-out', psi: 150, min: 0, max: 200, step: 5 },
 };
@@ -109,7 +113,9 @@ const MOE_REGULATORS = {
 const tune = {
   supplyStartPsi: 6000,
   supplyDrain: 0.02,       // supply psi lost per psi delivered to the bus
-  regFlowGn2: 2500,        // psi/s the ground regulator can push into the fill line
+  bbFlowGn2: 2500,         // psi/s the bang-bang solenoid can push into the line behind it
+  lineToBus: 4,            // bus volume / fill-line volume
+  lineEqualize: 8,         // how fast the two fill-line segments equalize through GROUND GN2 PRESS
   fillLineVent: 3,         // fill line blowdown through GROUND GN2 VENT
   busFill: 0.6,            // bus psi/s per psi of fill line above it, through the QD
   busVent: 0.35,           // GN2 VENT blowdown
@@ -172,7 +178,7 @@ export class MoeSimulatorDriver extends SimulatorDriver {
   reset() {
     this.s = {
       supplyP: tune.supplyStartPsi,  // GN2 supply manifold, behind the bottles
-      regP: AMBIENT_PSI,             // GN2 REG PT, downstream of the ground regulator
+      regP: AMBIENT_PSI,             // GN2 REG PT, between the bang-bang solenoid and GROUND GN2 PRESS
       gn2FillP: AMBIENT_PSI,         // GN2 FILL PT, the ground side of the GN2 QD
       busP: AMBIENT_PSI,             // the vehicle's GN2 COPVs
       burst: false,
@@ -254,13 +260,18 @@ export class MoeSimulatorDriver extends SimulatorDriver {
 
     // --- GN2 GSE ---------------------------------------------------------------
     const bottles = this.handOpen('HV-GN2-BOTTLES');
-    const regSet = this.regs['GND-GN2-REG'].psi;
-    const regOut = bottles ? Math.min(regSet, s.supplyP) : Math.min(regSet, s.regP);
-    s.regP += (regOut - s.regP) * relax(4);
+    // The bang-bang solenoid: open, the line behind it charges toward bottle
+    // pressure, unregulated. Shut, it holds what it has.
+    if (bottles && open('gn2BbPress')) {
+      const push = Math.max(0, s.supplyP - s.regP);
+      s.regP += Math.min(push, tune.bbFlowGn2 * dt * clamp(push / 200, 0.05, 1));
+    }
 
+    // GROUND GN2 PRESS joins the two segments of the fill line.
     if (open('gndGn2Press')) {
-      const push = Math.max(0, s.regP - s.gn2FillP);
-      s.gn2FillP += Math.min(push, tune.regFlowGn2 * dt * clamp(push / 200, 0.05, 1));
+      const d = (s.regP - s.gn2FillP) * relax(tune.lineEqualize) * 0.5;
+      s.regP -= d;
+      s.gn2FillP += d;
     }
     if (open('gndGn2Vent')) s.gn2FillP -= (s.gn2FillP - AMBIENT_PSI) * tune.fillLineVent * dt;
 
@@ -269,7 +280,10 @@ export class MoeSimulatorDriver extends SimulatorDriver {
     if (gn2Mated && s.gn2FillP > s.busP) {
       const d = (s.gn2FillP - s.busP) * tune.busFill * dt;
       s.busP += d;
-      s.gn2FillP -= d * 0.5;
+      // The fill line is a small volume beside the COPVs: what the bus gains,
+      // the line loses several times over. Without this the line pack kept
+      // charging the bus long after the bang-bang solenoid shut.
+      s.gn2FillP -= d * tune.lineToBus;
       if (bottles) s.supplyP = Math.max(AMBIENT_PSI, s.supplyP - d * tune.supplyDrain);
     }
     s.gn2FillP = Math.max(AMBIENT_PSI, s.gn2FillP);

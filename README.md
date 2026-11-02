@@ -1223,7 +1223,7 @@ P&ID tags that read the way the drawing does.
 | On the vehicle | In the GSE |
 |---|---|
 | LOX PRESS, FUEL PRESS | GROUND LOX FILL, GROUND LOX VENT |
-| LOX VENT, FUEL VENT, GN2 VENT (normally open) | GROUND GN2 PRESS, GROUND GN2 VENT |
+| LOX VENT, FUEL VENT, GN2 VENT (normally open) | GN2 BANG-BANG PRESS, GROUND GN2 PRESS, GROUND GN2 VENT |
 | MAIN OXYGEN VALVE (MOV), MAIN FUEL VALVE (MFV) | GN2 QD CONTROL, LOX QD CONTROL |
 | FUEL FILL SOLENOID | GROUND PNEUMATICS VENT |
 | PTs: GN2 BUS, FUEL TANK, LOX TANK, ACTUATOR, LOX ENGINE, FUEL ENGINE | PTs: GSE MUSCLE, LOX FILL, GN2 FILL, GN2 REG, GN2 BOTTLE, FUEL FILL |
@@ -1251,9 +1251,12 @@ comment block says which.
 current sense, tares and hand controls are Draco's, unchanged. The vehicle
 starts **empty and vented**, so a full run is the real procedure:
 
-1. **GN2.** Close GN2 VENT and GROUND GN2 VENT, open GROUND GN2 PRESS: the bus
-   charges through the GN2 QD and its check valve toward the ground
-   regulator's set pressure. Close PRESS and re-open the ground vent after.
+1. **GN2.** Seal GN2 VENT and GROUND GN2 VENT, then use the COPV Press Tool
+   (C): each Proceed raises the setpoint of the PANDA's GN2 bang-bang side
+   (`bb-gn2`, board side G), which pulses GN2 BANG-BANG PRESS (DC15) against
+   GN2 BUS PT and holds the bus there. There is no ground regulator any more —
+   GN2 BANG-BANG PRESS replaced it — so opening that solenoid by hand with
+   GROUND GN2 PRESS open charges the bus toward full bottle pressure.
 2. **LOX.** With LOX VENT open (it is normally open), close GROUND LOX VENT and
    open GROUND LOX FILL. A sealed tank stalls at dewar head.
 3. **Fuel.** On the P&ID, open GROUND FUEL PRESS (shop air on the storage
@@ -1850,6 +1853,7 @@ correctly months later, after the stand has been rebuilt twice.
 | `+` / `-` | Zoom the P&ID |
 | `L` | Lock / unlock the P&ID view |
 | `Ctrl+S` | Save the configuration (Config page) |
+| `Shift` + a sequence's key | Run that autosequence (see below) |
 
 **Escape aborts, from any page and from inside any text field.** A panic key that
 only works when focus happens to be in the right place is not a panic key. It
@@ -1859,7 +1863,17 @@ The single exception is an **open dialog**, which keeps Escape as its own cancel
 Otherwise dismissing the ARM confirmation would trip the stand — the one moment
 Escape unambiguously means "not that".
 
-There is still **no keyboard shortcut for valve actuation**. Abort drives
+**Autosequence keybinds.** A sequence can be given a key in the Config page
+(Autosequences → Sequence tab → Keybind: click *Set key* and press it; stored
+as `keybind`, e.g. `"KeyP"`). Hold `Shift` and press it to run the sequence
+exactly as if its sidebar button were clicked with Shift held: the same
+ARM and abort interlocks, the same confirmation dialog. `Shift` is required
+even if `ui.requireShiftToActuate` is off, and a bare press only reminds you
+of that. Letters, digits and numpad digits only, minus the keys above
+(`T`, `C`, `G`, `L`, `K`, `0`); hidden sequences ignore theirs; spectator
+windows and the Config page do not respond.
+
+Beyond that there is still **no keyboard shortcut for valve actuation**. Abort drives
 everything to a known safe state; a mis-keyed valve command does the opposite.
 
 ---

@@ -53,8 +53,8 @@
       }
     ],
     "tankLevel": {
-      "enabled": false,
-      "heightIn": 70,
+      "enabled": true,
+      "heightIn": 48,
       "smoothingSeconds": 5
     },
     "requireShiftToActuate": false
@@ -383,8 +383,8 @@
       "decimals": 0,
       "min": 0,
       "max": 10000,
-      "warnHigh": 8000,
-      "dangerHigh": 9200,
+      "warnHigh": 6000,
+      "dangerHigh": 6020,
       "calibration": {
         "slope": 1,
         "offset": 0
@@ -409,8 +409,8 @@
       "decimals": 1,
       "min": 0,
       "max": 1500,
-      "warnHigh": 1200,
-      "dangerHigh": 1380,
+      "warnHigh": 950,
+      "dangerHigh": 1000,
       "calibration": {
         "slope": 1,
         "offset": 0
@@ -435,8 +435,8 @@
       "decimals": 1,
       "min": 0,
       "max": 1500,
-      "warnHigh": 1200,
-      "dangerHigh": 1380,
+      "warnHigh": 950,
+      "dangerHigh": 1000,
       "calibration": {
         "slope": 1,
         "offset": 0
@@ -461,8 +461,8 @@
       "decimals": 1,
       "min": 0,
       "max": 1500,
-      "warnHigh": 1200,
-      "dangerHigh": 1380,
+      "warnHigh": 950,
+      "dangerHigh": 1000,
       "calibration": {
         "slope": 1,
         "offset": 0
@@ -487,8 +487,8 @@
       "decimals": 1,
       "min": 0,
       "max": 1500,
-      "warnHigh": 1200,
-      "dangerHigh": 1380,
+      "warnHigh": 950,
+      "dangerHigh": 1000,
       "calibration": {
         "slope": 1,
         "offset": 0
@@ -539,8 +539,8 @@
       "decimals": 0,
       "min": 0,
       "max": 10000,
-      "warnHigh": 8000,
-      "dangerHigh": 9200,
+      "warnHigh": 6000,
+      "dangerHigh": 6020,
       "calibration": {
         "slope": 1,
         "offset": 0
@@ -565,8 +565,8 @@
       "decimals": 1,
       "min": 0,
       "max": 1500,
-      "warnHigh": 1200,
-      "dangerHigh": 1380,
+      "warnHigh": 950,
+      "dangerHigh": 1000,
       "calibration": {
         "slope": 1,
         "offset": 0
@@ -591,8 +591,8 @@
       "decimals": 1,
       "min": 0,
       "max": 1500,
-      "warnHigh": 1200,
-      "dangerHigh": 1380,
+      "warnHigh": 950,
+      "dangerHigh": 1000,
       "calibration": {
         "slope": 1,
         "offset": 0
@@ -617,8 +617,8 @@
       "decimals": 1,
       "min": 0,
       "max": 1500,
-      "warnHigh": 1200,
-      "dangerHigh": 1380,
+      "warnHigh": 950,
+      "dangerHigh": 1000,
       "calibration": {
         "slope": 1,
         "offset": 0
@@ -643,8 +643,8 @@
       "decimals": 1,
       "min": 0,
       "max": 1500,
-      "warnHigh": 1200,
-      "dangerHigh": 1380,
+      "warnHigh": 950,
+      "dangerHigh": 1000,
       "calibration": {
         "slope": 1,
         "offset": 0
@@ -695,8 +695,8 @@
       "decimals": 1,
       "min": 0,
       "max": 500,
-      "warnHigh": 400,
-      "dangerHigh": 460,
+      "warnHigh": 115,
+      "dangerHigh": 120,
       "calibration": {
         "slope": 1,
         "offset": 0
@@ -721,8 +721,8 @@
       "decimals": 1,
       "min": 0,
       "max": 500,
-      "warnHigh": 400,
-      "dangerHigh": 460,
+      "warnHigh": 205,
+      "dangerHigh": 220,
       "calibration": {
         "slope": 1,
         "offset": 0
@@ -932,8 +932,8 @@
     },
     {
       "id": "TC5",
-      "name": "Spare 5",
-      "abbrev": "TC5",
+      "name": "Chamber",
+      "abbrev": "CHAMBER",
       "kind": "temperature",
       "group": "temp",
       "units": "°F",
@@ -948,8 +948,8 @@
     },
     {
       "id": "TC6",
-      "name": "Fuel BB Solenoid",
-      "abbrev": "FUEL BB",
+      "name": "Spare 6",
+      "abbrev": "TC6",
       "kind": "temperature",
       "group": "temp",
       "units": "°F",
@@ -964,8 +964,8 @@
     },
     {
       "id": "TC7",
-      "name": "LOX BB Solenoid",
-      "abbrev": "LOX BB",
+      "name": "Spare 7",
+      "abbrev": "TC7",
       "kind": "temperature",
       "group": "temp",
       "units": "°F",
@@ -980,8 +980,8 @@
     },
     {
       "id": "TC8",
-      "name": "Chamber",
-      "abbrev": "CHAMBER",
+      "name": "Spare 8",
+      "abbrev": "TC8",
       "kind": "temperature",
       "group": "temp",
       "units": "°F",
@@ -1011,8 +1011,8 @@
         "decimals": 1,
         "min": 0,
         "max": 1500,
-        "warnHigh": 1200,
-        "dangerHigh": 1380
+        "warnHigh": 950,
+        "dangerHigh": 1000
       },
       "sensor": "PT14",
       "valve": "SV-FBB",
@@ -1049,8 +1049,8 @@
         "decimals": 1,
         "min": 0,
         "max": 1500,
-        "warnHigh": 1200,
-        "dangerHigh": 1380
+        "warnHigh": 950,
+        "dangerHigh": 1000
       },
       "sensor": "PT4",
       "valve": "SV-LOXBB",
@@ -1126,20 +1126,20 @@
         {
           "t": 0,
           "action": "valve",
-          "target": "MV-LOX",
+          "target": "SV-FPURGE",
           "state": "open"
         },
         {
-          "t": 0,
+          "t": 0.1,
           "action": "valve",
-          "target": "SV-FPURGE",
+          "target": "MV-LOX",
           "state": "open"
         },
         {
           "t": 0.4,
           "action": "valve",
-          "target": "SV-FPURGE",
-          "state": "closed"
+          "target": "MV-F",
+          "state": "open"
         },
         {
           "t": 0.5,
@@ -1147,84 +1147,84 @@
           "message": "T-0 FUEL RUNLINE OPEN"
         },
         {
-          "t": 0.5,
+          "t": 1,
           "action": "valve",
-          "target": "MV-F",
+          "target": "SV-FPURGE",
+          "state": "closed"
+        },
+        {
+          "t": 1.4,
+          "action": "bangbang",
+          "target": "bb-fuel",
+          "setpoint": 850,
+          "deadband": 10,
+          "maxOpenMs": 500,
+          "minIntervalMs": 100
+        },
+        {
+          "t": 1.4,
+          "action": "bangbang",
+          "target": "bb-ox",
+          "setpoint": 884,
+          "deadband": 10,
+          "maxOpenMs": 500,
+          "minIntervalMs": 100
+        },
+        {
+          "t": 7.8,
+          "action": "valve",
+          "target": "SV-FPURGE",
           "state": "open"
         },
         {
-          "t": 1.5,
-          "action": "bangbang",
-          "target": "bb-fuel",
-          "setpoint": 870,
-          "deadband": 10,
-          "maxOpenMs": 500,
-          "minIntervalMs": 100
+          "t": 7.8,
+          "action": "valve",
+          "target": "SV-LOXPURGE",
+          "state": "open"
         },
         {
-          "t": 1.5,
-          "action": "bangbang",
-          "target": "bb-ox",
-          "setpoint": 904,
-          "deadband": 10,
-          "maxOpenMs": 500,
-          "minIntervalMs": 100
-        },
-        {
-          "t": 8,
-          "action": "log",
-          "message": "CUTOFF"
-        },
-        {
-          "t": 8,
+          "t": 7.9,
           "action": "valve",
           "target": "MV-LOX",
           "state": "closed"
         },
         {
-          "t": 8.5,
-          "action": "valve",
-          "target": "MV-F",
-          "state": "closed"
-        },
-        {
-          "t": 8.5,
+          "t": 7.9,
           "action": "bangbang",
           "target": "*",
           "enabled": false
         },
         {
-          "t": 8.7,
-          "action": "valve",
-          "target": "SV-FPURGE",
-          "state": "open"
+          "t": 7.9,
+          "action": "log",
+          "message": "CUTOFF"
         },
         {
-          "t": 8.7,
+          "t": 8.2,
           "action": "valve",
-          "target": "SV-LOXPURGE",
-          "state": "open"
+          "target": "MV-F",
+          "state": "closed"
         },
         {
-          "t": 11.7,
+          "t": 11.4,
           "action": "valve",
           "target": "SV-FPURGE",
           "state": "closed"
         },
         {
-          "t": 11.7,
+          "t": 11.4,
           "action": "valve",
           "target": "SV-LOXPURGE",
           "state": "closed"
         },
         {
-          "t": 11.7,
+          "t": 11.4,
           "action": "log",
           "message": "HOT FIRE COMPLETE"
         }
       ],
       "hidden": false,
-      "duration": 11.7,
+      "duration": 11.4,
       "timeMode": "absolute",
       "usePandaAutosequencer": false
     },
@@ -1606,7 +1606,7 @@
       "description": "",
       "style": "normal",
       "requiresArm": true,
-      "confirm": true,
+      "confirm": false,
       "abortConditions": [],
       "steps": [
         {
@@ -1640,7 +1640,8 @@
         }
       ],
       "hidden": false,
-      "duration": 2
+      "duration": 2,
+      "keybind": "KeyP"
     },
     {
       "id": "seq-custom-12",
@@ -1683,7 +1684,7 @@
       "usePandaAutosequencer": true
     },
     {
-      "id": "seq-hotfire-copy",
+      "id": "seq-hotfire-copy2",
       "name": "HOT FIRE (5s)",
       "abbrev": "HOT FIRE",
       "description": "Full burn. Pre-purge, ox lead, 5 s burn, cutoff and post-purge. This stand has no igniter channel — ignition is external.",
@@ -1705,7 +1706,19 @@
         {
           "t": 0,
           "action": "valve",
+          "target": "SV-FPURGE",
+          "state": "open"
+        },
+        {
+          "t": 0.1,
+          "action": "valve",
           "target": "MV-LOX",
+          "state": "open"
+        },
+        {
+          "t": 0.4,
+          "action": "valve",
+          "target": "MV-F",
           "state": "open"
         },
         {
@@ -1714,13 +1727,13 @@
           "message": "T-0 FUEL RUNLINE OPEN"
         },
         {
-          "t": 0.5,
+          "t": 1,
           "action": "valve",
-          "target": "MV-F",
-          "state": "open"
+          "target": "SV-FPURGE",
+          "state": "closed"
         },
         {
-          "t": 1.5,
+          "t": 1.4,
           "action": "bangbang",
           "target": "bb-fuel",
           "setpoint": 870,
@@ -1729,7 +1742,7 @@
           "minIntervalMs": 100
         },
         {
-          "t": 1.5,
+          "t": 1.4,
           "action": "bangbang",
           "target": "bb-ox",
           "setpoint": 904,
@@ -1738,62 +1751,62 @@
           "minIntervalMs": 100
         },
         {
-          "t": 5.5,
-          "action": "log",
-          "message": "CUTOFF"
+          "t": 5.3,
+          "action": "valve",
+          "target": "SV-FPURGE",
+          "state": "open"
         },
         {
-          "t": 5.5,
+          "t": 5.3,
+          "action": "valve",
+          "target": "SV-LOXPURGE",
+          "state": "open"
+        },
+        {
+          "t": 5.4,
           "action": "valve",
           "target": "MV-LOX",
           "state": "closed"
         },
         {
-          "t": 6,
-          "action": "valve",
-          "target": "MV-F",
-          "state": "closed"
-        },
-        {
-          "t": 6,
+          "t": 5.4,
           "action": "bangbang",
           "target": "*",
           "enabled": false
         },
         {
-          "t": 6.2,
-          "action": "valve",
-          "target": "SV-FPURGE",
-          "state": "open"
+          "t": 5.4,
+          "action": "log",
+          "message": "CUTOFF"
         },
         {
-          "t": 6.2,
+          "t": 5.7,
           "action": "valve",
-          "target": "SV-LOXPURGE",
-          "state": "open"
+          "target": "MV-F",
+          "state": "closed"
         },
         {
-          "t": 9.2,
+          "t": 8.9,
           "action": "valve",
           "target": "SV-FPURGE",
           "state": "closed"
         },
         {
-          "t": 9.2,
+          "t": 8.9,
           "action": "valve",
           "target": "SV-LOXPURGE",
           "state": "closed"
         },
         {
-          "t": 9.2,
+          "t": 8.9,
           "action": "log",
           "message": "HOT FIRE COMPLETE"
         }
       ],
       "hidden": false,
-      "timeMode": "relative",
+      "timeMode": "absolute",
       "usePandaAutosequencer": false,
-      "duration": 9.2
+      "duration": 8.9
     }
   ],
   "recording": {
@@ -3023,5 +3036,10 @@
       }
     ],
     "pressurizedPsi": 50
+  },
+  "alerts": {
+    "enabled": true,
+    "sound": true,
+    "valves": []
   }
 }

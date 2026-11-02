@@ -72,9 +72,13 @@ export function isHazard(valve) {
  * The lanes, top to bottom: milestones, then every valve the sequence touches
  * in the order it first touches them (so the lanes read as the story of the
  * run), then the bang-bang controllers. `extra` holds lanes the operator has
- * added but not yet put a step on.
+ * added but not yet put a step on. `order` is the lane order to keep (lane
+ * keys, milestones excluded); it defaults to the one saved with the sequence.
+ * Without one the lanes follow first touch, which moves a lane whenever a
+ * step is dragged past another actuator's -- so the editor passes the order
+ * it showed last time and only new lanes are placed.
  */
-export function buildLanes(seq, config, extra = []) {
+export function buildLanes(seq, config, extra = [], order = seq.lanes) {
   const lanes = [{ key: 'events', kind: 'events' }];
   const seen = new Set();
   const valves = config.valves || [];
@@ -109,7 +113,7 @@ export function buildLanes(seq, config, extra = []) {
   }
   valveKeys.forEach(addValve);
   ctrlKeys.forEach(addCtrl);
-  return applyLaneOrder(lanes, seq.lanes);
+  return applyLaneOrder(lanes, order);
 }
 
 /**
@@ -313,6 +317,51 @@ export function lint(seq, config) {
     }
   }
   return out;
+}
+
+// -------------------------------------------------------------- keybinds --
+
+/**
+ * Keys a sequence can be bound to: letters, digits and the numpad's digits,
+ * stored as a KeyboardEvent.code ("KeyP", "Digit7", "Numpad3"). `code`, not
+ * `key`, because the operator holds SHIFT to run a sequence and SHIFT+7 types
+ * "&" on a US layout -- the physical key is the same either way.
+ */
+const KEY_RE = /^(Key[A-Z]|Digit[0-9]|Numpad[0-9])$/;
+
+/** Keys the station already uses, and for what. Esc is ABORT everywhere. */
+export const KEY_RESERVED = {
+  Escape: 'ABORT',
+  KeyT: 'the timer',
+  KeyC: 'the COPV Press Tool',
+  KeyG: 'the GOX purge controller',
+  KeyL: 'the P&ID view lock',
+  KeyK: 'the P&ID legend',
+  Digit0: 'the P&ID zoom reset',
+  Numpad0: 'the P&ID zoom reset',
+};
+
+/** "KeyP" -> "P", "Digit7" -> "7", "Numpad3" -> "Num 3". */
+export function keyLabel(code) {
+  if (typeof code !== 'string') return '';
+  if (code.startsWith('Key')) return code.slice(3);
+  if (code.startsWith('Digit')) return code.slice(5);
+  if (code.startsWith('Numpad')) return `Num ${code.slice(6)}`;
+  return code;
+}
+
+/**
+ * Why `code` cannot be a sequence's keybind, or null if it can. `others` are
+ * the other sequences it must not collide with.
+ */
+export function keyProblem(code, others = []) {
+  if (typeof code !== 'string' || !KEY_RE.test(code)) {
+    return `"${code}" is not a bindable key (use a letter, a digit or a numpad digit, as a KeyboardEvent.code such as "KeyP")`;
+  }
+  if (KEY_RESERVED[code]) return `${keyLabel(code)} is reserved for ${KEY_RESERVED[code]}`;
+  const clash = others.find((s) => s.keybind === code);
+  if (clash) return `${keyLabel(code)} already runs "${clash.name || clash.id}"`;
+  return null;
 }
 
 // ------------------------------------------------------------- time axis --

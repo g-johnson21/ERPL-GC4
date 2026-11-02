@@ -65,6 +65,7 @@ import {
   encodePtOffset,
   parsePtTare,
   commandSide,
+  BB_SIDES,
 } from './bb-protocol.js';
 
 const DEFAULT_BAUD = 460800;
@@ -151,7 +152,7 @@ export class PandaDriver {
     // Bang-bang mirror, per side. Everything here is what the BOARD said, not
     // what we asked for; `confirmed` is the CFG_PUSH echo, which §5.5 calls
     // the authority on what the board actually stored.
-    this.bb = { l: freshBbSide(), f: freshBbSide() };
+    this.bb = { l: freshBbSide(), f: freshBbSide(), g: freshBbSide() };
     // Whether this board echoes config at all. Until we have seen one
     // CFG_PUSH we cannot tell "the echo has not arrived yet" from "this
     // firmware never echoes", and the enable handshake needs to know.
@@ -172,7 +173,7 @@ export class PandaDriver {
     // rather than 0 to say "unknown" instead of "none". GC never re-asserts
     // them at startup: the board's stored value is the authority, and pushing
     // a stale offset over it would silently undo a zero someone set at the pad.
-    this.ptOffsets = { L: null, F: null };
+    this.ptOffsets = { L: null, F: null, G: null };
     this.ptTareConfirmedAt = 0;
     this.ptTareError = null;
     this.sequence = { command: null, phase: 'idle', nextItem: 0, error: null };
@@ -291,8 +292,9 @@ export class PandaDriver {
         break;
       case 'P':
         // V2 bang-bang PTs: the board's own scaled, tared, median-filtered
-        // PSI — exactly what its regulator acts on. Map bbpt0 (LOX) and
-        // bbpt1 (fuel) in channelMap to show the controller's view.
+        // PSI — exactly what its regulator acts on. Map bbpt0 (LOX),
+        // bbpt1 (fuel) and bbpt2 (GN2) in channelMap to show the
+        // controller's view.
         values.forEach((v, i) => this.raw.set(`bbpt${i}`, v));
         break;
       case 'l':
@@ -544,7 +546,7 @@ export class PandaDriver {
 
   /**
    * Positive acks. `Disarming!` additionally mirrors the firmware's
-   * forceSafe() across both sides, so our view of the board does not keep
+   * forceSafe() across every side, so our view of the board does not keep
    * showing a running controller the board has already dropped.
    */
   onAck(msg) {
@@ -847,16 +849,16 @@ export class PandaDriver {
   safeAll() {
     this.sequence.phase = 'aborted';
     // Stop the regulator before dropping the outputs. 'r' triggers the
-    // firmware's own forceSafe() across both sides, but a side left in SUS
+    // firmware's own forceSafe() across every side, but a side left in SUS
     // would resume the moment the board is re-armed, so say it explicitly
     // rather than relying on a side effect we cannot see the source of.
-    for (const side of ['L', 'F']) this.send(encodeEnable(side, false));
+    for (const side of BB_SIDES) this.send(encodeEnable(side, false));
 
     // Predictive shutoff back to its firmware default too. It is only ever
     // accepted in the ON direction while armed, and 'r' below drops the arm
     // latch — so this is the last moment the board can be put back into a
     // state GC knows for certain, rather than one it has to assume.
-    for (const side of ['L', 'F']) this.send(encodePredictive(side, false));
+    for (const side of BB_SIDES) this.send(encodePredictive(side, false));
 
     // 'r' is the board's own disarm/abort: it drops every output itself,
     // which still works if a per-channel command is what went wrong.
@@ -934,11 +936,11 @@ export class PandaDriver {
     return res;
   }
 
-  /** `Tz` — clear BOTH channels. There is no per-side form; use ptOffset(s, 0). */
+  /** `Tz` — clear EVERY channel. There is no per-side form; use ptOffset(s, 0). */
   ptTareClearAll() {
     const res = this.bbSend(() => encodePtTareClear());
     if (res.ok) {
-      this.ptOffsets = { L: 0, F: 0 };
+      this.ptOffsets = { L: 0, F: 0, G: 0 };
       this.ptTareError = null;
     }
     return res;

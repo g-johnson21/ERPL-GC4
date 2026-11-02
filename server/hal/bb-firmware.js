@@ -35,7 +35,7 @@ import {
   parseCommand,
 } from './bb-protocol.js';
 
-const SIDES = ['l', 'f'];
+const SIDES = ['l', 'f', 'g'];
 
 /** How often the board narrates its state, even when nothing has changed. */
 const HEARTBEAT_MS = 200;
@@ -179,7 +179,7 @@ export class BangBangFirmware {
         st.ptOffset = 0;
         if (Number.isFinite(st.rawPressure)) st.pressure = st.rawPressure;
       }
-      this.emitPtTare(now, '', '0.0,0.0');
+      this.emitPtTare(now, '', SIDES.map(() => '0.0').join(','));
       return true;
     }
 
@@ -205,7 +205,7 @@ export class BangBangFirmware {
   }
 
   /**
-   * Run the loop. `pressures` is `{l, f}` in psi — the board's OWN PT
+   * Run the loop. `pressures` is `{l, f, g}` in psi — the board's OWN PT
    * channels, which is the whole point: the ground station's DAQ reading of
    * the same tank is a different sensor and may not agree.
    */
@@ -301,8 +301,8 @@ export class BangBangFirmware {
   }
 
   /**
-   * The board's `forceSafe()`, reached by the global disarm `r`. Drops both
-   * sides to OFF with everything closed (§5.4).
+   * The board's `forceSafe()`, reached by the global disarm `r`. Drops every
+   * side to OFF with everything closed (§5.4).
    */
   forceSafe(now = Date.now()) {
     this.clock = now;

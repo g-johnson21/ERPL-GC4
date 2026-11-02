@@ -967,6 +967,7 @@
   font-size: var(--fs-xs);
   color: var(--text-faint);
 }
+.seq-btn .seq-key { margin: 0; flex: none; }
 .seq-btn[data-style="safe"] .seq-dot { background: var(--ok); }
 .seq-btn[data-style="caution"] .seq-dot { background: var(--warn); }
 .seq-btn[data-style="danger"] .seq-dot { background: var(--danger); }
@@ -2038,6 +2039,10 @@ kbd {
 .sq-styles button:hover { color: var(--text-muted); }
 .sq-styles button.active { background: var(--surface-3); color: var(--text); border-color: var(--border-strong); }
 .sq-toggles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
+.sq-keybind { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.sq-keybind kbd { margin: 0; line-height: 20px; font-size: var(--fs-sm); }
+.sq-keybind .sq-keybind-hint { font-size: var(--fs-sm); color: var(--text-faint); }
+.sq-keybind .sq-keybind-err { font-size: var(--fs-sm); color: var(--warn); }
 .sq-panda p { margin: 6px 0 0; font-size: var(--fs-sm); color: var(--text-faint); }
 .sq-cond { display: flex; flex-direction: column; gap: 5px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
 .sq-cond-row { display: flex; align-items: center; gap: 6px; }
@@ -2597,6 +2602,7 @@ body.shift-armed .pid-valve[data-needs-shift="true"] { outline: none; }
 .press-status[data-kind="wait"] { color: var(--text); }
 .press-status[data-kind="blocked"] { color: var(--warn); }
 .press-status[data-kind="ready"] { color: var(--ok); }
+.press-status[data-kind="holding"] { color: var(--info); font-weight: 600; }
 .press-status[data-kind="override"] { color: var(--warn); font-weight: 600; }
 .btn.override { background: var(--warn-bg, var(--surface-3)); border-color: var(--warn); color: var(--warn); }
 .press-actions { display: flex; gap: 6px; margin-top: 8px; }

@@ -24,7 +24,7 @@
 /** Hardware inputs the PANDA can report, beyond what its file declares. */
 const PANDA_INPUTS = [
   { card: 'pt', label: 'PANDA PT', count: 16 },
-  { card: 'bbpt', label: 'Board PT', count: 2, names: ['Board PT L (LOX)', 'Board PT F (Fuel)'] },
+  { card: 'bbpt', label: 'Board PT', count: 3, names: ['Board PT L (LOX)', 'Board PT F (Fuel)', 'Board PT G (GN2)'] },
 ];
 
 const CARD_LABELS = { pt: 'PT', lc: 'LC', tc: 'TC' };

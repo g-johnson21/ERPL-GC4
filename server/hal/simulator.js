@@ -86,7 +86,7 @@ const LOX_F = -297;
  * Small enough to be plausible, large enough that a UI meant to surface the
  * disagreement visibly does.
  */
-const BOARD_PT_BIAS = { l: 1.8, f: -2.4 };
+const BOARD_PT_BIAS = { l: 1.8, f: -2.4, g: 4.5 };
 
 /** Holding current of an energized solenoid coil, in amps. */
 const COIL_HOLD_AMPS = 0.62;
@@ -263,7 +263,7 @@ export class SimulatorDriver {
     // Set by the bang-bang bank, to attribute a board rejection to whatever
     // command was in flight. Mirrors the PANDA driver's hook.
     this.onBbError = options.onBbError || null;
-    this.ptOffsets = { L: null, F: null };
+    this.ptOffsets = { L: null, F: null, G: null };
     this.ptTareConfirmedAt = 0;
     this.ptTareError = null;
     // Matches the PANDA driver's default, so the energized threshold behaves
@@ -277,9 +277,9 @@ export class SimulatorDriver {
     // The emulated board. Its lines come back through parseLine(), the same
     // decoder the real driver uses, so the mirror below is built by the code
     // path that has to work on hardware.
-    this.bb = { l: freshBbSide(), f: freshBbSide() };
+    this.bb = { l: freshBbSide(), f: freshBbSide(), g: freshBbSide() };
     this.bbEchoes = false;
-    this.bbSides = {};             // 'l' | 'f' -> {valve, ventValve}
+    this.bbSides = {};             // 'l' | 'f' | 'g' -> {valve, ventValve}
     this.firmware = new BangBangFirmware({ onLine: (line) => this.onBoardLine(line) });
 
     this.reset();
@@ -348,9 +348,14 @@ export class SimulatorDriver {
     this.bbSides = {};
     for (const c of config.bangbang || []) {
       const side = String(c.side || '').toLowerCase();
-      if (side !== 'l' && side !== 'f') continue;
+      if (side !== 'l' && side !== 'f' && side !== 'g') continue;
       this.bbSides[side] = { valve: c.valve, ventValve: c.ventValve };
-      if (side === 'l') {
+      if (side === 'g') {
+        // The GN2 side: a press solenoid on the ground supply, regulating the
+        // vehicle's GN2 bus. Only a model with a GN2 bus has a role for it.
+        if (c.valve) this.roles.valves.gn2BbPress = c.valve;
+        if (c.ventValve) this.roles.valves.gn2Vent = c.ventValve;
+      } else if (side === 'l') {
         if (c.valve) this.roles.valves.oxPress = c.valve;
         if (c.ventValve) this.roles.valves.oxVent = c.ventValve;
       } else {
@@ -441,7 +446,7 @@ export class SimulatorDriver {
   setArmed(armed) {
     // Mirrors the board's 'a'/'r'. The latch itself gates one command
     // (predictive shutoff); the 'r' path additionally runs the firmware's
-    // forceSafe() across both sides, so a regulator does not survive a disarm.
+    // forceSafe() across every side, so a regulator does not survive a disarm.
     this.firmware.setArmed(armed);
     if (!armed) this.firmware.forceSafe();
   }
@@ -519,7 +524,7 @@ export class SimulatorDriver {
 
   ptTareClearAll() {
     const res = this.boardCommand(() => encodePtTareClear());
-    if (res.ok) { this.ptOffsets = { L: 0, F: 0 }; this.ptTareError = null; }
+    if (res.ok) { this.ptOffsets = { L: 0, F: 0, G: 0 }; this.ptTareError = null; }
     return res;
   }
 
@@ -603,6 +608,8 @@ export class SimulatorDriver {
     this.firmware.update({
       l: this.s.oxP + BOARD_PT_BIAS.l + gauss() * noise.board,
       f: this.s.fuelP + BOARD_PT_BIAS.f + gauss() * noise.board,
+      // The GN2 side's PT is the vehicle bus, on models that have one.
+      g: Number.isFinite(this.s.busP) ? this.s.busP + BOARD_PT_BIAS.g + gauss() * noise.board : undefined,
     }, nowMs);
 
     // The board owns a side's coils only while that side is regulating --
@@ -622,7 +629,9 @@ export class SimulatorDriver {
       this.bbOwned[side] = owns;
       if (!demand || !owns) continue;
       if (wiring.valve) this.applyCoil(wiring.valve, demand.press);
-      if (wiring.ventValve) this.applyCoil(wiring.ventValve, demand.vent);
+      // The vent bit is the VALVE position, not the coil: the firmware inverts
+      // its own writes to normally-open vents, so "vent" always means flowing.
+      if (wiring.ventValve) this.applyFlow(wiring.ventValve, demand.vent);
     }
   }
 
@@ -630,6 +639,14 @@ export class SimulatorDriver {
   boardOwns(side) {
     const state = this.firmware.sides?.[side]?.state;
     return state === 'SUS' || state === 'AV';
+  }
+
+  /** Put a valve in a FLOW state directly, whatever its coil sense. */
+  applyFlow(valveId, open) {
+    const valve = this.config?.valves.find((v) => v.id === valveId);
+    if (!valve) return;
+    this.commanded.set(valveId, open ? 'open' : 'closed');
+    this.settleActuator(valve);
   }
 
   /** The board commands a COIL; the model tracks FLOW state. */

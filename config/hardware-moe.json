@@ -6,10 +6,10 @@
     "",
     "DC channels follow the MOE/GSE connection diagram (solenoid box",
     "connectors 1-8, pins 1,4 / 2,3 -> PANDA V2.2 DC1-DC16):",
-    "  1 Fuel Press     2 LOX Press      3 Main Fuel     4 Main Oxygen",
-    "  5 Fuel Vent      6 LOX Vent       7 Fuel Fill     8 GN2 Vent",
-    "  9 Gnd LOX Fill  10 Gnd LOX Vent  11 Gnd GN2 Press 12 Gnd GN2 Vent",
-    " 13 LOX QD Ctrl   14 GN2 QD Ctrl   15 spare         16 Gnd Pneu Vent",
+    "  1 Fuel Press     2 LOX Press      3 Fuel Vent     4 LOX Vent",
+    "  5 Main Fuel      6 Main Oxygen    7 Fuel Fill     8 GN2 Vent",
+    "  9 Gnd LOX Fill  10 Gnd LOX Vent  11 Gnd GN2 Vent  12 Gnd GN2 Press",
+    " 13 LOX QD Ctrl   14 GN2 QD Ctrl   15 GN2 BB Press  16 Gnd Pneu Vent",
     "(1-4, 7, 8, 13, 14 and 16 corrected from the diagram by bench actuation.)",
     "Change the channel on the valve in moe.json AND the dcChannels entry",
     "below together if the harness changes.",
@@ -17,9 +17,11 @@
     "PTs follow the same diagram's PT connector numbering. PT1 (LOX tank)",
     "and PT2 (fuel tank) are the PANDA's own bang-bang inputs, mux A ch 0",
     "and 1, read from the 'P' line: the board-scaled PSI its bang-bang",
-    "loop acts on (bbpt0, bbpt1). PT3-PT12 are on the NI-9208 at ai2-ai11 (connector",
-    "PTn -> ai(n-1)); ai0, ai1 and ai12-ai15 are unused. maxPsi is a",
-    "placeholder sized to each line; set it from the installed transducers."
+    "loop acts on (bbpt0, bbpt1). GN2 BUS PT is the third, mux A ch 2",
+    "(bbpt2), which the GN2 bang-bang side regulates on; it is no longer",
+    "read on the NI-9208 (was ai4). The rest are on the NI-9208 (connector",
+    "PTn -> ai(n-1)). maxPsi is a placeholder sized to each line; set it",
+    "from the installed transducers."
   ],
   "_stand": "Which stand this wiring belongs to. Checked against meta.standName in the stand config at startup.",
   "stand": "MOE",
@@ -33,30 +35,136 @@
         "slot": 2,
         "channels": 16,
         "channelMeta": {
-          "2": { "maxPsi": 1500.0, "zeroMa": 4.0 },
-          "3": { "maxPsi": 1500.0, "zeroMa": 4.0 },
-          "4": { "maxPsi": 5000.0, "zeroMa": 4.0 },
-          "5": { "maxPsi": 500.0, "zeroMa": 4.0 },
-          "6": { "maxPsi": 10000.0, "zeroMa": 4.0 },
-          "7": { "maxPsi": 10000.0, "zeroMa": 4.0 },
-          "8": { "maxPsi": 10000.0, "zeroMa": 4.0 },
-          "9": { "maxPsi": 500.0, "zeroMa": 4.0 },
-          "10": { "maxPsi": 200.0, "zeroMa": 4.0 },
-          "11": { "maxPsi": 500.0, "zeroMa": 4.0 }
+          "0": {
+            "zeroMa": 4,
+            "maxPsi": 1000
+          },
+          "2": {
+            "maxPsi": 1500,
+            "zeroMa": 4
+          },
+          "3": {
+            "maxPsi": 1500,
+            "zeroMa": 4
+          },
+          "4": {
+            "maxPsi": 5000,
+            "zeroMa": 4
+          },
+          "5": {
+            "maxPsi": 500,
+            "zeroMa": 4
+          },
+          "6": {
+            "maxPsi": 10000,
+            "zeroMa": 4
+          },
+          "7": {
+            "maxPsi": 10000,
+            "zeroMa": 4
+          },
+          "8": {
+            "maxPsi": 10000,
+            "zeroMa": 4
+          },
+          "9": {
+            "maxPsi": 500,
+            "zeroMa": 4
+          },
+          "10": {
+            "maxPsi": 200,
+            "zeroMa": 4
+          },
+          "11": {
+            "maxPsi": 500,
+            "zeroMa": 4
+          },
+          "12": {
+            "zeroMa": 4,
+            "maxPsi": 1500
+          },
+          "13": {
+            "zeroMa": 4,
+            "maxPsi": 1500
+          },
+          "14": {
+            "zeroMa": 4,
+            "maxPsi": 1500
+          },
+          "15": {
+            "zeroMa": 4,
+            "maxPsi": 1500
+          }
+        }
+      },
+      "tc": {
+        "modules": [
+          {
+            "slot": 3,
+            "channels": 4
+          },
+          {
+            "slot": 4,
+            "channels": 4
+          }
+        ],
+        "channelMeta": {
+          "0": {
+            "type": "K",
+            "offset": 0
+          },
+          "1": {
+            "type": "K",
+            "offset": 0
+          },
+          "2": {
+            "type": "K",
+            "offset": 0
+          },
+          "3": {
+            "type": "K",
+            "offset": 0
+          },
+          "4": {
+            "type": "K",
+            "offset": 0
+          },
+          "5": {
+            "type": "K",
+            "offset": 0
+          },
+          "6": {
+            "type": "K",
+            "offset": 0
+          },
+          "7": {
+            "type": "K",
+            "offset": 0
+          }
         }
       }
     },
     "channelMap": {
       "pt2": "LOX-ENGINE-PT",
       "pt3": "FUEL-ENGINE-PT",
-      "pt4": "GN2-BUS-PT",
       "pt5": "ACTUATOR-PT",
       "pt6": "GN2-BOTTLE-PT",
       "pt7": "GN2-REG-PT",
       "pt8": "GN2-FILL-PT",
       "pt9": "LOX-FILL-PT",
       "pt10": "FUEL-FILL-PT",
-      "pt11": "GSE-MUSCLE-PT"
+      "pt11": "GSE-MUSCLE-PT",
+      "pt12": "LOX-VENTURI-INLET",
+      "pt13": "LOX-VENTURI-THROAT",
+      "pt14": "FUEL-VENTURI-INLET",
+      "pt15": "FUEL-VENTURI-THROAT",
+      "tc0": "PT1",
+      "tc1": "PT2",
+      "tc2": "PT3",
+      "tc3": "PT4",
+      "tc4": "PT6",
+      "tc5": "PT5",
+      "tc6": "PT7"
     }
   },
   "panda": {
@@ -66,37 +174,104 @@
     "ptInputMode": "ma",
     "defaultShuntOhms": 47,
     "shuntOhms": {},
-    "dcThresholdA": 0.1,
+    "_dcThresholdA": "Energized above this current, in amps. 0.2, not the usual 0.1: the board's current-sense amp was built with the wrong gain part and reads 10x high.",
+    "dcThresholdA": 0.2,
     "armHardware": true,
     "channelMap": {
       "bbpt0": "LOX-TANK-PT",
-      "bbpt1": "FUEL-TANK-PT"
+      "bbpt1": "FUEL-TANK-PT",
+      "bbpt2": "GN2-BUS-PT"
     },
     "_dcChannels": [
       "Wire position in the board's 's' line -> the channel it senses.",
       "PANDA V2.2 reports all 16 DC channels in order (s<f0>..s<f15>), so",
       "position N is DC(N+1). Channel assignment follows the MOE/GSE",
-      "connection diagram: DC1-DC8 vehicle, DC9-DC14 and DC16 GSE, DC15 spare.",
+      "connection diagram: DC1-DC8 vehicle, DC9-DC16 GSE (DC15 the GN2 bang-bang press).",
       "Verify each one by actuating from GC and watching which channel",
       "draws current."
     ],
     "dcOrder": null,
     "dcChannels": {
-      "0": { "id": "DC1", "name": "Fuel Press", "valve": "FUEL-PRESS" },
-      "1": { "id": "DC2", "name": "LOX Press", "valve": "LOX-PRESS" },
-      "2": { "id": "DC3", "name": "Main Fuel Valve", "valve": "MFV" },
-      "3": { "id": "DC4", "name": "Main Oxygen Valve", "valve": "MOV" },
-      "4": { "id": "DC5", "name": "Fuel Vent", "valve": "FUEL-VENT" },
-      "5": { "id": "DC6", "name": "LOX Vent", "valve": "LOX-VENT" },
-      "6": { "id": "DC7", "name": "Fuel Fill Solenoid", "valve": "FUEL-FILL" },
-      "7": { "id": "DC8", "name": "GN2 Vent", "valve": "GN2-VENT" },
-      "8": { "id": "DC9", "name": "Ground LOX Fill", "valve": "GND-LOX-FILL" },
-      "9": { "id": "DC10", "name": "Ground LOX Vent", "valve": "GND-LOX-VENT" },
-      "10": { "id": "DC11", "name": "Ground GN2 Press", "valve": "GND-GN2-PRESS" },
-      "11": { "id": "DC12", "name": "Ground GN2 Vent", "valve": "GND-GN2-VENT" },
-      "12": { "id": "DC13", "name": "LOX QD Control", "valve": "LOX-QD-CTRL" },
-      "13": { "id": "DC14", "name": "GN2 QD Control", "valve": "GN2-QD-CTRL" },
-      "15": { "id": "DC16", "name": "Ground Pneumatics Vent", "valve": "GND-PNEU-VENT" }
+      "0": {
+        "id": "DC1",
+        "name": "Fuel Press",
+        "valve": "FUEL-PRESS"
+      },
+      "1": {
+        "id": "DC2",
+        "name": "LOX Press",
+        "valve": "LOX-PRESS"
+      },
+      "2": {
+        "id": "DC3",
+        "name": "Fuel Vent",
+        "valve": "FUEL-VENT"
+      },
+      "3": {
+        "id": "DC4",
+        "name": "LOX Vent",
+        "valve": "LOX-VENT"
+      },
+      "4": {
+        "id": "DC5",
+        "name": "Main Fuel Valve",
+        "valve": "MFV"
+      },
+      "5": {
+        "id": "DC6",
+        "name": "Main Oxygen Valve",
+        "valve": "MOV"
+      },
+      "6": {
+        "id": "DC7",
+        "name": "Fuel Fill Solenoid",
+        "valve": "FUEL-FILL"
+      },
+      "7": {
+        "id": "DC8",
+        "name": "GN2 Vent",
+        "valve": "GN2-VENT"
+      },
+      "8": {
+        "id": "DC9",
+        "name": "Ground LOX Fill",
+        "valve": "GND-LOX-FILL"
+      },
+      "9": {
+        "id": "DC10",
+        "name": "Ground LOX Vent",
+        "valve": "GND-LOX-VENT"
+      },
+      "10": {
+        "id": "DC11",
+        "name": "Ground GN2 Vent",
+        "valve": "GND-GN2-VENT"
+      },
+      "11": {
+        "id": "DC12",
+        "name": "Ground GN2 Press",
+        "valve": "GND-GN2-PRESS"
+      },
+      "12": {
+        "id": "DC13",
+        "name": "LOX QD Control",
+        "valve": "LOX-QD-CTRL"
+      },
+      "13": {
+        "id": "DC14",
+        "name": "GN2 QD Control",
+        "valve": "GN2-QD-CTRL"
+      },
+      "14": {
+        "id": "DC15",
+        "name": "GN2 Bang-Bang Press",
+        "valve": "GN2-BB-PRESS"
+      },
+      "15": {
+        "id": "DC16",
+        "name": "Ground Pneumatics Vent",
+        "valve": "GND-PNEU-VENT"
+      }
     }
   },
   "valveDevice": {}

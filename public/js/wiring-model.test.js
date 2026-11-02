@@ -157,6 +157,9 @@ test('a thermocouple type is read from and written to its NI TC channel', () => 
 test('a stand with no 9211 offers no thermocouple input until one is added', () => {
   const hw = load('hardware-moe.json');
   const cfg = load('moe.json');
+  // MOE as it was before it had any (the real file may have one by now).
+  delete hw.nidaq.cards.tc;
+  for (const key of Object.keys(hw.nidaq.channelMap)) if (key.startsWith('tc')) delete hw.nidaq.channelMap[key];
   assert.deepEqual(inputsFor(inventory(hw), 'temperature'), []);
   assert.equal(canAddNiModule(hw, 'pt'), false);   // the sidecar runs one 9208
   const first = addNiModule(hw, 'tc');

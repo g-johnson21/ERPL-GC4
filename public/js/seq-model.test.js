@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildLanes, applyLaneOrder, moveLane, laneDrag, simulate, stateAt, lint, niceStep, snapTime, shiftSteps,
-  sortSteps, stopTime, isUnreachable, describe, fmtT, fmtDelta,
+  sortSteps, stopTime, isUnreachable, describe, fmtT, fmtDelta, keyProblem, keyLabel, KEY_RESERVED,
 } from './seq-model.js';
 
 const config = {
@@ -152,4 +152,29 @@ test('moveLane and laneDrag', () => {
   // Dragging lane 3 up past the top is clamped to the stack.
   assert.deepEqual(laneDrag(4, 3, -500, 30), { dy: -90, target: 0, shifts: [30, 30, 30, 0] });
   assert.deepEqual(laneDrag(4, 1, 10, 30).target, 1);
+});
+
+test('an order passed in keeps lanes put when a step is dragged ahead of another actuator', () => {
+  const seq = hotfire();
+  const shown = buildLanes(seq, config).map((l) => l.key);
+  // MV-F's first step moves before MV-LOX's: by first use the lanes would swap.
+  seq.steps.find((s) => s.target === 'MV-F' && s.state === 'open').t = -1;
+  assert.deepEqual(buildLanes(seq, config).map((l) => l.key).slice(1, 3), ['valve:MV-F', 'valve:MV-LOX']);
+  assert.deepEqual(buildLanes(seq, config, [], shown.slice(1)).map((l) => l.key), shown);
+});
+
+test('keybinds: letters, digits and numpad digits only; reserved and taken keys refused', () => {
+  assert.equal(keyProblem('KeyP'), null);
+  assert.equal(keyProblem('Digit7'), null);
+  assert.equal(keyProblem('Numpad3'), null);
+  assert.match(keyProblem('Escape'), /not a bindable key/);
+  assert.match(keyProblem('KeyT'), /reserved/);
+  for (const code of Object.keys(KEY_RESERVED)) assert.ok(keyProblem(code), code);
+  assert.match(keyProblem('Backslash'), /not a bindable key/);
+  assert.match(keyProblem('p'), /not a bindable key/);
+  assert.match(keyProblem('KeyP', [{ id: 'a', name: 'Purge', keybind: 'KeyP' }]), /already runs "Purge"/);
+  assert.equal(keyProblem('KeyP', [{ id: 'a', keybind: 'KeyQ' }]), null);
+  assert.equal(keyLabel('KeyP'), 'P');
+  assert.equal(keyLabel('Digit7'), '7');
+  assert.equal(keyLabel('Numpad3'), 'Num 3');
 });

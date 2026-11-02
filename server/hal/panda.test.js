@@ -455,7 +455,7 @@ test('safeAll disarms the board and drives every valve to its safe state', () =>
   // disarm. A side left in SUS would resume the moment the board is re-armed,
   // and `e<side>1` is refused once the arm latch is down — so this is the last
   // moment either can be put back to a state the host knows.
-  assert.deepEqual(d.sent.slice(0, 5), ['bL0', 'bF0', 'eL0', 'eF0', 'r']);
+  assert.deepEqual(d.sent.slice(0, 7), ['bL0', 'bF0', 'bG0', 'eL0', 'eF0', 'eG0', 'r']);
   assert.ok(d.sent.includes('S040'));       // NO vent de-energized => open
   assert.ok(d.sent.includes('S020'));       // NC press de-energized => closed
 });

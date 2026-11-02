@@ -393,6 +393,18 @@ async function handleApi(req, res, pathname, url) {
   }
 
   // --- read-only ---
+  // Where a spectator can be pointed: the read-only port on each LAN address.
+  // Control-port only; the spectator listener has no use for its own address.
+  if (route === 'GET /api/viewer') {
+    return sendJson(res, 200, {
+      enabled: spectatorReady,
+      port: SPECTATOR_PORT,
+      addresses: spectatorReady
+        ? localAddresses().filter((ip) => BIND === '0.0.0.0' || BIND === '::' || BIND === ip)
+        : [],
+    });
+  }
+
   if (route === 'GET /api/config') return sendJson(res, 200, stand.config);
   if (route === 'GET /api/hardware') {
     return sendJson(res, 200, {
@@ -488,16 +500,15 @@ async function handleApi(req, res, pathname, url) {
       return sendJson(res, result.ok ? 200 : 409, withState(result));
     }
 
-    // COPV Press Tool: one opening of GROUND GN2 PRESS, closed by the
-    // server on target or max time.
-    //   { target: psi, maxMs [, sensor: PT id] [, force: true] } | { stop: true }
+    // COPV Press Tool: one setpoint step on the GN2 bang-bang controller,
+    // ended by the server on target or timeout.
+    //   { target: psi, timeoutMs } | { stop: true } | { vent: true }
     case 'POST /api/press-step': {
-      const result = body.stop
-        ? stand.pressStep.stop(body.reason || 'stopped by operator', who)
-        : stand.pressStep.start({
-          target: body.target, maxMs: body.maxMs, force: body.force === true,
-          ...(body.sensor ? { sensor: String(body.sensor) } : {}),
-        }, who);
+      const result = body.vent
+        ? stand.pressStep.vent(who)
+        : body.stop
+          ? stand.pressStep.stop(body.reason || 'stopped by operator', who)
+          : stand.pressStep.start({ target: body.target, timeoutMs: body.timeoutMs }, who);
       return sendJson(res, result.ok ? 200 : 409, withState(result));
     }
 

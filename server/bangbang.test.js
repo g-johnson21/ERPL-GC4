@@ -37,7 +37,7 @@ class FakeBoard {
     this.sent = [];
     this.echoes = echoes;
     this.seenEcho = false;
-    this.sides = { l: fresh(), f: fresh() };
+    this.sides = { l: fresh(), f: fresh(), g: fresh() };
     this.fw = new BangBangFirmware({ onLine: (line) => this.receive(line), now: 0 });
   }
 

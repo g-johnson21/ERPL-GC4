@@ -44,12 +44,18 @@ async function vehicle() {
     read: () => last,
     state: (id) => sim.valveState.get(id),
 
-    /** Charge the vehicle's GN2 bus from the ground to the regulator's set pressure. */
-    fillGn2(seconds = 40) {
+    /**
+     * Charge the vehicle's GN2 bus from the ground to `psi`, pulsing the
+     * bang-bang solenoid by hand the way the board's G side would. There is
+     * no regulator any more: left open, the bottles would burst the bus.
+     */
+    fillGn2(psi = 4000, maxSeconds = 120) {
       api.set('GN2-VENT', 'closed');
       api.set('GND-GN2-VENT', 'closed');
       api.set('GND-GN2-PRESS', 'open');
-      api.run(seconds);
+      api.set('GN2-BB-PRESS', 'open');
+      for (let i = 0; i < maxSeconds * 10 && api.run(0.1)['GN2-BUS-PT'] < psi; i++) { /* fill */ }
+      api.set('GN2-BB-PRESS', 'closed');
       api.set('GND-GN2-PRESS', 'closed');
       api.set('GND-GN2-VENT', 'open');
       api.run(2);
@@ -140,20 +146,20 @@ test('the vehicle starts empty and vented, the ground starts charged', async () 
   assert.ok(r['GN2-BUS-PT'] < 30, `COPVs empty, read ${r['GN2-BUS-PT']}`);
   assert.ok(r['LOX-TANK-PT'] < 25 && r['FUEL-TANK-PT'] < 25, 'tanks at ambient');
   assert.ok(r['GN2-BOTTLE-PT'] > 5000, 'supply bottles full');
-  assert.ok(Math.abs(r['GN2-REG-PT'] - 4000) < 50, `ground regulator at set, read ${r['GN2-REG-PT']}`);
+  assert.ok(r['GN2-REG-PT'] < 30, `nothing behind the shut bang-bang solenoid, read ${r['GN2-REG-PT']}`);
   assert.ok(r['GSE-MUSCLE-PT'] > 100, 'GSE muscle charged');
 });
 
 test('GN2 fills the vehicle bus through the QD, and not while the QD is released', async () => {
   const s = await vehicle();
   s.set('GN2-QD-CTRL', 'open');
-  s.fillGn2(20);
+  s.fillGn2(4000, 20);
   assert.ok(s.read()['GN2-BUS-PT'] < 30, 'a released QD passes nothing');
 
   s.set('GN2-QD-CTRL', 'closed');
   s.fillGn2();
   const bus = s.read()['GN2-BUS-PT'];
-  assert.ok(bus > 3500 && bus < 4100, `bus charged toward the 4000 psi regulator, read ${bus}`);
+  assert.ok(bus > 3900 && bus < 4400, `bus charged to the 4000 psi fill target, read ${bus}`);
   assert.ok(s.read()['GN2-FILL-PT'] < 100, 'ground vent bled the fill line afterwards');
 
   // The check valve holds the bus once the fill line is vented.
@@ -163,6 +169,28 @@ test('GN2 fills the vehicle bus through the QD, and not while the QD is released
   // GN2 VENT is normally open: de-energize it and the bus blows down.
   s.set('GN2-VENT', 'open');
   assert.ok(s.run(20)['GN2-BUS-PT'] < 100, 'GN2 VENT blows the bus down');
+});
+
+test('the board GN2 side regulates the bus on its own solenoid and leaves the vent alone', async () => {
+  const s = await vehicle();
+  s.set('GN2-VENT', 'closed');
+  s.set('GND-GN2-VENT', 'closed');
+  s.set('GND-GN2-PRESS', 'open');
+  s.sim.setArmed(true);
+  assert.equal(s.sim.bbConfig('G', { setpoint: 2000, deadbandFull: 100, waitMs: 0, maxOpenMs: 0 }).ok, true);
+  assert.equal(s.sim.bbEnable('G', true).ok, true);
+  s.run(90);
+  const bus = s.read()['GN2-BUS-PT'];
+  // Plumbing only: the board's solenoid charges the bus and stops short of
+  // the bottles. How far past the band it lands is the model's tuning, not
+  // something to read anything into.
+  assert.ok(bus > 1950 && bus < 5000, `bus charged by the G side and held below the bottles, read ${bus}`);
+  assert.equal(s.state('GN2-VENT'), 'closed', 'the loop keeps GN2 VENT sealed');
+  assert.equal(s.sim.bbStatus().g.state, 'SUS');
+
+  s.sim.bbEnable('G', false);
+  s.run(1);
+  assert.equal(s.state('GN2-BB-PRESS'), 'closed', 'disable leaves the press solenoid shut');
 });
 
 test('LOX fills from the dewar only with the tank vented and the ground vent shut', async () => {

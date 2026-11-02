@@ -22,7 +22,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { ConfigStore } from './config-store.js';
+import { ConfigStore, validateConfig } from './config-store.js';
 
 const REAL_CONFIG = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)), '../config/stand.json');
@@ -279,4 +279,22 @@ test('the alerts section defaults on, and is its own section', (t) => {
   const next = structuredClone(store.get());
   next.alerts.sound = false;
   assert.deepEqual(store.changedSections(next), ['alerts']);
+});
+
+test('a sequence keybind must be a free, bindable key', (t) => {
+  const { file } = tempStore(t);
+  const base = raw(file);
+  const withKeys = (...keys) => ({
+    ...base,
+    autosequences: keys.map((keybind, i) => ({ id: `s${i}`, name: `S${i}`, steps: [], keybind })),
+  });
+  const keyErrors = (c) => validateConfig(c).filter((e) => /keybind/.test(e));
+  assert.deepEqual(keyErrors(withKeys('KeyP', 'Digit2', undefined)), []);
+  assert.equal(keyErrors(withKeys('Escape')).length, 1);
+  assert.equal(keyErrors(withKeys('KeyT')).length, 1);
+  assert.equal(keyErrors(withKeys('p')).length, 1);
+  // Two sequences on one key: the later one is the error, once.
+  const dup = keyErrors(withKeys('KeyP', 'KeyP'));
+  assert.equal(dup.length, 1);
+  assert.match(dup[0], /autosequences\[1\]/);
 });

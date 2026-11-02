@@ -56,9 +56,13 @@ test('a side is normalised, and a bad one throws rather than shipping', () => {
   assert.equal(commandSide('f'), 'F');
   assert.equal(heartbeatSide('L'), 'l');
   assert.equal(commandSide('X'), null);
+  // The GN2 side is a third side like the other two.
+  assert.equal(encodeEnable('g', true), 'bG1');
+  assert.equal(heartbeatSide('G'), 'g');
+  assert.equal(parseLine('BB:g:SUS:1:0:2012.5').side, 'g');
   // A malformed side must never reach the wire as a command for some other
   // side, so this is an exception rather than a default.
-  assert.throws(() => encodeEnable('X', true), /must be "L" or "F"/);
+  assert.throws(() => encodeEnable('X', true), /must be "L", "F" or "G"/);
 });
 
 // ---------------------------------------------------------------- decoding ---
@@ -282,7 +286,7 @@ test('every PT command round-trips through the decoder', () => {
 test('a malformed T command decodes to nothing, not to a tare', () => {
   // The direction that matters: a garbled line must never come back as a
   // command to zero a transducer the regulator is running on.
-  for (const bad of ['T', 'TX', 'T2,5', 'T0', 'T0,', 'T,5', 'TZZ', 'T0,abc', 'Tz,1']) {
+  for (const bad of ['T', 'TX', 'T3,5', 'T0', 'T0,', 'T,5', 'TZZ', 'T0,abc', 'Tz,1']) {
     assert.equal(parseCommand(bad), null, `"${bad}" should not decode`);
   }
 });

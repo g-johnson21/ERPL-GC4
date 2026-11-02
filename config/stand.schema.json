@@ -576,9 +576,10 @@
             "type": "string",
             "enum": [
               "L",
-              "F"
+              "F",
+              "G"
             ],
-            "description": "Which board bus this controller is. 'L' (LOX) and 'F' (Fuel) are the letters the board's B/V/M/b/v/x commands take. Required: without it the controller cannot be pushed to the board."
+            "description": "Which board bus this controller is. 'L' (LOX), 'F' (Fuel) and 'G' (GN2) are the letters the board's B/V/b/v/x/e commands take. G is the GN2 side, which the COPV Press Tool drives. Required: without it the controller cannot be pushed to the board."
           },
           "ventValve": {
             "type": "string",
@@ -703,6 +704,11 @@
           "hidden": {
             "type": "boolean",
             "description": "Hide from the sidebar (used for the abort sequence)."
+          },
+          "keybind": {
+            "type": "string",
+            "pattern": "^(Key[A-Z]|Digit[0-9]|Numpad[0-9])$",
+            "description": "Hold SHIFT and press this key to run the sequence, exactly as if its sidebar button were clicked (same ARM check, same confirmation). A KeyboardEvent.code: a letter, digit or numpad digit. Not T, C, G, L, K or 0, which the station uses."
           },
           "timeMode": {
             "enum": [

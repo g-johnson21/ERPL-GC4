@@ -68,6 +68,57 @@ content.append(
   el('div#data-body')
 );
 
+addViewerLink();
+
+/**
+ * A button that copies the read-only spectator address, for texting to whoever
+ * is watching. Operator stations only: a spectator is already on it, and the
+ * control port is the one that knows the stand's LAN addresses. Absent when
+ * the spectator port is off or the host has no network address to give out.
+ */
+async function addViewerLink() {
+  if (bus.spectator) return;
+  let info;
+  try {
+    const res = await fetch('/api/viewer', { cache: 'no-store' });
+    if (!res.ok) return;
+    info = await res.json();
+  } catch (e) { return; }
+  if (!info.enabled || !info.addresses?.length) return;
+
+  // Prefer the address this station was itself opened on, so the link is one
+  // the viewers' network is known to route to.
+  const host = info.addresses.includes(location.hostname) ? location.hostname : info.addresses[0];
+  const url = `http://${host}:${info.port}`;
+  const btn = el('button.btn', {
+    id: 'viewer-link',
+    title: ['Read-only viewer link - click to copy', ...info.addresses.map((a) => `http://${a}:${info.port}`)].join(String.fromCharCode(10)),
+    text: `Viewer: ${url}`,
+    onclick: async () => {
+      if (await copyText(url)) toast('Viewer link copied', 'ok');
+      else toast(`Copy failed - ${url}`, 'warn', 8000);
+    },
+  });
+  $('.page-head > div').prepend(btn);
+}
+
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch (e) {
+    // navigator.clipboard needs a secure context; the station is plain http
+    // on a LAN address, so fall back to a selection copy.
+    const ta = el('textarea', { value: text, style: { position: 'fixed', opacity: '0' } });
+    document.body.append(ta);
+    ta.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (e2) { /* fall through */ }
+    ta.remove();
+    return ok;
+  }
+}
+
 // Cards mode owns the viewport: the column grid sizes itself against a
 // definite height, which it only has if nothing above it can scroll.
 content.classList.add('data-page');

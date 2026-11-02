@@ -8,6 +8,7 @@
 import { bus } from './bus.js';
 import { $, el, clear, icon, fmtDuration, fmtBytes, fmtValue, fmtClock, confirmAction, promptAction, shiftGate, setShiftRequired, toast, valueWidthCh } from './util.js';
 import { currentTheme, toggleTheme, applyConfigDefault } from './theme.js';
+import { KEY_RESERVED, keyLabel } from './seq-model.js';
 import { mountAlerts } from './alerts.js';
 import { mountTimers, openTimerDialog } from './timers.js';
 import { mountCopvPress, openCopvPressDialog } from './copv-press.js';
@@ -132,6 +133,9 @@ export function mountHeader(activePage) {
     // itself, which has no `matches` — and an exception thrown here takes the
     // rest of the hotkeys down with it.
     if (e.target instanceof Element && e.target.matches('input, textarea, select')) return;
+    // Not on the Config page: that is where the keybinds are being chosen and
+    // the editor is full of keys of its own.
+    if (activePage !== 'config' && handleSequenceKey(e)) return;
     if (e.key === '\\') { toggleSidebar(); }
     if (isTimerKey(e)) { e.preventDefault(); openTimerDialog(); }
     if (isPressKey(e)) { e.preventDefault(); openCopvPressDialog(); }
@@ -139,6 +143,35 @@ export function mountHeader(activePage) {
   });
 
   trackShiftKey();
+}
+
+/**
+ * A sequence's keybind: SHIFT + its key runs it, as clicking its sidebar
+ * button with SHIFT held would -- same ARM and abort interlocks, same confirm
+ * dialog. SHIFT is required whatever ui.requireShiftToActuate says: that
+ * setting relaxes a mouse slip guard, and a bare letter key is far easier to
+ * hit by accident than a click.
+ *
+ * Returns true when the key was a sequence's, so no other hotkey also takes it.
+ */
+function handleSequenceKey(e) {
+  if (e.ctrlKey || e.metaKey || e.altKey || document.querySelector('.modal-backdrop')) return false;
+  const seq = bus.config.autosequences.find((s) => s.keybind === e.code && !s.hidden && !KEY_RESERVED[e.code]);
+  if (!seq) return false;
+  e.preventDefault();
+  if (e.repeat) return true;
+  const label = keyLabel(seq.keybind);
+  if (!e.shiftKey) {
+    toast(`Hold SHIFT and press ${label} to run "${seq.name}"`, 'warn', 2400);
+    return true;
+  }
+  const blocked = bus.state && sequenceBlock(seq, bus.state);
+  if (blocked) {
+    toast(`Cannot run "${seq.name}": ${blocked}`, 'warn', 2400);
+    return true;
+  }
+  startSequenceFlow(seq);
+  return true;
 }
 
 /**
@@ -825,7 +858,7 @@ function controllerCard(c) {
       el('span.bb-side', {
         text: c.side ? `BUS ${c.side}` : 'NO BUS',
         title: c.side
-          ? `The board's ${c.side === 'L' ? 'LOX' : 'Fuel'} bus. Commands go out as B${c.side}/b${c.side}/x${c.side}.`
+          ? `The board's ${{ L: 'LOX', F: 'Fuel', G: 'GN2' }[c.side] ?? c.side} bus. Commands go out as B${c.side}/b${c.side}/x${c.side}.`
           : 'No board side configured — this controller cannot be pushed to the board.',
       }),
       el('div.bb-config-tools', {},
@@ -1110,19 +1143,32 @@ function renderSequenceList() {
       // stand run a timeline, and starting one by mis-clicking a list is how
       // a purge fires during a fill.
       dataset: { style: seq.style, seqId: seq.id, needsShift: 'true' },
-      title: `${seq.description || seq.name}\n${seq.usePandaAutosequencer ? 'Runs on Panda. Stop disarms and safes the stand.\n' : ''}Hold SHIFT and click to run.`,
+      title: `${seq.description || seq.name}\n${seq.usePandaAutosequencer ? 'Runs on Panda. Stop disarms and safes the stand.\n' : ''}Hold SHIFT and click to run.${seq.keybind ? ` Or hold SHIFT and press ${keyLabel(seq.keybind)}.` : ''}`,
       onclick: (e) => runSequence(seq, e),
     },
       el('span.seq-dot'),
       el('span', { text: seq.name }),
+      seq.keybind && !KEY_RESERVED[seq.keybind] ? el('kbd.seq-key', { text: keyLabel(seq.keybind) }) : null,
       el('span.seq-meta', { text: seq.duration ? `${seq.duration.toFixed(0)}s` : '' })
     ));
   }
   updateSidebar();   // apply the current interlocks to the fresh buttons
 }
 
-async function runSequence(seq, event) {
+/** Why a sequence cannot start right now (the sidebar button is disabled for the same reasons), or null. */
+function sequenceBlock(seq, s) {
+  if (s.sequence.running) return 'a sequence is already running';
+  if (s.abort.active) return 'ABORT is latched';
+  if (seq.requiresArm && !s.armed) return 'the stand is not ARMED';
+  return null;
+}
+
+function runSequence(seq, event) {
   if (!shiftGate(event, `start "${seq.name}"`)) return;
+  return startSequenceFlow(seq);
+}
+
+async function startSequenceFlow(seq) {
   if (seq.confirm) {
     const ok = await confirmAction({
       title: `Run "${seq.name}"?`,
@@ -1441,7 +1487,7 @@ function updateSidebar() {
   for (const btn of document.querySelectorAll('.seq-btn')) {
     const seq = bus.config.autosequences.find((x) => x.id === btn.dataset.seqId);
     if (!seq) continue;
-    btn.disabled = s.sequence.running || s.abort.active || (seq.requiresArm && !s.armed);
+    btn.disabled = Boolean(sequenceBlock(seq, s));
   }
 
   // Recording lives in the header now, on every page — see recordingControl().

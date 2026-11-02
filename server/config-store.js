@@ -7,6 +7,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
+// Pure (no DOM): the browser and the server judge a keybind by the same rule.
+import { keyProblem } from '../public/js/seq-model.js';
+import { BB_SIDES, BB_MAX_PSI } from './hal/bb-protocol.js';
 
 const VALID_VALVE_TYPES = ['solenoid', 'ball', 'butterfly', 'needle', 'igniter', 'motor'];
 const VALID_SENSOR_KINDS = ['pressure', 'temperature', 'force', 'flow', 'level', 'voltage', 'other'];
@@ -393,16 +396,19 @@ export function validateConfig(c) {
   for (const [i, b] of (c.bangbang || []).entries()) {
     const where = `bangbang[${i}]`;
     if (!b.id) { err(`${where}: missing id`); continue; }
-    // The board has exactly two bang-bang buses. A controller with no side
+    // The board has exactly three bang-bang buses. A controller with no side
     // cannot be pushed to it at all, and two controllers on one side would
     // fight over the same setpoint — the board keeps one config per side.
     const side = String(b.side || '').toUpperCase();
-    if (side !== 'L' && side !== 'F') {
-      err(`${where} (${b.id}): side must be "L" (LOX) or "F" (Fuel) — the board bus this controller runs on`);
+    if (!BB_SIDES.includes(side)) {
+      err(`${where} (${b.id}): side must be "L" (LOX), "F" (Fuel) or "G" (GN2) — the board bus this controller runs on`);
     } else if (usedSides.has(side)) {
       err(`${where} (${b.id}): board side ${side} is already used by ${usedSides.get(side)} — the board holds one config per side`);
     } else {
       usedSides.set(side, b.id);
+      if (Number(b.setpointMax) > BB_MAX_PSI[side]) {
+        err(`${where} (${b.id}): setpointMax ${b.setpointMax} is above the ${BB_MAX_PSI[side]} psi the board accepts on side ${side}`);
+      }
     }
     if (!sensorIds.has(b.sensor)) err(`${where} (${b.id}): sensor "${b.sensor}" is not a defined sensor`);
     if (!valveIds.has(b.valve)) err(`${where} (${b.id}): valve "${b.valve}" is not a defined valve`);
@@ -458,6 +464,10 @@ export function validateConfig(c) {
     if (seqIds.has(s.id)) err(`${where}: duplicate sequence id "${s.id}"`);
     if (s.usePandaAutosequencer !== undefined && typeof s.usePandaAutosequencer !== 'boolean') {
       err(`${where}: usePandaAutosequencer must be a boolean`);
+    }
+    if (s.keybind !== undefined) {
+      const problem = keyProblem(s.keybind, c.autosequences.slice(0, i));
+      if (problem) err(`${where}: keybind ${problem}`);
     }
     seqIds.add(s.id);
     for (const [j, step] of (s.steps || []).entries()) {

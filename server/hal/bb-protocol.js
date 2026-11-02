@@ -19,8 +19,8 @@
  * CASE CONVENTION (easy to get wrong, silently)
  *   Uppercase command letter = CONFIGURE   B / V
  *   Lowercase command letter = ACTUATE     b / v / x / e
- *   Side in a COMMAND is uppercase         L / F
- *   Side in a HEARTBEAT is lowercase       l / f
+ *   Side in a COMMAND is uppercase         L / F / G
+ *   Side in a HEARTBEAT is lowercase       l / f / g
  *
  * DEADBAND
  *   `deadbandFull` here is the FULL band width centred on the setpoint, which
@@ -50,13 +50,28 @@ const ERROR_PREFIXES = ['BB_ERROR:', 'CMD_ERROR:', 'PT_ERROR:'];
 /**
  * Which of the board's own PT channels each bang-bang side regulates on.
  *
- * The board numbers them 0 and 1; the tare command spells the same two
- * channels as `L` and `F`. Both spellings appear in one four-command
+ * The board numbers them 0, 1 and 2; the tare command spells the same
+ * channels as `L`, `F` and `G`. Both spellings appear in one four-command
  * vocabulary (`TL` but `T0,<offset>`), so the mapping lives here once rather
  * than at each call site.
+ *
+ * `G` is the GN2 side: a third, independent controller with the same
+ * commands as the tank sides, a 5000 psi transducer on board channel 2 and a
+ * 5000 psi ceiling on its setpoint (GC_USERS_GUIDE.md §2).
  */
-export const PT_CHANNEL = { L: 0, F: 1 };
-export const PT_SIDE_OF_CHANNEL = { 0: 'L', 1: 'F' };
+export const PT_CHANNEL = { L: 0, F: 1, G: 2 };
+export const PT_SIDE_OF_CHANNEL = { 0: 'L', 1: 'F', 2: 'G' };
+
+/** Every side the board runs, in COMMAND form. */
+export const BB_SIDES = ['L', 'F', 'G'];
+
+/**
+ * The highest setpoint or deadband the board's `B` command accepts, per side.
+ * Above it the board answers `BB_ERROR:parse` — and its sanity bound latches
+ * an ABORT at the same pressure — so a config that allows more promises the
+ * operator a setpoint the board will refuse.
+ */
+export const BB_MAX_PSI = { L: 4000, F: 4000, G: 5000 };
 
 /**
  * `CFG_PUSH` echo keys -> our field names.
@@ -87,13 +102,13 @@ export const CFG_PUSH_KEYS = {
 /** Normalise any spelling of a side to the uppercase COMMAND form. */
 export function commandSide(side) {
   const s = String(side || '').toUpperCase();
-  return s === 'L' || s === 'F' ? s : null;
+  return BB_SIDES.includes(s) ? s : null;
 }
 
 /** Normalise any spelling of a side to the lowercase HEARTBEAT form. */
 export function heartbeatSide(side) {
   const s = String(side || '').toLowerCase();
-  return s === 'l' || s === 'f' ? s : null;
+  return BB_SIDES.includes(s.toUpperCase()) ? s : null;
 }
 
 // --------------------------------------------------------------- encoding ---
@@ -165,7 +180,7 @@ export function encodePtTare(side) {
   return `T${requireSide(side)}`;
 }
 
-/** `Tz` — clear the offsets on BOTH channels at once. No per-side form. */
+/** `Tz` — clear the offsets on every channel at once. No per-side form. */
 export function encodePtTareClear() {
   return 'Tz';
 }
@@ -189,7 +204,7 @@ export function encodePtOffset(side, psi) {
 /** `BB:<side>:<state>:<press01>:<vent01>:<psi>` — the board's heartbeat. */
 export function encodeHeartbeat(side, { state, press, vent, pressure }) {
   const s = heartbeatSide(side);
-  if (!s) throw new Error(`bang-bang side must be "l" or "f", got "${side}"`);
+  if (!s) throw new Error(`bang-bang side must be "l", "f" or "g", got "${side}"`);
   const head = `BB:${s}:${state}:${press ? 1 : 0}:${vent ? 1 : 0}`;
   return pressure === undefined || pressure === null ? head : `${head}:${f1(pressure)}`;
 }
@@ -376,7 +391,7 @@ export function parseCommand(raw) {
   const verb = line[0];
 
   // PT tare is decoded BEFORE the side lookup below, because two of its four
-  // forms carry no side at all — `Tz` addresses both channels and `T0,`/`T1,`
+  // forms carry no side at all — `Tz` addresses every channel and `T0,`..`T2,`
   // address one by number. Falling through to `commandSide(line[1])` would
   // reject them on the 'z' and the '0'.
   if (verb === 'T') return parsePtTareCommand(line.slice(1));
@@ -416,9 +431,9 @@ export function parseCommand(raw) {
 /**
  * Decode the argument of a `T` command — everything after the verb.
  *
- *   `L` / `F`        tare that side to its current reading
- *   `z`              clear both channels
- *   `0,x` / `1,x`    set that channel's offset to x PSI
+ *   `L` / `F` / `G`  tare that side to its current reading
+ *   `z`              clear every channel
+ *   `0,x` .. `2,x`   set that channel's offset to x PSI
  *
  * `z` is tested before the side lookup: `commandSide` upper-cases, so a
  * future channel letter would be case-folded into a side if the order were
@@ -431,7 +446,7 @@ function parsePtTareCommand(arg) {
   const side = commandSide(arg);
   if (side) return { kind: 'ptTare', side };
 
-  const m = /^([01]),(-?(?:\d+\.?\d*|\.\d+))$/.exec(arg);
+  const m = /^([012]),(-?(?:\d+\.?\d*|\.\d+))$/.exec(arg);
   if (!m) return null;
   const offset = Number(m[2]);
   if (!Number.isFinite(offset)) return null;
@@ -471,7 +486,7 @@ export function parsePtTare(detail) {
 
   const nums = text.split(',').map((v) => Number(v.trim()));
   if (nums.length && nums.every(Number.isFinite)) {
-    nums.slice(0, 2).forEach((v, i) => { out[PT_SIDE_OF_CHANNEL[i]] = v; });
+    nums.slice(0, BB_SIDES.length).forEach((v, i) => { out[PT_SIDE_OF_CHANNEL[i]] = v; });
   }
   return out;
 }
@@ -480,7 +495,7 @@ export function parsePtTare(detail) {
 
 function requireSide(side) {
   const c = commandSide(side);
-  if (!c) throw new Error(`bang-bang side must be "L" or "F", got "${side}"`);
+  if (!c) throw new Error(`bang-bang side must be "L", "F" or "G", got "${side}"`);
   return c;
 }
 

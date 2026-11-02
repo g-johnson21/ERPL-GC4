@@ -64,6 +64,7 @@ export function createSequenceEditor(ctx) {
     seqId: ctx.getDraft().autosequences?.[0]?.id ?? null,
     selection: new Set(),
     extraLanes: new Map(),  // seqId -> lane keys added with no step yet
+    laneOrder: new Map(),   // seqId -> lane keys as last drawn, so lanes stay put while steps move
     tab: 'step',            // inspector tab
     snap: load('gc.seq.snap', 0.05),
     locked: load('gc.seq.locked', false), // steps can't be dragged; typed times still apply
@@ -85,6 +86,7 @@ export function createSequenceEditor(ctx) {
   let root = null;
   let resizeObs = null;
   let lastWidth = 0;
+  let stopKeyCapture = null;   // ends an in-progress "press the key" capture
 
   const cfg = () => ctx.getDraft();
   const cur = () => (cfg().autosequences || []).find((s) => s.id === S.seqId) || null;
@@ -201,6 +203,7 @@ export function createSequenceEditor(ctx) {
   /** The draft was replaced (revert, JSON tab): keep the selection if it still exists. */
   function reset() {
     S.selection.clear();
+    S.laneOrder.clear();
     S.undo = [];
     S.redo = [];
     stopPreview();
@@ -247,7 +250,7 @@ export function createSequenceEditor(ctx) {
   // ============================================================= edits ====
 
   function snapshot(seq = cur()) {
-    return { id: seq.id, json: JSON.stringify(seq), sel: selectionIndices(seq) };
+    return { id: seq.id, json: JSON.stringify(seq), sel: selectionIndices(seq), order: S.laneOrder.get(seq.id)?.slice() };
   }
   function selectionIndices(seq) {
     return (seq.steps || []).flatMap((s, i) => (S.selection.has(s) ? [i] : []));
@@ -265,6 +268,7 @@ export function createSequenceEditor(ctx) {
     if (i < 0) return;
     to.push(snapshot(list[i]));
     list[i] = JSON.parse(snap.json);
+    if (snap.order) S.laneOrder.set(snap.id, snap.order);
     S.seqId = snap.id;
     S.selection = new Set(snap.sel.map((k) => list[i].steps[k]).filter(Boolean));
     ctx.markDirty();
@@ -639,7 +643,11 @@ export function createSequenceEditor(ctx) {
     const draft = cfg();
     const keepScroll = scroll.scrollLeft;
 
-    const lanes = M.buildLanes(seq, draft, S.extraLanes.get(seq.id) || []);
+    // Lanes keep the order they were last drawn in. Left to the model they sit
+    // in the order each actuator is first touched, so dragging a step ahead
+    // of another actuator's first step would swap their lanes under the mouse.
+    const lanes = M.buildLanes(seq, draft, S.extraLanes.get(seq.id) || [], S.laneOrder.get(seq.id) ?? seq.lanes);
+    S.laneOrder.set(seq.id, lanes.slice(1).map((l) => l.key));
     const sim = M.simulate(seq, draft);
     const warnings = M.lint(seq, draft);
     S.sim = sim;
@@ -1179,6 +1187,7 @@ export function createSequenceEditor(ctx) {
       if (result.target !== from) {
         pushUndo();
         seq.lanes = M.moveLane(movable, from, result.target);
+        S.laneOrder.set(seq.id, seq.lanes);
         ctx.markDirty();
         renderTimeline();
         renderToolbar();
@@ -1400,6 +1409,7 @@ export function createSequenceEditor(ctx) {
   // ========================================================== inspector ===
 
   function renderInspector() {
+    stopKeyCapture?.();
     const host = q('.sq-inspector');
     clear(host);
     const seq = cur();
@@ -1649,6 +1659,7 @@ export function createSequenceEditor(ctx) {
         placeholder: 'Shown on hover and in the confirm dialog',
         oninput: (e) => { seq.description = e.target.value; ctx.markDirty(); },
       })),
+      el('div.sq-field', {}, el('span.eyebrow', { text: 'Keybind' }), keybindControl(seq)),
       el('div.sq-toggles', {},
         toggle('Requires ARM', seq.requiresArm !== false, (v) => { seq.requiresArm = v; ctx.markDirty(); renderAll(); }),
         toggle('Confirm before running', seq.confirm !== false, (v) => { seq.confirm = v; ctx.markDirty(); renderHead(); }),
@@ -1683,6 +1694,74 @@ export function createSequenceEditor(ctx) {
       ));
     }
     return out;
+  }
+
+  /**
+   * "Set key" listens for the next key press and binds it. SHIFT + that key
+   * then runs the sequence from the sidebar pages (chrome.js). Escape is
+   * never swallowed here -- it is ABORT -- so it just ends the capture.
+   */
+  function keybindControl(seq) {
+    const host = el('div.sq-keybind');
+    const others = (cfg().autosequences || []).filter((s) => s !== seq);
+    let listening = false;
+    let problem = '';
+
+    const draw = () => {
+      clear(host);
+      if (listening) {
+        host.append(
+          el('span.sq-keybind-hint', { text: 'Press a letter or digit…' }),
+          el('button.btn.sm', { type: 'button', text: 'Cancel', onclick: () => stopKeyCapture?.() })
+        );
+      } else {
+        host.append(
+          seq.keybind ? el('kbd', { text: M.keyLabel(seq.keybind) }) : el('span.sq-keybind-hint', { text: 'None' }),
+          el('button.btn.sm', { type: 'button', text: seq.keybind ? 'Change' : 'Set key', onclick: listen })
+        );
+        if (seq.keybind) host.append(el('button.btn.sm', { type: 'button', text: 'Clear', onclick: clearKey }));
+      }
+      if (problem) host.append(el('span.sq-keybind-err', { text: problem }));
+      else if (seq.hidden && seq.keybind) host.append(el('span.sq-keybind-hint', { text: 'Hidden sequences ignore their keybind.' }));
+      else if (seq.keybind && !listening) host.append(el('span.sq-keybind-hint', { text: `Hold SHIFT and press ${M.keyLabel(seq.keybind)} to run it.` }));
+    };
+
+    const onKey = (e) => {
+      if (['Shift', 'Control', 'Alt', 'Meta', 'CapsLock'].includes(e.key)) return;
+      // Escape (ABORT), Tab (focus) and shortcuts keep their meaning; they only end the capture.
+      if (e.code === 'Escape' || e.code === 'Tab' || e.ctrlKey || e.metaKey || e.altKey) { stopKeyCapture?.(); return; }
+      e.preventDefault();
+      e.stopPropagation();
+      const why = M.keyProblem(e.code, others);
+      if (why) { problem = why; draw(); return; }
+      stopKeyCapture?.();
+      pushUndo();
+      seq.keybind = e.code;
+      ctx.markDirty();
+      renderInspector();
+    };
+    const listen = () => {
+      stopKeyCapture?.();
+      listening = true;
+      problem = '';
+      window.addEventListener('keydown', onKey, true);
+      stopKeyCapture = () => {
+        window.removeEventListener('keydown', onKey, true);
+        stopKeyCapture = null;
+        listening = false;
+        problem = '';
+        if (host.isConnected) draw();
+      };
+      draw();
+    };
+    const clearKey = () => {
+      pushUndo();
+      delete seq.keybind;
+      ctx.markDirty();
+      renderInspector();
+    };
+    draw();
+    return host;
   }
 
   function abortForm(seq) {
