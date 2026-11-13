@@ -19,6 +19,7 @@ import { Sequencer } from './sequencer.js';
 import { Recorder } from './recorder.js';
 import { PressStep } from './press-step.js';
 import { GoxPurge } from './gox-purge.js';
+import { Gn2Press } from './gn2-press.js';
 import { LoopClock } from './loop-clock.js';
 
 const MAX_EVENTS = 500;
@@ -62,11 +63,13 @@ export class StandController extends EventEmitter {
     this.goxPurge = new GoxPurge(this);
 
     this.initFromConfig();
+    this.gn2Press = new Gn2Press(this);
 
     configStore.on('reload', (_cfg, changed = []) => {
       this.initFromConfig(true);
       this.pruneTankLevelTares();
       this.bangbang.sync();
+      this.gn2Press.sync();
       // Re-assert the bang-bang config on the board. A reload can change a
       // setpoint, and a board still holding the previous one is the exact
       // divergence the CFG_PUSH echo exists to catch. This is also what makes
@@ -178,6 +181,9 @@ export class StandController extends EventEmitter {
 
     this.bangbang.update(this.readings, now);
     this.sequencer.update(this.readings, now);
+    // The GN2 loop before the press step, so a step reads the loop as it
+    // stands after this tick's overpressure check.
+    this.gn2Press.update(this.readings, now);
     this.pressStep.update(this.readings, now);
     this.goxPurge.update(this.readings, now);
     this.recorder.sample(now, this.readings);
@@ -230,6 +236,7 @@ export class StandController extends EventEmitter {
     } else {
       this.log('arm', 'STAND DISARMED', source);
       this.goxPurge.disable('stand disarmed', 'disarm', { quiet: true });
+      this.gn2Press.disable('stand disarmed', 'disarm', { quiet: true });
       // Disarming drops closed-loop control; it does not move valves by itself.
       this.bangbang.setAll({ enabled: false }, 'disarm');
     }
@@ -266,6 +273,10 @@ export class StandController extends EventEmitter {
       // CLOSE is taken as "stop purging" and turns the controller off.
       const purge = this.goxPurge.handCommand(id, state, source);
       if (!purge.ok) return purge;
+      // GN2 BANG-BANG PRESS under the software GN2 loop, and the GN2
+      // overpressure close holding both GN2 press valves shut.
+      const gn2 = this.gn2Press.handCommand(id, state, source);
+      if (!gn2.ok) return gn2;
       const owner = this.bangbang.ownedValves().get(id);
       if (owner) {
         return {
@@ -286,7 +297,9 @@ export class StandController extends EventEmitter {
       if (this.abortState.active && !opts.fromAbort && !fromAbortSequence) {
         return { ok: false, error: 'Stand is in ABORT — clear the abort to command this valve' };
       }
-      if (this.config.safety.requireArmToActuate && valve.requiresArm && !this.armed) {
+      // `force`: a gate's "Set valve states" fail action, which an operator
+      // configured to happen whatever the stand's state (forceValves).
+      if (this.config.safety.requireArmToActuate && valve.requiresArm && !this.armed && !opts.force) {
         return { ok: false, error: `${valve.name} requires the stand to be ARMED` };
       }
     }
@@ -313,7 +326,11 @@ export class StandController extends EventEmitter {
     // does not restart that clock either.
     if (previous !== state || !this.valveMeta[id]) this.valveMeta[id] = { at: Date.now(), source };
 
-    if (previous !== state && !opts.internal) {
+    // `quietLog`: the GN2 loop's own pulses, which would bury the log at the
+    // rate it cycles. They are still recorded with the valve state.
+    if (opts.quietLog) {
+      // nothing
+    } else if (previous !== state && !opts.internal) {
       this.log('command', `${valve.id} (${valve.name}) -> ${state.toUpperCase()}`, source);
     } else if (previous !== state && opts.internal) {
       this.log('control', `${valve.id} -> ${state.toUpperCase()}`, source);
@@ -343,6 +360,7 @@ export class StandController extends EventEmitter {
 
   safeAll(source = 'operator') {
     if (this.sequencer.active?.panda) this.sequencer.stop('Safe all actuators', source);
+    this.gn2Press?.disable('safe all', source, { quiet: true });
     // A driver fault here fails identically for every valve, so collapse the
     // repeats into one line: thirteen copies of the same error buries the
     // rest of the startup log without adding information.
@@ -400,6 +418,72 @@ export class StandController extends EventEmitter {
     this.bangbang.pushAll(source);
     this.log('info', `Hardware driver restarted on new wiring: ${this.driver.status.name} (${this.driver.status.detail})`, source);
     this.safeAll(source);
+  }
+
+  /**
+   * The "Set valve states" fail action of a sequence gate. `list` holds
+   * valves, [{valve, state}], and bang-bang loops, [{bangbang, enabled}] --
+   * a board controller's id, or 'gn2Press' for the ground-station GN2 loop.
+   *
+   * In order: listed loops are turned off; a loop still holding a listed
+   * valve (board bang-bang, GN2 press, GOX purge) is turned off so it cannot
+   * drive the valve back; the valves are commanded past ARM, ABORT and
+   * ownership; listed loops are turned on. Turning a loop OFF and setting a
+   * valve always go through (bar a driver error or a hardware reconnect).
+   * Turning a loop ON keeps that loop's own checks -- ARM, ABORT, a live
+   * reading -- since forcing a pressurisation loop on is not a safe default.
+   * Every refusal is logged. Returns them.
+   */
+  forceValves(list, source = 'sequencer') {
+    const loops = list.filter((x) => x.bangbang !== undefined);
+    const valves = list.filter((x) => x.bangbang === undefined);
+    const failures = [];
+    const loopName = (id) => (id === 'gn2Press'
+      ? this.config.gn2Press?.name || 'GN2 press loop'
+      : this.config.bangbang.find((c) => c.id === id)?.name || id);
+    const setLoop = (id, enabled) => {
+      if (id === 'gn2Press') {
+        if (!this.gn2Press?.available) return { ok: false, error: 'this stand has no GN2 press loop' };
+        if (enabled) return this.gn2Press.enable(source);
+        this.gn2Press.disable('gate fail action', source, { quiet: true });
+        return { ok: true };
+      }
+      if (!this.config.bangbang.some((c) => c.id === id)) return { ok: false, error: 'no such controller' };
+      return this.bangbang.set(id, { enabled }, source);
+    };
+
+    for (const { bangbang: id } of loops.filter((x) => !x.enabled)) {
+      const res = setLoop(id, false);
+      if (res.ok) this.log('control', `${loopName(id)} -> OFF (gate fail action)`, source);
+      else failures.push(`${id}: not turned off — ${res.error}`);
+    }
+
+    const owned = this.bangbang.ownedValves();
+    const released = new Set();
+    for (const { valve: id } of valves) {
+      const owner = owned.get(id);
+      if (owner && !released.has(owner.id)) {
+        released.add(owner.id);
+        this.bangbang.set(owner.id, { enabled: false }, source);
+        this.log('control', `${owner.name || owner.id} turned off to set ${id}`, source);
+      }
+      if (this.gn2Press?.owns(id)) this.gn2Press.disable(`set ${id}`, source, { quiet: true });
+      if (this.goxPurge?.owns(id)) this.goxPurge.disable(`set ${id}`, source, { quiet: true });
+    }
+    for (const { valve, state } of valves) {
+      const res = this.commandValve(valve, state, { source, internal: true, fromAbort: true, force: true });
+      if (res.ok) this.log('command', `${valve} -> ${state.toUpperCase()} (gate fail action)`, source);
+      else failures.push(`${valve}: ${res.error}`);
+    }
+
+    for (const { bangbang: id } of loops.filter((x) => x.enabled)) {
+      const res = setLoop(id, true);
+      if (res.ok) this.log('control', `${loopName(id)} -> ON (gate fail action)`, source);
+      else failures.push(`${id}: not turned on — ${res.error}`);
+    }
+
+    if (failures.length) this.log('error', `SET VALVE STATES incomplete — ${failures.join('; ')}`, source);
+    return failures;
   }
 
   applyAbortStates(source = 'abort') {
@@ -619,6 +703,7 @@ export class StandController extends EventEmitter {
     this.log('abort', `*** ABORT *** ${reason}`, 'system');
 
     this.bangbang.setAll({ enabled: false }, 'abort');
+    this.gn2Press.disable('abort', 'abort', { quiet: true });
     this.pressStep.stop('abort', 'abort');
     this.goxPurge.disable('abort', 'abort', { quiet: true });
     if (this.sequencer.running) this.sequencer.stop('abort', 'abort');
@@ -703,6 +788,7 @@ export class StandController extends EventEmitter {
     // claiming open or closed. `bbSince` is when that ownership began.
     const owned = this.bangbang.ownedValves();
     const bbSnap = owned.size ? this.bangbang.snapshot() : {};
+    const indicated = this.bangbang.indicatedValves();
 
     const valves = {};
     for (const v of this.config.valves) {
@@ -712,6 +798,10 @@ export class StandController extends EventEmitter {
       if (owner) {
         valves[v.id].bb = owner.id;
         valves[v.id].bbSince = bbSnap[owner.id]?.liveSince ?? null;
+      } else if (indicated.has(v.id)) {
+        // On a live loop's side but still GC's to command: drawn yellow,
+        // with its commanded state still shown.
+        valves[v.id].bbSide = indicated.get(v.id).id;
       }
     }
 
@@ -731,6 +821,8 @@ export class StandController extends EventEmitter {
       sequence: this.sequencer.snapshot(),
       // The COPV Press Tool's one-shot actuation: in progress, and the last.
       pressStep: this.pressStep.snapshot(),
+      // The software GN2 bang-bang loop the press tool drives.
+      gn2Press: this.gn2Press?.snapshot() ?? { available: false },
       // Draco's GOX purge loop on PB6 / Dragon TC. `available` false elsewhere.
       goxPurge: this.goxPurge.snapshot(),
       recording: this.recorder.snapshot(),

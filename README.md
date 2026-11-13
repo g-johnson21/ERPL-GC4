@@ -1252,11 +1252,16 @@ current sense, tares and hand controls are Draco's, unchanged. The vehicle
 starts **empty and vented**, so a full run is the real procedure:
 
 1. **GN2.** Seal GN2 VENT and GROUND GN2 VENT, then use the COPV Press Tool
-   (C): each Proceed raises the setpoint of the PANDA's GN2 bang-bang side
-   (`bb-gn2`, board side G), which pulses GN2 BANG-BANG PRESS (DC15) against
-   GN2 BUS PT and holds the bus there. There is no ground regulator any more —
-   GN2 BANG-BANG PRESS replaced it — so opening that solenoid by hand with
-   GROUND GN2 PRESS open charges the bus toward full bottle pressure.
+   (C): each Proceed raises the setpoint of the GN2 bang-bang loop, which runs
+   in the ground station ([`server/gn2-press.js`](server/gn2-press.js)), not on
+   the PANDA, and pulses GN2 BANG-BANG PRESS (DC15) against the PT picked on
+   the GN2 card or in the tool (GN2 BUS PT by default; switchable while
+   ARMED). The card's **overpressure close** is a second layer under the
+   setpoint: the selected PT reaching it closes GN2 BANG-BANG PRESS and GROUND
+   GN2 PRESS and turns the loop off, loop on or not. There is no ground
+   regulator any more — GN2 BANG-BANG PRESS replaced it — so opening that
+   solenoid by hand with GROUND GN2 PRESS open charges the bus toward full
+   bottle pressure.
 2. **LOX.** With LOX VENT open (it is normally open), close GROUND LOX VENT and
    open GROUND LOX FILL. A sealed tank stalls at dewar head.
 3. **Fuel.** On the P&ID, open GROUND FUEL PRESS (shop air on the storage
@@ -1432,7 +1437,66 @@ than silently dropping commands.
 ```
 
 Actions: `valve`, `bangbang` (`target: "*"` hits every controller), `log`,
-`safeAll`, `abortStates`, `abort`, `end`.
+`safeAll`, `abortStates`, `abort`, `end`, `gate`.
+
+#### Gate checks
+
+A `gate` step checks sensors at one point in the timeline and decides whether
+the sequence may go on: after the LOX run valve opens, is the LOX manifold
+pressure where it should be? Add one with **+ Step → Gate check**. The values
+below are placeholders, not recommended limits.
+
+```json
+{ "t": 0.6, "action": "gate", "message": "LOX manifold up",
+  "conditions": [{ "sensor": "PT-LOX-MAN", "op": "between", "min": 0, "max": 0 }],
+  "match": "all", "timeout": 0.3, "hold": 0.1, "blocking": true,
+  "onFail": "sequence", "failSequence": "seq-safe-shutdown" }
+```
+
+- `conditions` — one or more of `{sensor, op, value}` with `op` `>` `>=` `<`
+  `<=`, or `{sensor, op, min, max}` with `between` / `outside` (inclusive). A
+  sensor with no reading never satisfies a condition. `match`: `all` (default)
+  or `any`.
+- `timeout` — seconds after `t` the conditions have to come good. `0` (default)
+  checks once, at `t`.
+- `hold` — seconds they must then stay good, unbroken, to pass. Default `0`.
+- `blocking` — `true` (default) holds the sequence clock while the gate waits,
+  so no later step fires first; later steps slip by the wait, and the sidebar
+  shows HOLD. `false` lets the timeline run on and checks alongside.
+- `onFail` — `abort` (default: stand-wide ABORT, which runs the abort sequence),
+  `sequence` (stop and run `failSequence` in this one's place — and ABORT if it
+  cannot start), `safeAll`, `setValves`, `stop` (leave valves where they are)
+  or `continue` (log it and carry on).
+- `setValves` — drives each of `failValves` (`[{ "valve": "LOX-PRESS",
+  "state": "closed" }, …]`) to its state from wherever it is. A bang-bang, GN2
+  press or GOX purge loop holding one of them is turned off first. The valves
+  are then commanded past ARM, ABORT and loop ownership; only a driver error or
+  a hardware reconnect can stop one, and that is logged. Then the sequence
+  stops, unless `failStop` is `false`, in which case it carries on. The list
+  can also turn bang-bang loops on or off with `{ "bangbang": "bb-ox",
+  "enabled": false }`. Use a controller id, or `"gn2Press"` for the GN2 loop.
+  Loops are turned off before the valves are set and turned on after. Turning
+  a loop off always goes through. Turning one on keeps that loop's own ARM,
+  ABORT and reading checks, and a refusal is logged.
+
+**Gated valve steps.** A valve step can carry the same gate as a `gate` field
+(**Actuate → ONLY IF…** in the step inspector), so the valve is commanded only
+once the conditions are met. If the gate fails, the valve is left as it is and
+`onFail` runs. With `blocking: false` the rest of the timeline runs on, and the
+valve actuates whenever its gate passes within `timeout`. A later step on the
+same valve drops a gated command that is still waiting, so it can't fire late
+and undo that step.
+
+```json
+{ "t": 0.8, "action": "valve", "target": "MFV", "state": "open",
+  "gate": { "conditions": [{ "sensor": "PT-LOX-MAN", "op": ">", "value": 0 }],
+            "timeout": 0.3, "onFail": "sequence", "failSequence": "seq-safe-shutdown" } }
+```
+
+Gates run on the GC sequencer only, not on Panda. Save refuses a gate whose
+sensors are unknown, whose range is upside down, or whose fail sequences lead
+back to the sequence it is in. Every open, pass and fail is written to the event
+log with the readings that decided it.
 
 ### Redrawing the P&ID
 

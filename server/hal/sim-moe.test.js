@@ -45,9 +45,9 @@ async function vehicle() {
     state: (id) => sim.valveState.get(id),
 
     /**
-     * Charge the vehicle's GN2 bus from the ground to `psi`, pulsing the
-     * bang-bang solenoid by hand the way the board's G side would. There is
-     * no regulator any more: left open, the bottles would burst the bus.
+     * Charge the vehicle's GN2 bus from the ground to `psi` on the bang-bang
+     * solenoid, the way the ground station's GN2 loop would. There is no
+     * regulator any more: left open, the bottles would burst the bus.
      */
     fillGn2(psi = 4000, maxSeconds = 120) {
       api.set('GN2-VENT', 'closed');
@@ -169,28 +169,6 @@ test('GN2 fills the vehicle bus through the QD, and not while the QD is released
   // GN2 VENT is normally open: de-energize it and the bus blows down.
   s.set('GN2-VENT', 'open');
   assert.ok(s.run(20)['GN2-BUS-PT'] < 100, 'GN2 VENT blows the bus down');
-});
-
-test('the board GN2 side regulates the bus on its own solenoid and leaves the vent alone', async () => {
-  const s = await vehicle();
-  s.set('GN2-VENT', 'closed');
-  s.set('GND-GN2-VENT', 'closed');
-  s.set('GND-GN2-PRESS', 'open');
-  s.sim.setArmed(true);
-  assert.equal(s.sim.bbConfig('G', { setpoint: 2000, deadbandFull: 100, waitMs: 0, maxOpenMs: 0 }).ok, true);
-  assert.equal(s.sim.bbEnable('G', true).ok, true);
-  s.run(90);
-  const bus = s.read()['GN2-BUS-PT'];
-  // Plumbing only: the board's solenoid charges the bus and stops short of
-  // the bottles. How far past the band it lands is the model's tuning, not
-  // something to read anything into.
-  assert.ok(bus > 1950 && bus < 5000, `bus charged by the G side and held below the bottles, read ${bus}`);
-  assert.equal(s.state('GN2-VENT'), 'closed', 'the loop keeps GN2 VENT sealed');
-  assert.equal(s.sim.bbStatus().g.state, 'SUS');
-
-  s.sim.bbEnable('G', false);
-  s.run(1);
-  assert.equal(s.state('GN2-BB-PRESS'), 'closed', 'disable leaves the press solenoid shut');
 });
 
 test('LOX fills from the dewar only with the tank vented and the ground vent shut', async () => {

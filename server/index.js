@@ -512,6 +512,13 @@ async function handleApi(req, res, pathname, url) {
       return sendJson(res, result.ok ? 200 : 409, withState(result));
     }
 
+    // The software GN2 bang-bang loop (MOE COPV fill):
+    //   { sensor, setpoint, deadband, maxOpenMs, minIntervalMs, overpressure, enabled }, any subset
+    case 'POST /api/gn2-press': {
+      const result = stand.gn2Press.set(body, who);
+      return sendJson(res, result.ok ? 200 : 409, withState(result));
+    }
+
     // Draco GOX purge controller (PB6 on the Dragon TC):
     //   { enable: true, openAt, closeAt, maxOpenMs } | { enable: false } | { openAt, closeAt, maxOpenMs }
     case 'POST /api/gox-purge': {

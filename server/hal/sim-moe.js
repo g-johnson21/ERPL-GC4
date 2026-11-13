@@ -36,9 +36,9 @@
  *               PNEUMATICS VENT. Every GROUND ... valve is a spring-return
  *               pneumatic valve on this bus.
  *   GN2 GSE     supply bottles -> GN2 BANG-BANG PRESS -> orifice -> GROUND
- *               GN2 PRESS -> GN2 QD. The bang-bang solenoid is the PANDA's
- *               GN2 side (G), regulating on GN2 BUS PT; it replaced the
- *               ground regulator, so nothing holds the line below bottle
+ *               GN2 PRESS -> GN2 QD. The bang-bang solenoid is pulsed by
+ *               the ground station's GN2 loop (server/gn2-press.js); it
+ *               replaced the ground regulator, so nothing holds the line below bottle
  *               pressure while it is open. GROUND GN2 VENT (normally open)
  *               bleeds the fill line. GN2 QD CONTROL releases the QD while
  *               energized.

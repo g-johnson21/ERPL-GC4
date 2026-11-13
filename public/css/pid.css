@@ -490,6 +490,15 @@ body.spectator .pid-valve { cursor: default; pointer-events: none; }
 .pid-valve[data-bb="true"] .sym-glyph { fill: var(--warn); }
 .pid-valve[data-bb="true"][data-locked="true"] { opacity: 1; }
 
+/* On the side of a live bang-bang loop (indicateValves) but still GC's to
+   command, e.g. a tank vent while its press side regulates: the same yellow
+   outline, with the open/closed fill left showing underneath. */
+.pid-valve[data-bb-side="true"] .sym-fill,
+.pid-valve[data-bb-side="true"] .sym-fill-strong { stroke: var(--warn); stroke-width: 2; }
+.pid-valve[data-bb-side="true"] .sym-line { stroke: var(--warn); }
+.pid-valve[data-bb-side="true"] .sym-winding { stroke: color-mix(in srgb, var(--warn) 75%, transparent); }
+.pid-valve[data-bb-side="true"] .sym-glyph { fill: var(--warn); }
+
 /* The state chip under each valve's tag: a hairline box, faint when closed,
    lit in the open colour when open. */
 .pid-state-box {

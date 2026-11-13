@@ -55,9 +55,11 @@ const ERROR_PREFIXES = ['BB_ERROR:', 'CMD_ERROR:', 'PT_ERROR:'];
  * vocabulary (`TL` but `T0,<offset>`), so the mapping lives here once rather
  * than at each call site.
  *
- * `G` is the GN2 side: a third, independent controller with the same
- * commands as the tank sides, a 5000 psi transducer on board channel 2 and a
- * 5000 psi ceiling on its setpoint (GC_USERS_GUIDE.md §2).
+ * `G` is the firmware's GN2 side: a third controller with the same commands
+ * as the tank sides and a 5000 psi ceiling (GC_USERS_GUIDE.md §2). MOE does
+ * NOT use it — GN2 regulates in the ground station (gn2-press.js) — but the
+ * board still reports its channel 2 PT on the 'P' line, and safe-all still
+ * tells side G to stop in case anything ever started it.
  */
 export const PT_CHANNEL = { L: 0, F: 1, G: 2 };
 export const PT_SIDE_OF_CHANNEL = { 0: 'L', 1: 'F', 2: 'G' };
@@ -235,6 +237,7 @@ export function encodeCfgPush(ms, side, fields) {
  *   error      {message}
  *   ack        {message}
  *   link       {armed, lost, silentMs}
+ *   predictive {side, line}           BBD: diagnostics
  *   telemetry  {id, line}
  *   unknown    {line}
  */
@@ -248,6 +251,13 @@ export function parseLine(raw) {
   }
 
   if (line.startsWith('EVT:')) return parseEvent(line);
+
+  // `BBD:<side>:...` — predictive-cutoff diagnostics, about 1 Hz per side
+  // whether or not the loop is on (GC_USERS_GUIDE.md §BBD). Telemetry, not an
+  // event: before this they fell through to "unknown" and buried the event
+  // log. Checked before the comma test only because it has to be caught by
+  // prefix; it carries no commas.
+  if (line.startsWith('BBD:')) return { kind: 'predictive', side: line.split(':')[1] || null, line };
 
   if (line.startsWith('LINK:')) {
     const parsed = parseLinkStatus(line);

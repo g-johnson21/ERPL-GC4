@@ -13,6 +13,7 @@ import { mountAlerts } from './alerts.js';
 import { mountTimers, openTimerDialog } from './timers.js';
 import { mountCopvPress, openCopvPressDialog } from './copv-press.js';
 import { mountGoxPurge, openGoxPurgeDialog } from './gox-purge.js';
+import { gn2Card, update as updateGn2Card } from './gn2-card.js';
 
 // ============================================================== HEADER =====
 
@@ -727,16 +728,23 @@ function armSection() {
 /** The bang-bang column's contents, or null when this stand has no controllers. */
 function controllerSection() {
   const cfg = bus.config;
-  if (!cfg.bangbang.length) return null;
+  const gn2 = gn2Card();
+  if (!cfg.bangbang.length && !gn2) return null;
 
   const body = el('div#bb-list');
   for (const c of cfg.bangbang) body.append(controllerCard(c));
+  // The GN2 loop runs on the server, not the board — its own card, after
+  // the board's.
+  if (gn2) body.append(gn2);
 
   return el('div.sidebar-section', {},
     el('div.section-title', {}, 'Bang-Bang Pressure Control',
       el('button.btn.sm.ghost', {
         text: 'ALL OFF',
-        onclick: () => { for (const c of cfg.bangbang) bus.setController(c.id, { enabled: false }); },
+        onclick: () => {
+          for (const c of cfg.bangbang) bus.setController(c.id, { enabled: false });
+          if (gn2) bus.post('/api/gn2-press', { enabled: false });
+        },
       })
     ),
     body
@@ -1454,6 +1462,8 @@ function updateSidebar() {
     }
   }
 
+  updateGn2Card();
+
   // --- sequences ---
   const running = $('#seq-running');
   if (running) {
@@ -1468,6 +1478,7 @@ function updateSidebar() {
             el('span.sr-t#sr-t', { text: 'T+0.0' })
           ),
           el('div.sr-bar', {}, el('i#sr-fill')),
+          el('div.sr-hold.hidden#sr-hold'),
           el('button.btn.wide.sm.danger', {
             html: `${icon('stop', 13)} STOP SEQUENCE`,
             onclick: () => bus.stopSequence(),
@@ -1478,6 +1489,15 @@ function updateSidebar() {
       if (t) t.textContent = `T+${s.sequence.t.toFixed(1)}`;
       const fill = $('#sr-fill');
       if (fill) fill.style.width = `${pct}%`;
+      // A blocking gate check is holding the clock.
+      const hold = $('#sr-hold');
+      const h = s.sequence.hold;
+      if (hold) {
+        hold.classList.toggle('hidden', !h);
+        hold.textContent = h
+          ? `HOLD · ${h.label} · ${h.waited.toFixed(1)}${h.timeout ? ` / ${h.timeout}` : ''} s`
+          : '';
+      }
     } else if (running.dataset.seq) {
       running.dataset.seq = '';
       clear(running);

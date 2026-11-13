@@ -492,6 +492,28 @@
         }
       }
     },
+    "gn2Press": {
+      "type": "object",
+      "description": "The GN2 bang-bang loop, run in the GROUND STATION (server/gn2-press.js), not on the PANDA. It pulses `valve` against `sensor`, which an operator may switch to any pressure channel while ARMED. The COPV Press Tool (C) drives it. `overpressure` is a separate, second layer: the sensor reaching it closes both `valve` and `isolationValve` and turns the loop off.",
+      "required": ["valve", "sensor", "setpoint", "deadband", "overpressure"],
+      "properties": {
+        "name": { "type": "string" },
+        "valve": { "type": "string", "description": "The bang-bang solenoid this loop pulses (MOE: GN2-BB-PRESS, DC15)." },
+        "isolationValve": { "type": "string", "description": "The ground isolation valve the COPV Press Tool opens and the overpressure close shuts (MOE: GND-GN2-PRESS)." },
+        "sensor": { "type": "string", "description": "Default pressure transducer to regulate on. Changeable at runtime." },
+        "setpoint": { "type": "number" },
+        "deadband": { "type": "number", "exclusiveMinimum": 0, "description": "± half-band, psi." },
+        "setpointMin": { "type": "number" },
+        "setpointMax": { "type": "number" },
+        "setpointStep": { "type": "number" },
+        "deadbandMin": { "type": "number" },
+        "deadbandMax": { "type": "number" },
+        "maxOpenMs": { "type": "number", "minimum": 0, "description": "Longest single opening. 0 = no limit." },
+        "minIntervalMs": { "type": "number", "minimum": 0, "description": "Minimum closed time before the solenoid may reopen." },
+        "overpressure": { "type": "number", "description": "Sensor at or above this closes `valve` AND `isolationValve` and turns the loop off, whether the loop was on or not. Must be above setpoint + deadband. Runtime-adjustable." },
+        "requiresArm": { "type": "boolean" }
+      }
+    },
     "bangbang": {
       "type": "array",
       "description": "Bang-bang pressure regulators. THE LOOP RUNS ON THE PANDA BOARD, against the board's own PT channels — see HANDOVER_COMMS.md section 5. Ground control pushes these values, asks the board to start and stop, and supervises; it never drives the valve itself.",
@@ -579,11 +601,16 @@
               "F",
               "G"
             ],
-            "description": "Which board bus this controller is. 'L' (LOX), 'F' (Fuel) and 'G' (GN2) are the letters the board's B/V/b/v/x/e commands take. G is the GN2 side, which the COPV Press Tool drives. Required: without it the controller cannot be pushed to the board."
+            "description": "Which board bus this controller is. 'L' (LOX), 'F' (Fuel) and 'G' (GN2) are the letters the board's B/V/b/v/x/e commands take. MOE runs GN2 in the ground station instead (`gn2Press`), not on side G. Required: without it the controller cannot be pushed to the board."
           },
           "ventValve": {
             "type": "string",
             "description": "Optional. The vent solenoid this side's board loop drives, as a defined valve id. Used to mirror the board's vent bit onto the P&ID and to refuse manual commands while the loop owns it."
+          },
+          "indicateValves": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Display only. Valves drawn yellow on the Control Grid and P&ID while this loop is live, e.g. the tank vent on this side. Unlike ventValve they stay under GC command and keep showing their commanded open/closed state."
           },
           "ventTrigger": {
             "type": "number",
@@ -775,9 +802,10 @@
                     "safeAll",
                     "abortStates",
                     "abort",
-                    "end"
+                    "end",
+                    "gate"
                   ],
-                  "description": "valve: set a valve. bangbang: change a controller ('*' for all). safeAll/abortStates: drive every actuator. log: note in the event log and CSV."
+                  "description": "valve: set a valve. bangbang: change a controller ('*' for all). safeAll/abortStates: drive every actuator. log: note in the event log and CSV. gate: check sensor conditions and run onFail if they are not met."
                 },
                 "target": {
                   "type": "string"
@@ -810,7 +838,90 @@
                   "description": "Bang-bang: minimum dwell between valve state transitions in milliseconds. 0 disables dwell; omit to leave unchanged."
                 },
                 "message": {
-                  "type": "string"
+                  "type": "string",
+                  "description": "log/abort: the text. gate: a name for the check, used in the log instead of the conditions."
+                },
+                "conditions": {
+                  "type": "array",
+                  "minItems": 1,
+                  "description": "Gate: the sensor conditions to check. A missing or non-numeric reading never satisfies a condition.",
+                  "items": {
+                    "type": "object",
+                    "required": ["sensor", "op"],
+                    "properties": {
+                      "sensor": { "type": "string" },
+                      "op": { "enum": [">", ">=", "<", "<=", "between", "outside"] },
+                      "value": { "type": "number", "description": "For > >= < <=." },
+                      "min": { "type": "number", "description": "For between/outside (inclusive)." },
+                      "max": { "type": "number", "description": "For between/outside (inclusive)." }
+                    }
+                  }
+                },
+                "match": {
+                  "enum": ["all", "any"],
+                  "default": "all",
+                  "description": "Gate: pass when all conditions hold, or when any one does."
+                },
+                "timeout": {
+                  "type": "number",
+                  "minimum": 0,
+                  "default": 0,
+                  "description": "Gate: seconds after the step's time the conditions have to come good. 0 = checked once, at the step's time."
+                },
+                "hold": {
+                  "type": "number",
+                  "minimum": 0,
+                  "default": 0,
+                  "description": "Gate: seconds the conditions must stay good, unbroken, to pass."
+                },
+                "blocking": {
+                  "type": "boolean",
+                  "default": true,
+                  "description": "Gate: true holds the sequence clock until the gate decides, so no later step fires first (later steps slip by the wait). false lets the timeline run on while the gate is checked."
+                },
+                "onFail": {
+                  "enum": ["abort", "sequence", "safeAll", "setValves", "stop", "continue"],
+                  "default": "abort",
+                  "description": "Gate: what a failed check does. abort: stand-wide ABORT. sequence: stop and run failSequence instead (ABORT if it cannot start). safeAll: stop and safe every valve. setValves: drive failValves to their states regardless, then stop unless failStop is false. stop: stop, leave valves. continue: log and carry on."
+                },
+                "failSequence": {
+                  "type": "string",
+                  "description": "Gate with onFail 'sequence': id of the sequence to run in this one's place."
+                },
+                "failValves": {
+                  "type": "array",
+                  "minItems": 1,
+                  "description": "Gate with onFail 'setValves': valves to drive, and bang-bang loops to turn on or off. Order: loops off, valves set (past ARM, ABORT and loop ownership; a loop holding one is turned off first), loops on. Turning a loop on keeps that loop's own ARM/ABORT/reading checks.",
+                  "items": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "required": ["valve", "state"],
+                        "properties": {
+                          "valve": { "type": "string" },
+                          "state": { "enum": ["open", "closed"] }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": ["bangbang", "enabled"],
+                        "properties": {
+                          "bangbang": { "type": "string", "description": "A bangbang[] controller id, or 'gn2Press' for the GN2 press loop." },
+                          "enabled": { "type": "boolean" }
+                        }
+                      }
+                    ]
+                  }
+                },
+                "failStop": {
+                  "type": "boolean",
+                  "default": true,
+                  "description": "Gate with onFail 'setValves': stop the sequence after setting the valves (true), or let it carry on (false)."
+                },
+                "gate": {
+                  "type": "object",
+                  "required": ["conditions"],
+                  "description": "Valve step: actuate only once this gate passes. Same fields as a gate step (conditions, match, timeout, hold, blocking, onFail, failSequence, message). On a fail the valve is left as it is and onFail runs. A later step on the same valve drops a gated command still waiting."
                 }
               }
             }

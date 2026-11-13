@@ -98,6 +98,10 @@ const DC_TRACE_DELTA_A = 0.05;
 export class PandaDriver {
   constructor(options = {}) {
     this.name = 'panda';
+    // Latest BBD: predictive-cutoff line per side, and telemetry ids already
+    // reported as unused -- both kept out of the event log.
+    this.predictive = {};
+    this.unusedStreams = new Set();
     this.portPath = options.port || options.portName || null;
     this.baud = Number(options.baud || DEFAULT_BAUD);
     this.ptInputMode = options.ptInputMode || 'volts';
@@ -277,12 +281,25 @@ export class PandaDriver {
       case 'event':     return this.onBoardEvent(msg);
       case 'error':     return this.onBoardError(msg);
       case 'ack':       return this.onAck(msg);
+      // Predictive-cutoff diagnostics: kept as the latest per side, never
+      // logged. The event log is for control traffic.
+      case 'predictive':
+        if (msg.side) this.predictive[msg.side] = { line: msg.line, at: Date.now() };
+        return;
       case 'telemetry': break;
       default:          return this.onEvent(msg.line, 'info');
     }
 
     const id = msg.id;
-    if (!'pPlts'.includes(id)) return this.onEvent(line, 'info');
+    if (!'pPlts'.includes(id)) {
+      // A telemetry stream GC does not use (the `v` supply voltages, say)
+      // arrives every sample. Say so once, so it can be found, and not again.
+      if (!this.unusedStreams.has(id)) {
+        this.unusedStreams.add(id);
+        this.onEvent(`PANDA sends "${id}" telemetry GC does not use (e.g. ${line}) — not logged further`, 'info');
+      }
+      return;
+    }
 
     const values = parseNumbers(line);
 

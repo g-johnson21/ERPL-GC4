@@ -226,6 +226,7 @@ function updateValves() {
     // last commanded state is not its position — so neither is shown.
     const owner = bus.valveOwner(valve.id);
     btn.dataset.bb = String(Boolean(owner));
+    btn.dataset.bbSide = String(!owner && Boolean(bus.valveSide(valve.id)));
     $(`#vs-${valve.id}`).textContent = owner ? 'BANG-BANG' : state === 'open' ? valve.openLabel : valve.closedLabel;
 
     // Current sense: what the coil is actually drawing, versus what we

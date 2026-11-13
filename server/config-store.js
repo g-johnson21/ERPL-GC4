@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
 // Pure (no DOM): the browser and the server judge a keybind by the same rule.
-import { keyProblem } from '../public/js/seq-model.js';
+import { keyProblem, gateProblems } from '../public/js/seq-model.js';
 import { BB_SIDES, BB_MAX_PSI } from './hal/bb-protocol.js';
 
 const VALID_VALVE_TYPES = ['solenoid', 'ball', 'butterfly', 'needle', 'igniter', 'motor'];
@@ -391,6 +391,30 @@ export function validateConfig(c) {
     checkAlertBounds(s, `${where} (${s.id})`, err);
   }
 
+  // The software GN2 bang-bang loop (gn2-press.js). One per stand, and only
+  // where the stand has GN2 BANG-BANG PRESS to drive.
+  if (c.gn2Press != null) {
+    const g = c.gn2Press;
+    const where = 'gn2Press';
+    if (!valveIds.has(g.valve)) err(`${where}: valve "${g.valve}" is not a defined valve`);
+    if (g.isolationValve != null && !valveIds.has(g.isolationValve)) {
+      err(`${where}: isolationValve "${g.isolationValve}" is not a defined valve`);
+    }
+    const pt = (c.sensors || []).find((s) => s.id === g.sensor);
+    if (!pt) err(`${where}: sensor "${g.sensor}" is not a defined sensor`);
+    else if ((pt.kind ?? 'pressure') !== 'pressure') err(`${where}: sensor "${g.sensor}" is not a pressure transducer`);
+    for (const k of ['setpoint', 'deadband', 'overpressure']) {
+      if (!Number.isFinite(g[k])) err(`${where}: ${k} must be a number`);
+    }
+    if (Number.isFinite(g.deadband) && g.deadband <= 0) err(`${where}: deadband must be > 0`);
+    if ([g.setpoint, g.deadband, g.overpressure].every(Number.isFinite) && g.overpressure <= g.setpoint + g.deadband) {
+      err(`${where}: overpressure (${g.overpressure}) must be above setpoint + deadband (${g.setpoint + g.deadband})`);
+    }
+    if ((c.bangbang || []).some((b) => b.valve === g.valve || b.ventValve === g.valve)) {
+      err(`${where}: ${g.valve} is also a board bang-bang valve — two loops cannot drive one solenoid`);
+    }
+  }
+
   const usedSides = new Map();
   const usedBoardTags = new Map();
   for (const [i, b] of (c.bangbang || []).entries()) {
@@ -414,6 +438,12 @@ export function validateConfig(c) {
     if (!valveIds.has(b.valve)) err(`${where} (${b.id}): valve "${b.valve}" is not a defined valve`);
     if (b.ventValve != null && !valveIds.has(b.ventValve)) {
       err(`${where} (${b.id}): ventValve "${b.ventValve}" is not a defined valve`);
+    }
+    if (b.indicateValves !== undefined) {
+      if (!Array.isArray(b.indicateValves)) err(`${where} (${b.id}): indicateValves must be a list of valve ids`);
+      else for (const id of b.indicateValves) {
+        if (!valveIds.has(id)) err(`${where} (${b.id}): indicateValves "${id}" is not a defined valve`);
+      }
     }
     if (b.boardSensor) checkAlertBounds(b.boardSensor, `${where} (${b.id}) boardSensor`, err);
     if (typeof b.setpoint !== 'number') err(`${where} (${b.id}): setpoint must be a number`);
@@ -477,6 +507,11 @@ export function validateConfig(c) {
         case 'valve':
           if (!valveIds.has(step.target)) err(`${sw}: target "${step.target}" is not a defined valve`);
           if (!VALID_STATES.includes(step.state)) err(`${sw}: state must be "open" or "closed"`);
+          if (step.gate !== undefined) {
+            if (s.usePandaAutosequencer) err(`${sw}: gated valve steps cannot run on the Panda autosequencer`);
+            if (!step.gate || typeof step.gate !== 'object') err(`${sw}: gate must be an object`);
+            else for (const problem of gateProblems(step.gate, s, c)) err(`${sw}: gate ${problem}`);
+          }
           break;
         case 'bangbang':
           if (step.target !== '*' && !(c.bangbang || []).some((b) => b.id === step.target)) {
@@ -484,6 +519,10 @@ export function validateConfig(c) {
           }
           break;
         case 'log': case 'safeAll': case 'abortStates': case 'abort': case 'end':
+          break;
+        case 'gate':
+          if (s.usePandaAutosequencer) err(`${sw}: gate checks cannot run on the Panda autosequencer`);
+          for (const problem of gateProblems(step, s, c)) err(`${sw}: gate ${problem}`);
           break;
         default:
           err(`${sw}: unknown action "${step.action}"`);

@@ -809,3 +809,12 @@ test('a config reload keeps the operator predictive setting', () => {
   bank.sync();
   assert.equal(bank.snapshot()['bb-ox'].predictive, true);
 });
+
+test('indicateValves are shown on a live loop side without being owned', () => {
+  const stand = makeStand({ ventValve: null, indicateValves: ['SV-LOXV', 'SV-LOXBB'] });
+  const bank = new BangBangBank(stand);
+  assert.equal(bank.indicatedValves().size, 0, 'nothing shown while OFF');
+  bringUp(bank, stand);
+  assert.deepEqual([...bank.indicatedValves().keys()], ['SV-LOXV'], 'its own press valve is owned, not indicated');
+  assert.deepEqual([...bank.ownedValves().keys()], ['SV-LOXBB'], 'the vent stays under GC command');
+});

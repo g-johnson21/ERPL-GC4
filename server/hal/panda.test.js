@@ -704,3 +704,19 @@ test('a closed port is a disconnect even if the link was never up', () => {
   assert.equal(d.events.length, 1);
   assert.match(d.events[0].message, /PANDA DISCONNECTED — serial port COM7 closed/);
 });
+
+test('BBD diagnostics and unused telemetry streams stay out of the event log', () => {
+  const events = [];
+  const d = makeDriver({ onEvent: (message, level) => events.push([level, message]) });
+  for (let i = 0; i < 5; i++) {
+    d.onLine('BBD:L:OFF:0:-0.34:-0.10:-0.34:365.00:15:313.0:1:0');
+    d.onLine('BBD:F:SUS:1:701.2:0.09:701.3:715.00:15:313.0:1:1');
+    d.onLine('v0.00000,v23.96875,v0.00000');
+  }
+  assert.ok(!events.some(([, m]) => m.includes('BBD:')), 'no BBD line is logged');
+  assert.equal(events.filter(([, m]) => m.includes('"v" telemetry')).length, 1, 'the unused stream is named once');
+  assert.match(d.predictive.F.line, /^BBD:F:SUS/, 'the latest BBD per side is kept');
+  // Control traffic still logs.
+  d.onLine('EVT:1200:BB_STATE:L:OFF->SUS');
+  assert.ok(events.some(([, m]) => m.includes('BB_STATE')));
+});

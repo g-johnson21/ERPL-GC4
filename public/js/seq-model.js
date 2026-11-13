@@ -20,10 +20,181 @@ export const STEP_ACTIONS = [
   { value: 'abortStates', label: 'Abort states', hint: 'Drive every valve to its abort state' },
   { value: 'abort', label: 'Trigger ABORT', hint: 'Latch a stand-wide abort' },
   { value: 'end', label: 'End', hint: 'Stop the sequence here' },
+  { value: 'gate', label: 'Gate check', hint: 'Check sensors here; run a fail action if they are not where they should be' },
 ];
 
 /** Actions drawn on the milestone lane rather than an actuator lane. */
-export const EVENT_ACTIONS = new Set(['log', 'safeAll', 'abortStates', 'abort', 'end']);
+export const EVENT_ACTIONS = new Set(['log', 'safeAll', 'abortStates', 'abort', 'end', 'gate']);
+
+// ----------------------------------------------------------------- gates --
+// A gate step's shape (see server/sequencer.js for how it runs):
+//   { t, action: 'gate', conditions: [{ sensor, op, value } | { sensor, op: 'between'|'outside', min, max }],
+//     match: 'all'|'any', timeout: s, hold: s, blocking: bool,
+//     onFail: 'abort'|'sequence'|'safeAll'|'stop'|'continue', failSequence: id, message }
+
+export const GATE_OPS = [
+  { value: '>', label: '>' },
+  { value: '>=', label: '≥' },
+  { value: '<', label: '<' },
+  { value: '<=', label: '≤' },
+  { value: 'between', label: 'between' },
+  { value: 'outside', label: 'outside' },
+];
+export const GATE_RANGE_OPS = new Set(['between', 'outside']);
+
+export const GATE_FAIL_ACTIONS = [
+  { value: 'abort', label: 'ABORT the stand', hint: 'Latch a stand-wide abort, which runs the abort sequence' },
+  { value: 'sequence', label: 'Run a sequence', hint: 'Stop this sequence and start another in its place' },
+  { value: 'safeAll', label: 'Safe all', hint: 'Stop this sequence and drive every valve to its safe state' },
+  { value: 'setValves', label: 'Set valve states', hint: 'Drive the chosen valves to the chosen states whatever they are now, turning off any loop that holds one' },
+  { value: 'stop', label: 'Stop sequence', hint: 'Stop this sequence and leave every valve where it is' },
+  { value: 'continue', label: 'Log and continue', hint: 'Note the failure in the log and keep running' },
+];
+
+export function conditionText(cond) {
+  if (cond.op === 'between') return `${cond.sensor} in [${cond.min}, ${cond.max}]`;
+  if (cond.op === 'outside') return `${cond.sensor} outside [${cond.min}, ${cond.max}]`;
+  return `${cond.sensor} ${cond.op} ${cond.value}`;
+}
+
+export function gateLabel(step) {
+  return (step.conditions || []).map(conditionText).join(step.match === 'any' ? ' OR ' : ' AND ') || '(no conditions)';
+}
+
+/**
+ * Everything wrong with a gate step, as messages. The server refuses to save
+ * a config with any of these; the editor shows them beside the step.
+ */
+export function gateProblems(step, seq, config) {
+  const out = [];
+  const sensors = new Set((config.sensors || []).map((s) => s.id));
+  const seqs = config.autosequences || [];
+  const num = (v) => typeof v === 'number' && Number.isFinite(v);
+  const conds = step.conditions;
+  if (!Array.isArray(conds) || !conds.length) out.push('needs at least one condition');
+  for (const [k, cond] of (Array.isArray(conds) ? conds : []).entries()) {
+    const at = `condition ${k + 1}`;
+    if (!sensors.has(cond.sensor)) out.push(`${at}: "${cond.sensor}" is not a defined sensor`);
+    if (!GATE_OPS.some((o) => o.value === cond.op)) out.push(`${at}: op must be one of ${GATE_OPS.map((o) => o.value).join(' ')}`);
+    else if (GATE_RANGE_OPS.has(cond.op)) {
+      if (!num(cond.min) || !num(cond.max)) out.push(`${at}: ${cond.op} needs numeric min and max`);
+      else if (cond.min > cond.max) out.push(`${at}: min is above max`);
+    } else if (!num(cond.value)) out.push(`${at}: value must be a number`);
+  }
+  if (step.match !== undefined && step.match !== 'all' && step.match !== 'any') out.push('match must be "all" or "any"');
+  for (const key of ['timeout', 'hold']) {
+    if (step[key] !== undefined && (!num(step[key]) || step[key] < 0)) out.push(`${key} must be a number of seconds >= 0`);
+  }
+  if (step.blocking !== undefined && typeof step.blocking !== 'boolean') out.push('blocking must be true or false');
+  const onFail = step.onFail ?? 'abort';
+  if (!GATE_FAIL_ACTIONS.some((a) => a.value === onFail)) {
+    out.push(`onFail must be one of ${GATE_FAIL_ACTIONS.map((a) => a.value).join(', ')}`);
+  }
+  if (onFail === 'setValves') {
+    const valves = new Set((config.valves || []).map((v) => v.id));
+    const loops = bangbangLoops(config);
+    const list = step.failValves;
+    if (!Array.isArray(list) || !list.length) out.push('onFail "setValves" needs at least one valve or bang-bang controller in failValves');
+    const seen = new Set();
+    const listed = Array.isArray(list) ? list : [];
+    for (const [k, fv] of listed.entries()) {
+      const at = `failValves ${k + 1}`;
+      if (fv?.bangbang !== undefined) {
+        // { bangbang: id, enabled: bool } -- turn a regulating loop on or off.
+        const loop = loops.find((l) => l.id === fv.bangbang);
+        if (!loop) out.push(`${at}: "${fv.bangbang}" is not a bang-bang controller`);
+        else if (seen.has(`bb:${fv.bangbang}`)) out.push(`${at}: ${fv.bangbang} is listed twice`);
+        seen.add(`bb:${fv.bangbang}`);
+        if (typeof fv.enabled !== 'boolean') out.push(`${at}: enabled must be true or false`);
+        // Enabling a loop hands it its valve; setting that valve too would
+        // have two things decide its position.
+        if (loop && fv.enabled === true && listed.some((x) => x?.valve === loop.valve)) {
+          out.push(`${at}: enabling ${fv.bangbang} hands it ${loop.valve}, which is also being set`);
+        }
+        continue;
+      }
+      if (!valves.has(fv?.valve)) out.push(`${at}: "${fv?.valve}" is not a defined valve`);
+      else if (seen.has(fv.valve)) out.push(`${at}: ${fv.valve} is listed twice`);
+      seen.add(fv?.valve);
+      if (fv?.state !== 'open' && fv?.state !== 'closed') out.push(`${at}: state must be "open" or "closed"`);
+    }
+    if (step.failStop !== undefined && typeof step.failStop !== 'boolean') out.push('failStop must be true or false');
+  }
+  if (onFail === 'sequence') {
+    if (!step.failSequence) out.push('onFail "sequence" needs a failSequence');
+    else if (!seqs.some((s) => s.id === step.failSequence)) out.push(`failSequence "${step.failSequence}" is not a defined sequence`);
+    else if (step.failSequence === seq?.id) out.push('failSequence cannot be the sequence the gate is in');
+    else {
+      const loop = failLoop(step.failSequence, seq?.id, seqs);
+      if (loop) out.push(`failSequence leads back here: ${loop.join(' → ')}`);
+    }
+  }
+  return out;
+}
+
+/**
+ * The gate a step is checked against, or null: a gate step is its own; a
+ * valve step may carry one as `step.gate`, and then only actuates once it
+ * passes.
+ */
+export function gateOf(step) {
+  if (step?.action === 'gate') return step;
+  return step?.gate && typeof step.gate === 'object' ? step.gate : null;
+}
+
+/** A fresh gate for the editor. No threshold is guessed: the operator types it. */
+export function newGate(config) {
+  return { conditions: [{ sensor: config.sensors?.[0]?.id, op: '>', value: 0 }], onFail: 'abort' };
+}
+
+/**
+ * Every bang-bang loop "Set valve states" can turn on or off: the board's
+ * controllers (`bangbang[]`), plus the ground-station GN2 press loop as
+ * `gn2Press` where the stand has one.
+ */
+export function bangbangLoops(config) {
+  const out = (config.bangbang || []).map((c) => ({ id: c.id, name: c.name || c.id, valve: c.valve, kind: 'board' }));
+  if (config.gn2Press) {
+    out.push({ id: 'gn2Press', name: config.gn2Press.name || 'GN2 press loop', valve: config.gn2Press.valve, kind: 'gn2' });
+  }
+  return out;
+}
+
+/** What a failed gate does, in a few words. */
+export function gateFailText(step, config = {}) {
+  const onFail = step.onFail ?? 'abort';
+  if (onFail === 'sequence') {
+    const target = (config.autosequences || []).find((s) => s.id === step.failSequence);
+    return `run ${target?.name || step.failSequence || '?'}`;
+  }
+  if (onFail === 'setValves') {
+    const list = (step.failValves || []).map((fv) => (fv.bangbang !== undefined
+      ? `${fv.bangbang} ${fv.enabled ? 'ON' : 'OFF'}`
+      : `${fv.valve} ${String(fv.state).toUpperCase()}`)).join(', ');
+    return `set ${list || 'no valves'}${step.failStop === false ? ' and continue' : ' and stop'}`;
+  }
+  return GATE_FAIL_ACTIONS.find((a) => a.value === onFail)?.label.toLowerCase() || onFail;
+}
+
+/** A chain of fail sequences from `from` that returns to `home`, or null. */
+function failLoop(from, home, seqs) {
+  const seen = new Set();
+  const walk = (id, path) => {
+    if (id === home) return path;
+    if (seen.has(id)) return null;
+    seen.add(id);
+    const s = seqs.find((x) => x.id === id);
+    for (const step of s?.steps || []) {
+      const spec = gateOf(step);
+      if (spec?.onFail === 'sequence' && spec.failSequence) {
+        const found = walk(spec.failSequence, [...path, spec.failSequence]);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+  return walk(from, [home, from]);
+}
 
 export const round3 = (n) => Math.round(n * 1000) / 1000;
 export const stepT = (s) => Number(s?.t) || 0;
@@ -312,8 +483,14 @@ export function lint(seq, config) {
       const keys = ['enabled', 'setpoint', 'deadband', 'maxOpenMs', 'minIntervalMs', 'vent', 'abort'];
       if (!keys.some((k) => step[k] !== undefined)) add(step, 'Changes nothing');
     }
+    const gate = gateOf(step);
+    if (gate) {
+      for (const problem of gateProblems(gate, seq, config)) add(step, `Gate ${problem}`);
+    }
     if (seq.usePandaAutosequencer && step.action !== 'valve' && step.action !== 'log') {
       add(step, 'Panda runs valve steps only');
+    } else if (seq.usePandaAutosequencer && step.gate) {
+      add(step, 'Panda cannot check a gate: it would actuate regardless');
     }
   }
   return out;
@@ -446,12 +623,14 @@ export function describe(step, config) {
   switch (step.action) {
     case 'valve': {
       const valve = (config.valves || []).find((v) => v.id === step.target);
-      return `${step.target} → ${valveStateLabel(valve, step.state)}`;
+      const base = `${step.target} → ${valveStateLabel(valve, step.state)}`;
+      return step.gate ? `${base} IF ${gateLabel(step.gate)}, else ${gateFailText(step.gate, config)}` : base;
     }
     case 'bangbang':
       return `${step.target === '*' ? 'All controllers' : step.target}: ${bbTokens(step).join(' · ') || 'no change'}`;
     case 'log': return `“${step.message || ''}”`;
     case 'abort': return `ABORT${step.message ? `: ${step.message}` : ''}`;
+    case 'gate': return `GATE ${gateLabel(step)} → else ${gateFailText(step, config)}`;
     default: return STEP_ACTIONS.find((a) => a.value === step.action)?.label || step.action;
   }
 }

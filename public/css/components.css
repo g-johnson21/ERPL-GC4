@@ -765,6 +765,19 @@
   border-radius: 0;
 }
 
+/* The GN2 card's extras: the live PT selector, and the overpressure close
+   marked on the track in danger red, beside the band it must sit above. */
+.bb-track .gn2-op {
+  position: absolute;
+  top: 0; bottom: 0;
+  width: 2px;
+  background: var(--danger);
+}
+.gn2-pt { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; }
+.gn2-pt .field { margin: 0; }
+.gn2-pt select { flex: 1; min-width: 0; }
+.gn2-limits { grid-template-columns: 1fr 1fr 1fr; margin-bottom: 7px; }
+
 .bb-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 7px; }
 .bb-inputs .field { margin-bottom: 2px; }
 
@@ -2048,6 +2061,30 @@ kbd {
 .sq-cond-row { display: flex; align-items: center; gap: 6px; }
 .sq-cond-row > select:first-child { flex: 1; min-width: 0; }
 .sq-op { width: 56px; }
+.sq-op-wide { width: 92px; }
+/* "Set valve states": valve on the left, its state on the right, one line. */
+.sq-fv-row > select { flex: 1 1 0; min-width: 120px; }
+.sq-fv-row > .sq-seg { flex: none; width: auto; }
+.sq-fv-row > .sq-seg button { flex: none; padding: 4px 8px; white-space: nowrap; }
+.sq-seg .bb.active { color: var(--warn); background: var(--warn-bg); }
+.sc-state.gate { color: var(--info); border-color: var(--info); background: var(--info-bg); }
+.tl-step[data-action="gate"] { background: var(--info); border-color: var(--info); border-radius: 1px; }
+.tl-step[data-action="gate"] .tl-ev-label { color: var(--info); }
+.tl-guide[data-action="gate"] { border-left-color: var(--info); opacity: .6; }
+/* A valve step that only actuates if its gate passes. */
+.tl-step.gated { outline: 1.5px dashed var(--info); outline-offset: 2px; }
+.sq-seg .gate.active { color: var(--info); border-color: var(--info); background: var(--info-bg); }
+.sq-gate-box {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 8px 0 8px 10px;
+  border-left: 2px solid var(--info);
+}
+.seq-running .sr-hold {
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  color: var(--info);
+  margin-bottom: 6px;
+}
 
 @media (max-width: 1100px), (max-height: 620px) {
   /* Too small to split: back to one page that scrolls. */
@@ -2728,6 +2765,9 @@ body.shift-armed .pid-valve[data-needs-shift="true"] { outline: none; }
   font-weight: 600;
 }
 .valve-btn[data-bb="true"] .v-state .led { box-shadow: 0 0 6px currentColor; }
+/* On a live loop's side (indicateValves): yellow card, real state still shown. */
+.valve-btn[data-bb-side="true"] { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 8%, var(--surface)); }
+.vt-bbside { color: var(--warn); }
 
 /* ------------------------------------------------- channel editor ------ */
 

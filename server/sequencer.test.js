@@ -140,3 +140,211 @@ test('unacknowledged uploads time out without allowing Run', async () => {
   assert.equal(panda.sequenceStatus().pending, false);
   assert.equal(seq.start('test').ok, false);
 });
+
+// ---------------------------------------------------------------- gates ---
+
+function gateFixture(steps, more = []) {
+  const valves = ['V1', 'V2', 'V3'].map((id) => ({ id, safeState: 'closed' }));
+  const cfg = { id: 'fire', name: 'Fire', requiresArm: true, abortConditions: [], steps };
+  const safe = { id: 'safe', name: 'Safe', requiresArm: false, abortConditions: [], steps: [
+    { t: 0, action: 'valve', target: 'V3', state: 'open' }] };
+  const abortSeq = { id: 'abort', name: 'Abort', requiresArm: false, abortConditions: [], steps: [
+    { t: 0, action: 'safeAll' }] };
+  const seqs = [cfg, safe, abortSeq, ...more];
+  const logs = [];
+  const commanded = [];
+  const stand = {
+    driver: {}, armed: true, abortState: { active: false }, config: { valves, safety: { abortSequenceId: 'abort' } },
+    configStore: { sequence: (id) => seqs.find((s) => s.id === id) },
+    bangbang: { ownedValves: () => new Map() }, valveStates: {}, valveMeta: {},
+    log(kind, msg) { logs.push(`${kind}: ${msg}`); }, emit() {},
+    commandValve(id, state) { commanded.push(`${id}:${state}`); return { ok: true }; },
+    safeAll() { commanded.push('safeAll'); },
+    forceValves(list) { for (const { valve, state } of list) commanded.push(`force ${valve}:${state}`); return []; },
+    abort(reason) {
+      if (this.abortState.active) return;
+      this.abortState = { active: true, reason };
+      if (this.sequencer.running) this.sequencer.stop('abort', 'abort');
+      this.sequencer.start('abort', 'abort');
+    },
+  };
+  const seq = stand.sequencer = new Sequencer(stand);
+  return { seq, stand, logs, commanded, cfg };
+}
+
+const LOX_OPEN = { t: 0, action: 'valve', target: 'V1', state: 'open' };
+const FUEL_OPEN = { t: 0.5, action: 'valve', target: 'V2', state: 'open' };
+
+test('a passing gate lets the sequence run on', () => {
+  const { seq, commanded, logs } = gateFixture([LOX_OPEN,
+    { t: 0.2, action: 'gate', conditions: [{ sensor: 'PT1', op: 'between', min: 10, max: 20 }], onFail: 'abort' },
+    FUEL_OPEN]);
+  assert.equal(seq.start('fire').ok, true);
+  const t0 = seq.active.startedAt;
+  seq.update({ PT1: 15 }, t0);
+  seq.update({ PT1: 15 }, t0 + 250);
+  seq.update({ PT1: 15 }, t0 + 600);
+  assert.deepEqual(commanded, ['V1:open', 'V2:open']);
+  assert.ok(logs.some((l) => l.includes('GATE PASS')));
+  assert.equal(seq.running, false, 'completes');
+});
+
+test('a gate out of range runs its fail sequence and nothing after it', () => {
+  const { seq, stand, commanded, logs } = gateFixture([LOX_OPEN,
+    { t: 0.2, action: 'gate', conditions: [{ sensor: 'PT1', op: '>', value: 100 }], onFail: 'sequence', failSequence: 'safe' },
+    FUEL_OPEN]);
+  seq.start('fire');
+  const t0 = seq.active.startedAt;
+  seq.update({ PT1: 50 }, t0);
+  seq.update({ PT1: 50 }, t0 + 250);
+  assert.equal(seq.active?.cfg.id, 'safe');
+  seq.update({ PT1: 50 }, t0 + 260);
+  assert.deepEqual(commanded, ['V1:open', 'V3:open'], 'fuel never opens; the fail sequence ran');
+  assert.equal(stand.abortState.active, false);
+  assert.ok(logs.some((l) => l.startsWith('error:') && l.includes('GATE FAIL') && l.includes('PT1=50.0')));
+});
+
+test('a blocking gate holds the clock until it passes; later steps slip', () => {
+  const { seq, commanded } = gateFixture([LOX_OPEN,
+    { t: 0.2, action: 'gate', conditions: [{ sensor: 'PT1', op: '>=', value: 100 }], timeout: 2 },
+    FUEL_OPEN]);
+  seq.start('fire');
+  const t0 = seq.active.startedAt;
+  seq.update({ PT1: 0 }, t0);
+  seq.update({ PT1: 0 }, t0 + 200);
+  seq.update({ PT1: 0 }, t0 + 1000);
+  assert.ok(seq.snapshot().hold, 'reports the hold');
+  assert.deepEqual(commanded, ['V1:open'], 'fuel waits for the gate');
+  seq.update({ PT1: 120 }, t0 + 1200);      // passes; 1.0 s held
+  seq.update({ PT1: 120 }, t0 + 1400);      // seq time 0.4
+  assert.deepEqual(commanded, ['V1:open']);
+  seq.update({ PT1: 120 }, t0 + 1550);      // seq time 0.55
+  assert.deepEqual(commanded, ['V1:open', 'V2:open']);
+});
+
+test('a gate that never comes good within its timeout aborts by default', () => {
+  const { seq, stand, commanded } = gateFixture([LOX_OPEN,
+    { t: 0, action: 'gate', conditions: [{ sensor: 'PT1', op: '<', value: 5 }], timeout: 0.5 },
+    FUEL_OPEN]);
+  seq.start('fire');
+  const t0 = seq.active.startedAt;
+  seq.update({ PT1: 9 }, t0);
+  seq.update({ PT1: 9 }, t0 + 400);
+  assert.equal(stand.abortState.active, false, 'still inside the timeout');
+  seq.update({ PT1: 9 }, t0 + 500);
+  assert.equal(stand.abortState.active, true);
+  assert.equal(seq.active?.cfg.id, 'abort');
+  seq.update({}, t0 + 510);
+  assert.deepEqual(commanded, ['V1:open', 'safeAll'], 'old steps are not replayed under the abort sequence');
+});
+
+test('hold requires the condition unbroken; a missing reading never passes', () => {
+  const { seq, stand } = gateFixture([
+    { t: 0, action: 'gate', conditions: [{ sensor: 'PT1', op: '>', value: 10 }], timeout: 1, hold: 0.3, onFail: 'stop' },
+    FUEL_OPEN]);
+  seq.start('fire');
+  const t0 = seq.active.startedAt;
+  seq.update({ PT1: 20 }, t0);
+  seq.update({}, t0 + 200);                // dropout breaks the streak
+  seq.update({ PT1: 20 }, t0 + 300);
+  seq.update({ PT1: 20 }, t0 + 500);
+  assert.ok(seq.snapshot().hold, 'not yet held 0.3 s');
+  seq.update({ PT1: 20 }, t0 + 600);
+  assert.equal(seq.snapshot().hold, null, 'passed');
+  assert.equal(stand.abortState.active, false);
+});
+
+test('any/all, outside, continue and non-blocking gates', () => {
+  const { seq, commanded, stand, logs } = gateFixture([LOX_OPEN,
+    { t: 0, action: 'gate', match: 'any', blocking: false, timeout: 0, onFail: 'continue',
+      conditions: [{ sensor: 'PT1', op: 'outside', min: 0, max: 10 }, { sensor: 'PT2', op: '<', value: 0 }] },
+    FUEL_OPEN]);
+  seq.start('fire');
+  const t0 = seq.active.startedAt;
+  seq.update({ PT1: 5, PT2: 5 }, t0);
+  seq.update({ PT1: 5, PT2: 5 }, t0 + 600);
+  assert.deepEqual(commanded, ['V1:open', 'V2:open']);
+  assert.equal(stand.abortState.active, false);
+  assert.ok(logs.some((l) => l.includes('GATE FAIL') && l.includes('CONTINUE')));
+});
+
+test('a fail sequence that cannot start falls back to ABORT', () => {
+  const locked = { id: 'locked', name: 'Locked', requiresArm: true, abortConditions: [], steps: [] };
+  const { seq, stand } = gateFixture([
+    { t: 0, action: 'gate', conditions: [{ sensor: 'PT1', op: '>', value: 1 }], onFail: 'sequence', failSequence: 'locked' }], [locked]);
+  seq.start('fire');
+  stand.armed = false;
+  seq.update({ PT1: 0 }, seq.active.startedAt);
+  assert.equal(stand.abortState.active, true);
+});
+
+// ---------------------------------------------------------- gated valves ---
+
+test('a gated valve opens only once its conditions are met, and the clock waits', () => {
+  const { seq, commanded, logs } = gateFixture([LOX_OPEN,
+    { t: 0.2, action: 'valve', target: 'V2', state: 'open',
+      gate: { conditions: [{ sensor: 'PT1', op: '>', value: 100 }], timeout: 1 } },
+    { t: 0.5, action: 'valve', target: 'V3', state: 'open' }]);
+  seq.start('fire');
+  const t0 = seq.active.startedAt;
+  seq.update({ PT1: 0 }, t0);
+  seq.update({ PT1: 0 }, t0 + 200);
+  seq.update({ PT1: 0 }, t0 + 700);
+  assert.deepEqual(commanded, ['V1:open'], 'V2 waits on its gate; V3 waits behind it');
+  assert.match(seq.snapshot().hold.label, /V2 OPEN/);
+  seq.update({ PT1: 150 }, t0 + 800);
+  assert.deepEqual(commanded, ['V1:open', 'V2:open']);
+  seq.update({ PT1: 150 }, t0 + 1050);     // seq time 0.45
+  assert.deepEqual(commanded, ['V1:open', 'V2:open']);
+  seq.update({ PT1: 150 }, t0 + 1150);
+  assert.deepEqual(commanded, ['V1:open', 'V2:open', 'V3:open']);
+  assert.ok(logs.some((l) => l.includes('before V2 OPEN')));
+});
+
+test('a gated valve whose gate fails is never actuated; the fail sequence runs', () => {
+  const { seq, commanded, logs } = gateFixture([LOX_OPEN,
+    { t: 0, action: 'valve', target: 'V2', state: 'open',
+      gate: { conditions: [{ sensor: 'PT1', op: '>', value: 100 }], onFail: 'sequence', failSequence: 'safe' } }]);
+  seq.start('fire');
+  seq.update({ PT1: 5 }, seq.active.startedAt);
+  assert.equal(seq.active?.cfg.id, 'safe');
+  seq.update({ PT1: 5 }, seq.active.startedAt + 10);
+  assert.deepEqual(commanded, ['V1:open', 'V3:open']);
+  assert.ok(logs.some((l) => l.includes('V2 OPEN NOT DONE')));
+});
+
+test('continue skips a failed gated valve; a later step supersedes a waiting one', () => {
+  const { seq, commanded, logs } = gateFixture([
+    { t: 0, action: 'valve', target: 'V1', state: 'open',
+      gate: { conditions: [{ sensor: 'PT1', op: '>', value: 1 }], onFail: 'continue' } },
+    { t: 0, action: 'valve', target: 'V2', state: 'open',
+      gate: { conditions: [{ sensor: 'PT1', op: '>', value: 1 }], timeout: 5, blocking: false } },
+    { t: 0.5, action: 'valve', target: 'V2', state: 'closed' }]);
+  seq.start('fire');
+  const t0 = seq.active.startedAt;
+  seq.update({ PT1: 0 }, t0);
+  seq.update({ PT1: 0 }, t0 + 600);
+  seq.update({ PT1: 9 }, t0 + 700);
+  assert.deepEqual(commanded, ['V2:closed'], 'V1 skipped; the pending V2 open was dropped, not fired late');
+  assert.ok(logs.some((l) => l.includes('GATE DROPPED')));
+  assert.equal(seq.running, false);
+});
+
+test('setValves forces the chosen valves, then stops — or carries on with failStop false', () => {
+  for (const failStop of [undefined, false]) {
+    const { seq, commanded, stand } = gateFixture([
+      { t: 0, action: 'valve', target: 'V1', state: 'open',
+        gate: { conditions: [{ sensor: 'PT1', op: '>', value: 1 }], onFail: 'setValves', failStop,
+          failValves: [{ valve: 'V2', state: 'closed' }, { valve: 'V3', state: 'open' }] } },
+      { t: 0.5, action: 'valve', target: 'V2', state: 'open' }]);
+    seq.start('fire');
+    const t0 = seq.active.startedAt;
+    seq.update({ PT1: 0 }, t0);
+    seq.update({ PT1: 0 }, t0 + 600);
+    const expect = ['force V2:closed', 'force V3:open'];
+    if (failStop === false) expect.push('V2:open');
+    assert.deepEqual(commanded, expect, `failStop ${failStop}`);
+    assert.equal(stand.abortState.active, false);
+    assert.equal(seq.running, false);
+  }
+});

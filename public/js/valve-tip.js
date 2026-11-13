@@ -82,6 +82,12 @@ function update() {
         el('span', { text: age === null ? '' : ` for ${fmtElapsed(age)}` })),
       el('div.vt-sub', { text: provenance(v) })
     );
+    const side = bus.valveSide(valve.id);
+    if (side) {
+      tip.append(el('div.vt-detail.vt-bbside', {
+        text: `${side.name} is under board bang-bang control. This valve stays under GC command.`,
+      }));
+    }
   }
 
   for (const line of detail?.(valve) || []) {

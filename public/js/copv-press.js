@@ -1,16 +1,18 @@
 /* copv-press.js — the COPV Press Tool, opened with C.
  *
  * Walks an operator up a list of target pressures on the GN2 bus, one
- * setpoint step of the PANDA's GN2 bang-bang controller (board side G) per
- * click of Proceed. The board's loop does the pressing: it pulses the GN2
- * bang-bang solenoid on the ground supply against GN2 BUS PT, and once a
- * target is reached it HOLDS the bus there until the next Proceed raises the
- * setpoint, or Stop. Nothing here opens a valve on its own: Proceed asks the
- * server for ONE step (see server/press-step.js), which opens GROUND GN2
- * PRESS if needed, sets the setpoint and enables the controller, and ends the
- * step when the bus reaches the target or the step timeout runs out — so a
- * station that freezes mid-step leaves the board regulating to a setpoint an
- * operator chose, with a server-side timeout behind it.
+ * setpoint step of the GN2 bang-bang loop per click of Proceed. That loop
+ * runs on the SERVER (server/gn2-press.js) — LOX and fuel still regulate on
+ * the PANDA, GN2 does not — and pulses GN2 BANG-BANG PRESS against whichever
+ * PT it is set to; the PT can be switched from this window, armed or not.
+ * Once a target is reached the loop HOLDS the bus there until the next
+ * Proceed raises the setpoint, or Stop. Proceed asks the server for ONE step
+ * (server/press-step.js), which opens GROUND GN2 PRESS if needed, sets the
+ * setpoint and turns the loop on, and ends the step when the PT reaches the
+ * target or the step timeout runs out — so a station that freezes mid-step
+ * leaves the server regulating to a setpoint an operator chose, with a
+ * timeout behind it. Under all of it, the loop's overpressure close shuts
+ * both GN2 valves if the PT reaches it.
  *
  * What this module owns is the plan: the targets, the wait between steps,
  * the timeout, and which step is next. That is per station, kept in
@@ -18,18 +20,17 @@
  *
  * The plan moves on when the bus is at or above the step's target: at once
  * if the step ended on target, or later if a step that ended short (timeout,
- * the controller dropped) settles over it. Until then the next Proceed goes
- * for the same target again. The ‹ › carets beside the step counter move the
- * plan by hand.
+ * the loop dropped) settles over it. Until then the next Proceed goes for the
+ * same target again. The ‹ › carets beside the step counter move the plan by
+ * hand.
  *
- * Proceed has two kinds of block. HARD ones — ARM, ABORT, no controller, no
- * PT reading, GN2 VENT open, a board ABORT latch — the server or the board
- * refuses whatever this page does. SOFT ones — the wait, the bus already
- * over target — are this tool's advice, and holding SHIFT overrides them.
+ * Proceed has two kinds of block. HARD ones — ARM, ABORT, no loop, no PT
+ * reading, the PT at the overpressure close — the server refuses whatever
+ * this page does. SOFT ones — the wait, the bus already over target, GN2 VENT
+ * open — are this tool's advice, and holding SHIFT overrides them.
  *
- * Stop ends the run: the controller off and GROUND GN2 PRESS shut. Vent does
- * the same and then opens GN2 VENT; the board owns that vent while its loop
- * runs, so the server sends them in that order.
+ * Stop ends the run: the loop off and GROUND GN2 PRESS shut. Vent does the
+ * same and then opens GN2 VENT.
  */
 import { bus } from './bus.js';
 import { el, clear, fmtValue, toast, shiftGate } from './util.js';
@@ -65,12 +66,26 @@ export function mountCopvPress() {
   window.addEventListener('blur', () => setShift(false));
 }
 
-/** The press-step snapshot: which controller, PT and valves the tool drives. */
+/** The press-step snapshot: the step in progress and the last one. */
 function ps() { return bus.state?.pressStep ?? null; }
-/** The GN2 controller's config and live snapshot. */
-function ctrlCfg() { const id = ps()?.controller; return id ? bus.controller(id) ?? null : null; }
-function ctrl() { const id = ps()?.controller; return id ? bus.state?.controllers?.[id] ?? null : null; }
-function ptId() { return ps()?.sensor ?? null; }
+/** The software GN2 loop: its PT, band, limits and whether it is on. */
+function ctrl() { const g = bus.state?.gn2Press; return g?.available ? g : null; }
+function ptId() { return ctrl()?.sensor ?? null; }
+function setpointMax() { return ctrl()?.limits?.setpointMax ?? null; }
+
+/** PTs the loop may regulate on: pressure channels the server reads every tick. */
+function pressureSensors() {
+  return bus.sensorGroups()
+    .map((g) => ({ label: g.label, sensors: g.sensors.filter((x) => !x.board && (x.kind ?? 'pressure') === 'pressure') }))
+    .filter((g) => g.sensors.length);
+}
+
+/** Switch the loop's PT. Quick on purpose: no SHIFT, and allowed while ARMED. */
+async function choosePt(e) {
+  const res = await bus.post('/api/gn2-press', { sensor: e.target.value });
+  if (res.ok) toast(`GN2 loop and overpressure close now read ${e.target.value}`, 'success');
+  else e.target.value = ptId() ?? '';
+}
 function ptTag(s) { return s?.pid?.tag?.replace(/\n/g, ' ') || s?.id || '—'; }
 function valveName(id) { return bus.valve(id)?.name ?? id; }
 
@@ -80,12 +95,12 @@ function valveName(id) { return bus.valve(id)?.name ?? id; }
 export function openCopvPressDialog() {
   if (bus.spectator || document.querySelector('.modal-backdrop')) return;
   const snap = ps();
-  if (!snap?.controller || !bus.sensor(snap.sensor)) {
-    toast('This stand has no GN2 bang-bang controller (board side G) — the COPV Press Tool needs one', 'warn', 5000);
+  const c = ctrl();
+  if (!snap?.available || !c) {
+    toast('This stand has no GN2 press loop — the COPV Press Tool needs one', 'warn', 5000);
     return;
   }
-  const c = ctrl();
-  const limit = snap.setpointMax;
+  const limit = setpointMax();
 
   const prev = plan?.targets?.length ? plan : null;
   const count = el('input.mono', {
@@ -151,15 +166,16 @@ export function openCopvPressDialog() {
     if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); submit(); }
   };
 
-  const sensor = bus.sensor(snap.sensor);
+  const sensor = bus.sensor(c.sensor);
   const backdrop = el('div.modal-backdrop', { onclick: (e) => { if (e.target === backdrop) done(); } },
     el('div.modal.press-modal', {},
       el('h2', { text: 'COPV Press Tool' }),
       el('p', {
-        text: `Each Proceed steps the ${ctrlCfg()?.name ?? 'GN2 bang-bang'} controller's setpoint up to the next target `
-          + `and runs it: the board pulses ${valveName(snap.valve)} against ${ptTag(sensor)} and holds the bus there `
-          + `until the next step. ${valveName(snap.isolation)} is opened on the first step. `
-          + (c ? `Band ±${c.deadband} psi, set on the bang-bang card.` : ''),
+        text: `Each Proceed steps the ${c.name || 'GN2'} loop's setpoint up to the next target and runs it: `
+          + `the ground station pulses ${valveName(c.valve)} against ${ptTag(sensor)} and holds the bus there `
+          + `until the next step. ${valveName(c.isolationValve)} is opened on the first step. `
+          + `Band ±${c.deadband} psi; ${ptTag(sensor)} at ${c.overpressure} psi closes both GN2 valves. `
+          + 'Both are set on the GN2 card.',
       }),
       el('div.press-field', {}, el('label.field', { text: 'Number of press steps' }), count),
       el('div.press-field', {}, el('label.field', { text: 'Target pressure at each step' }), rows),
@@ -205,7 +221,12 @@ function render() {
       el('button.timer-icon-btn', { text: '✕', title: 'Close the tool', 'aria-label': 'Close', onclick: closeWindow })),
     el('div.press-body', {},
       el('div.press-reading', {},
-        el('span.press-reading-label', { text: ptTag(bus.sensor(ptId())), title: `${ptId() ?? '—'} — the PT the GN2 loop regulates on` }),
+        el('select.press-reading-label.press-pt', {
+          'aria-label': 'PT the GN2 loop regulates on',
+          title: 'The PT the GN2 loop and its overpressure close read. Changes at once, armed or not.',
+          onchange: choosePt,
+        }, pressureSensors().map((g) => el('optgroup', { label: g.label },
+          g.sensors.map((x) => el('option', { value: x.id, text: ptTag(x), selected: x.id === ptId() }))))),
         el('span.press-reading-value'),
         el('span.press-unit', { text: 'psi' })),
       el('div.press-delta'),
@@ -213,10 +234,10 @@ function render() {
         numberBox('Next Target Pressure', 'target', plan.targets[Math.min(plan.next, plan.targets.length - 1)], 'psi', (e) => {
           const v = Number(e.target.value);
           const i = Math.min(plan.next, plan.targets.length - 1);
-          const limit = ps()?.setpointMax;
+          const limit = setpointMax();
           if (v > 0 && (limit == null || v <= limit)) { plan.targets[i] = v; save(); }
           else {
-            if (limit != null && v > limit) toast(`Target is limited to ${limit} psi on this controller`, 'error');
+            if (limit != null && v > limit) toast(`Target is limited to ${limit} psi on the GN2 loop`, 'error');
             e.target.value = plan.targets[i];
           }
         }),
@@ -242,7 +263,7 @@ function render() {
 /**
  * Where the tool stands right now, and what Proceed would run into.
  *
- * `hard` is a block the server or the board enforces whatever this page does.
+ * `hard` is a block the server enforces whatever this page does.
  * `soft` lists the tool's own advice, which SHIFT overrides.
  */
 function assess() {
@@ -254,10 +275,10 @@ function assess() {
   const last = snap?.last || null;
   const done = plan.next >= plan.targets.length;
   const target = done ? null : plan.targets[plan.next];
-  // Holding: the controller is on with no step in progress — the board is
-  // keeping the bus at the last target reached.
+  // Holding: the loop is on with no step in progress — it is keeping the
+  // bus at the last target reached.
   const holding = !active && Boolean(c?.enabled);
-  const starting = Boolean(c?.awaiting);
+  const overLimit = Boolean(c) && Number.isFinite(p) && p >= c.overpressure;
 
   // Wait is measured from when the last step ENDED, on the server's clock, so
   // it counts the same on every station and across a page reload.
@@ -270,20 +291,20 @@ function assess() {
     active ? null
       : done ? 'All steps complete — ‹ to go back, ⚙ to set up another run'
       : !snap ? 'Server does not support press steps'
-      : !snap.controller || !c ? 'This stand has no GN2 bang-bang controller'
+      : !c ? 'This stand has no GN2 press loop'
       : bus.state?.abort?.active ? 'Stand is in ABORT'
       : !bus.state?.armed ? 'Requires ARM'
-      : c.board?.state === 'ABT' ? 'GN2 side is latched in ABORT on the board — disarm to clear it'
-      : ventOpen ? `${valveName(snap.vent)} is open — Seal Vent first`
       : !sensor ? `${ptId()} is not on this stand`
       : !Number.isFinite(p) ? `${ptTag(sensor)} has no reading`
+      : overLimit ? `${ptTag(sensor)} is at the ${c.overpressure} psi overpressure close — vent it down`
       : null;
   const soft = active || hard ? [] : [
     overTarget ? 'bus already at or above target' : null,
+    ventOpen ? `${valveName(snap.vent)} is open` : null,
     waitLeft > 0 ? `waiting ${(waitLeft / 1000).toFixed(1)} s` : null,
   ].filter(Boolean);
 
-  return { snap, c, sensor, d: sensor?.decimals ?? 0, p, active, last, done, target, holding, starting, waitLeft, ventOpen, overTarget, hard, soft };
+  return { snap, c, sensor, d: sensor?.decimals ?? 0, p, active, last, done, target, holding, waitLeft, ventOpen, overTarget, hard, soft };
 }
 
 /** Everything that changes with time or telemetry, without rebuilding inputs. */
@@ -301,6 +322,8 @@ function tick() {
   prevBtn.disabled = Boolean(active) || plan.next <= 0;
   nextBtn.disabled = Boolean(active) || plan.next >= plan.targets.length - 1;
   q('.press-reading-value').textContent = fmtValue(p, d);
+  const ptSel = q('.press-pt');
+  if (ptSel && document.activeElement !== ptSel && ptSel.value !== ptId()) ptSel.value = ptId() ?? '';
 
   // The change the last step made: from the bus pressure when it started to
   // now, so the settle afterwards is part of the number. Live while a step
@@ -338,9 +361,7 @@ function tick() {
   const band = c ? ` ±${c.deadband}` : '';
   const status = q('.press-status');
   if (active) {
-    status.textContent = a.starting
-      ? `STARTING GN2 LOOP → ${fmtValue(active.target, d)} psi (waiting for the board)`
-      : `PRESSING → ${fmtValue(active.target, d)}${band} psi${c?.board?.press ? ' · valve open' : ''}`;
+    status.textContent = `PRESSING → ${fmtValue(active.target, d)}${band} psi${c?.open ? ' · valve open' : ''}`;
     status.dataset.kind = 'active';
   } else if (a.hard) {
     status.textContent = holding && done ? `HOLDING ${fmtValue(c.setpoint, d)}${band} psi — all steps complete` : a.hard;
@@ -366,10 +387,10 @@ function tick() {
   proceedBtn.classList.toggle('accent', !proceedBtn.disabled && !override);
   proceedBtn.classList.toggle('override', !proceedBtn.disabled && override);
 
-  const isoOpen = bus.valveState(a.snap?.isolation) === 'open';
+  const isoOpen = bus.valveState(c?.isolationValve) === 'open';
   const stopBtn = q('.press-stop');
   stopBtn.disabled = busy || !(active || c?.enabled || isoOpen);
-  stopBtn.title = `Turn the GN2 loop off and close ${valveName(a.snap?.isolation)}. The bus keeps what it has.`;
+  stopBtn.title = `Turn the GN2 loop off and close ${valveName(c?.isolationValve)}. The bus keeps what it has.`;
 
   const ventBtn = q('.press-vent');
   ventBtn.disabled = busy;

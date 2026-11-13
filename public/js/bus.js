@@ -465,6 +465,16 @@ class Bus {
   }
 
   /**
+   * The live bang-bang controller this valve sits on the side of (its
+   * `indicateValves`), or null. Display only: the valve is still GC's to
+   * command and its commanded state is still real.
+   */
+  valveSide(id) {
+    const cid = this.state?.valves?.[id]?.bbSide;
+    return cid ? (this.controller(cid) || { id: cid, name: cid }) : null;
+  }
+
+  /**
    * The server's clock, now. Snapshot times are server times, and a station
    * whose own clock is a minute off must not show a valve as a minute older
    * than it is — so the age is measured on the server's clock at the last

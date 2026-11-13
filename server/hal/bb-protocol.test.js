@@ -346,3 +346,9 @@ test('a malformed predictive command is rejected rather than defaulted', () => {
   assert.equal(parseCommand('eX1'), null, 'unknown side');
   assert.equal(parseCommand('EL1'), null, 'uppercase E is not this command');
 });
+
+test('BBD: lines parse as predictive diagnostics, not unknown lines', async () => {
+  const { parseLine } = await import('./bb-protocol.js');
+  assert.deepEqual(parseLine('BBD:G:OFF:0:-0.19:-0.13:-0.19:525.00:15:313.0:1:0'),
+    { kind: 'predictive', side: 'G', line: 'BBD:G:OFF:0:-0.19:-0.13:-0.19:525.00:15:313.0:1:0' });
+});

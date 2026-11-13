@@ -872,6 +872,8 @@ function update() {
     // edge. See bangbang.js trackOwnership().
     const owner = bus.valveOwner(valve.id);
     node.dataset.bb = String(Boolean(owner));
+    // On a live loop's side (indicateValves): yellow, state still shown.
+    node.dataset.bbSide = String(!owner && Boolean(bus.valveSide(valve.id)));
 
     const label = document.getElementById(`pvs-${valve.id}`);
     if (label) label.textContent = owner ? 'BB' : state === 'open' ? valve.openLabel : valve.closedLabel;

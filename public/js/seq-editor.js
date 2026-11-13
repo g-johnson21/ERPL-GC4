@@ -43,7 +43,8 @@ const MAGNET_PX = 6;
 const UNDO_LIMIT = 100;
 
 const STEP_KEYS = ['target', 'state', 'enabled', 'setpoint', 'deadband',
-  'maxOpenMs', 'minIntervalMs', 'message', 'vent', 'abort'];
+  'maxOpenMs', 'minIntervalMs', 'message', 'vent', 'abort',
+  'conditions', 'match', 'timeout', 'hold', 'blocking', 'onFail', 'failSequence', 'gate'];
 
 function load(key, fallback) {
   try { const v = localStorage.getItem(key); return v === null ? fallback : JSON.parse(v); } catch { return fallback; }
@@ -317,6 +318,7 @@ export function createSequenceEditor(ctx) {
     if (action === 'valve') { step.target = cfg().valves?.[0]?.id; step.state = 'open'; }
     if (action === 'bangbang') { step.target = cfg().bangbang?.[0]?.id ?? '*'; step.enabled = true; }
     if (action === 'log' || action === 'abort') step.message = '';
+    if (action === 'gate') Object.assign(step, M.newGate(cfg()));
     return step;
   }
 
@@ -609,6 +611,7 @@ export function createSequenceEditor(ctx) {
       case 'abortStates': return 'ABORT STATES';
       case 'abort': return step.message ? `ABORT: ${step.message}` : 'ABORT';
       case 'end': return 'END';
+      case 'gate': return `GATE: ${step.message || M.gateLabel(step)}`;
       default: return step.action;
     }
   }
@@ -787,6 +790,7 @@ export function createSequenceEditor(ctx) {
             S.selection.has(step) ? 'sel' : '',
             warnings.has(step) ? 'warn' : '',
             M.isUnreachable(seq, step) ? 'dead' : '',
+            step.gate ? 'gated' : '',
           ].join(' '),
           dataset: {
             i: String(i),
@@ -1355,7 +1359,7 @@ export function createSequenceEditor(ctx) {
   function kindLabel(step) {
     return {
       valve: 'VALVE', bangbang: 'BB', log: 'NOTE', safeAll: 'SAFE', abortStates: 'ABORT',
-      abort: 'ABORT', end: 'END',
+      abort: 'ABORT', end: 'END', gate: 'GATE',
     }[step.action] || step.action;
   }
 
@@ -1366,6 +1370,11 @@ export function createSequenceEditor(ctx) {
           el('span.sc-target', { text: step.target }),
           el('span.sc-name', { text: valve?.name || '' }),
           el('span.sc-state', { class: step.state === 'open' ? (M.isHazard(valve) ? 'hazard' : 'open') : '', text: M.valveStateLabel(valve, step.state) }),
+          step.gate ? el('span.sc-state.gate', {
+            text: 'IF',
+            title: `Only if ${M.gateLabel(step.gate)}${step.gate.timeout ? ` within ${step.gate.timeout}s` : ''}; else ${M.gateFailText(step.gate, cfg())}`,
+          }) : null,
+          step.gate ? el('span.sc-msg', { text: step.gate.message || M.gateLabel(step.gate) }) : null,
         ];
       case 'bangbang':
         return [
@@ -1383,6 +1392,18 @@ export function createSequenceEditor(ctx) {
         return [el('span.sc-state.bad', { text: 'ABORT STATES' }), el('span.sc-name', { text: 'every valve to its abort state' })];
       case 'end':
         return [el('span.sc-state', { text: 'END' }), el('span.sc-name', { text: 'sequence stops here' })];
+      case 'gate': {
+        const timing = [
+          step.timeout ? `within ${step.timeout}s` : 'at once',
+          step.hold ? `held ${step.hold}s` : '',
+          step.blocking === false ? 'non-blocking' : '',
+        ].filter(Boolean).join(', ');
+        return [
+          el('span.sc-state.gate', { text: 'CHECK' }),
+          el('span.sc-msg', { text: `${step.message ? `${step.message}: ` : ''}${M.gateLabel(step)} (${timing})` }),
+          el('span.sc-state.bad', { text: `ELSE ${M.gateFailText(step, cfg()).toUpperCase()}` }),
+        ];
+      }
       default:
         return [el('span', { text: step.action })];
     }
@@ -1527,6 +1548,15 @@ export function createSequenceEditor(ctx) {
       if (valve?.momentary) {
         out.push(el('div.sq-note', { text: `Momentary: ${valve.id} closes itself ${(valve.momentaryMs || 1000) / 1000} s after it opens.` }));
       }
+      out.push(field('Actuate', segCtl([
+        { value: false, label: 'ALWAYS' },
+        { value: true, label: 'ONLY IF…', cls: 'gate', title: 'Command this valve only once sensor conditions are met' },
+      ], Boolean(step.gate), (v) => edit(() => { if (v) step.gate ??= M.newGate(draft); else delete step.gate; }))));
+      if (step.gate) {
+        out.push(el('div.sq-gate-box', {},
+          el('div.sq-note', { text: `${step.target} is commanded ${String(step.state).toUpperCase()} only when these conditions are met. If they are not, it is left as it is and the fail action runs.` }),
+          ...gateFields(seq, step.gate)));
+      }
     }
 
     if (step.action === 'bangbang') {
@@ -1564,6 +1594,9 @@ export function createSequenceEditor(ctx) {
         })));
     }
 
+    if (step.action === 'gate') out.push(...gateFields(seq, step));
+    // (a valve step's own gate is drawn with the valve fields above)
+
     if (['safeAll', 'abortStates', 'end'].includes(step.action)) {
       out.push(el('div.sq-note', { text: M.STEP_ACTIONS.find((a) => a.value === step.action)?.hint }));
     }
@@ -1576,6 +1609,162 @@ export function createSequenceEditor(ctx) {
       el('button.btn.sm', { text: 'Duplicate', title: 'Ctrl+D', onclick: duplicateSelection }),
       el('button.btn.sm.danger', { text: 'Delete', title: 'Delete key', onclick: deleteSelection })
     ));
+    return out;
+  }
+
+  /**
+   * Inspector fields for a gate: what to check, how long, and what failing
+   * does. `step` is the gate itself -- a gate step, or a valve step's `gate`.
+   */
+  function gateFields(seq, step) {
+    const draft = cfg();
+    const sensors = draft.sensors || [];
+    step.conditions ??= [];
+    const out = [];
+    const optNum = (key, label, unit, placeholder) => field(label,
+      numInput(step[key], (v) => edit(() => { if (v === undefined || v === 0) delete step[key]; else step[key] = v; }),
+        { allowBlank: true, placeholder, step: 'any', min: 0 }),
+      el('span.unit', { text: unit }));
+
+    out.push(field('Name', textInput(step.message, (v) => { if (v) step.message = v; else delete step.message; }, {
+      placeholder: 'e.g. LOX manifold pressure up', 'data-focus': 'message',
+    })));
+
+    out.push(el('span.eyebrow', { text: 'Conditions' }));
+    step.conditions.forEach((cond, i) => {
+      const sensor = sensors.find((s) => s.id === cond.sensor);
+      const range = M.GATE_RANGE_OPS.has(cond.op);
+      const unit = el('span.unit', { text: sensor?.units || '' });
+      out.push(el('div.sq-cond', {},
+        el('div.sq-cond-row', {},
+          el('select.cell-input', {
+            onchange: (e) => edit(() => { cond.sensor = e.target.value; }),
+          }, sensors.map((s) => el('option', { value: s.id, selected: s.id === cond.sensor ? '' : null, text: `${s.id} · ${s.name}` }))),
+          el('button.mini-btn.danger', {
+            title: 'Delete condition', text: '✕',
+            onclick: () => edit(() => step.conditions.splice(i, 1)),
+          })),
+        el('div.sq-cond-row', {},
+          el('select.cell-input.mono.sq-op.sq-op-wide', {
+            onchange: (e) => edit(() => {
+              const op = e.target.value;
+              const wasRange = M.GATE_RANGE_OPS.has(cond.op);
+              cond.op = op;
+              if (M.GATE_RANGE_OPS.has(op) && !wasRange) {
+                cond.min = cond.value ?? 0; cond.max = cond.value ?? 0; delete cond.value;
+              } else if (!M.GATE_RANGE_OPS.has(op) && wasRange) {
+                cond.value = cond.min ?? 0; delete cond.min; delete cond.max;
+              }
+            }),
+          }, M.GATE_OPS.map((o) => el('option', { value: o.value, selected: o.value === cond.op ? '' : null, text: o.label }))),
+          range
+            ? [numInput(cond.min, (v) => edit(() => { cond.min = v; }), { step: 'any', width: '72px' }),
+              el('span.unit', { text: 'and' }),
+              numInput(cond.max, (v) => edit(() => { cond.max = v; }), { step: 'any', width: '72px' })]
+            : numInput(cond.value, (v) => edit(() => { cond.value = v; }), { step: 'any', width: '84px' }),
+          unit)
+      ));
+    });
+    out.push(el('div.sq-inline', {},
+      el('button.btn.sm', {
+        text: '+ Condition',
+        onclick: () => edit(() => step.conditions.push({ sensor: sensors[0]?.id, op: '>', value: 0 })),
+      }),
+      step.conditions.length > 1
+        ? segCtl([
+          { value: 'all', label: 'ALL must hold' },
+          { value: 'any', label: 'ANY one' },
+        ], step.match ?? 'all', (v) => edit(() => { if (v === 'all') delete step.match; else step.match = v; }))
+        : null));
+
+    out.push(el('div.sq-row2', {},
+      optNum('timeout', 'Time to come good', 's', '0 = check once'),
+      optNum('hold', 'Must hold for', 's', '0')));
+    out.push(field('While checking', segCtl([
+      { value: true, label: 'HOLD TIMELINE', title: 'Nothing after this step fires until the gate passes; later steps slip by the wait' },
+      { value: false, label: 'KEEP RUNNING', title: 'Later steps fire on time while the gate is checked alongside' },
+    ], step.blocking !== false, (v) => edit(() => { if (v) delete step.blocking; else step.blocking = false; }))));
+
+    const onFail = step.onFail ?? 'abort';
+    out.push(field('If it fails', el('select.cell-input', {
+      onchange: (e) => edit(() => {
+        step.onFail = e.target.value;
+        if (step.onFail === 'sequence') {
+          step.failSequence ??= (draft.autosequences || []).find((s) => s.id !== seq.id)?.id;
+        } else delete step.failSequence;
+        if (step.onFail === 'setValves') {
+          const v = draft.valves?.[0];
+          step.failValves ??= v ? [{ valve: v.id, state: v.safeState || 'closed' }] : [];
+        } else { delete step.failValves; delete step.failStop; }
+      }),
+    }, M.GATE_FAIL_ACTIONS.map((a) => el('option', { value: a.value, selected: a.value === onFail ? '' : null, text: a.label })))));
+    if (onFail === 'sequence') {
+      out.push(field('Fail sequence', el('select.cell-input', {
+        onchange: (e) => edit(() => { step.failSequence = e.target.value; }),
+      }, (draft.autosequences || []).filter((s) => s.id !== seq.id).map((s) => el('option', {
+        value: s.id, selected: s.id === step.failSequence ? '' : null, text: `${s.name}${s.hidden ? ' (hidden)' : ''}`,
+      })))));
+    }
+    if (onFail === 'setValves') {
+      step.failValves ??= [];
+      const valves = draft.valves || [];
+      const loops = M.bangbangLoops(draft);
+      out.push(el('span.eyebrow', { text: 'Valves and bang-bang to set' }));
+      // One picker for both: a row is a valve (OPEN/CLOSED) or a bang-bang
+      // controller (ENABLE/DISABLE), and switching kind reshapes the row.
+      const key = (fv) => (fv.bangbang !== undefined ? `bb:${fv.bangbang}` : `valve:${fv.valve}`);
+      step.failValves.forEach((fv, i) => {
+        const isLoop = fv.bangbang !== undefined;
+        const valve = isLoop ? null : valves.find((v) => v.id === fv.valve);
+        const states = isLoop
+          ? [{ value: true, label: 'ENABLE', cls: 'bb' }, { value: false, label: 'DISABLE' }]
+          : [{ value: 'open', label: valve?.openLabel || 'OPEN', cls: M.isHazard(valve) ? 'hazard' : 'open' },
+            { value: 'closed', label: valve?.closedLabel || 'CLOSED' }];
+        out.push(el('div.sq-cond-row.sq-fv-row', {},
+          el('select.cell-input', {
+            onchange: (e) => edit(() => {
+              const [kind, id] = [e.target.value.slice(0, e.target.value.indexOf(':')), e.target.value.slice(e.target.value.indexOf(':') + 1)];
+              for (const k of Object.keys(fv)) delete fv[k];
+              if (kind === 'bb') Object.assign(fv, { bangbang: id, enabled: false });
+              else Object.assign(fv, { valve: id, state: valves.find((v) => v.id === id)?.safeState || 'closed' });
+            }),
+          },
+            el('optgroup', { label: 'Valves' }, valves.map((v) => el('option', {
+              value: `valve:${v.id}`, selected: key(fv) === `valve:${v.id}` ? '' : null, text: `${v.id} · ${v.name}`,
+            }))),
+            loops.length ? el('optgroup', { label: 'Bang-bang' }, loops.map((l) => el('option', {
+              value: `bb:${l.id}`, selected: key(fv) === `bb:${l.id}` ? '' : null, text: `${l.name} (bang-bang)`,
+            }))) : null),
+          segCtl(states, isLoop ? fv.enabled : fv.state, (v) => edit(() => { if (isLoop) fv.enabled = v; else fv.state = v; })),
+          el('button.mini-btn.danger', {
+            title: 'Remove', text: '✕',
+            onclick: () => edit(() => step.failValves.splice(i, 1)),
+          })));
+      });
+      const used = new Set(step.failValves.map(key));
+      out.push(el('div.sq-inline', {},
+        el('button.btn.sm', {
+          text: '+ Valve',
+          onclick: () => edit(() => {
+            const v = valves.find((x) => !used.has(`valve:${x.id}`)) || valves[0];
+            if (v) step.failValves.push({ valve: v.id, state: v.safeState || 'closed' });
+          }),
+        }),
+        loops.length ? el('button.btn.sm', {
+          text: '+ Bang-bang',
+          onclick: () => edit(() => {
+            const l = loops.find((x) => !used.has(`bb:${x.id}`)) || loops[0];
+            step.failValves.push({ bangbang: l.id, enabled: false });
+          }),
+        }) : null));
+      out.push(field('Then', segCtl([
+        { value: true, label: 'STOP SEQUENCE' },
+        { value: false, label: 'KEEP RUNNING', title: 'Set the valves and let the rest of this sequence carry on' },
+      ], step.failStop !== false, (v) => edit(() => { if (v) delete step.failStop; else step.failStop = false; }))));
+    }
+    out.push(el('div.sq-note', { text: M.GATE_FAIL_ACTIONS.find((a) => a.value === onFail)?.hint
+      + (onFail === 'sequence' ? '. If it cannot start, the stand ABORTs.' : '.')
+      + ' A sensor with no reading never satisfies a condition.' }));
     return out;
   }
 

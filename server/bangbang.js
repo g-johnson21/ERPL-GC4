@@ -195,6 +195,23 @@ export class BangBangBank {
   }
 
   /**
+   * Valves drawn as on a live loop's side without the loop owning them
+   * (`indicateValves`, e.g. a tank's vent while its press side regulates).
+   * Display only: GC still commands them, and nothing here knows their
+   * position. A valve the loop actually owns is left to ownedValves().
+   */
+  indicatedValves() {
+    const out = new Map();
+    for (const cfg of this.stand.config.bangbang) {
+      if (!this.isLive(cfg.id)) continue;
+      for (const id of cfg.indicateValves || []) {
+        if (id !== cfg.valve && id !== cfg.ventValve) out.set(id, cfg);
+      }
+    }
+    return out;
+  }
+
+  /**
    * Apply an operator or sequence change. Returns {ok, error}.
    *
    * Accepts `enabled`, `setpoint`, `deadband`, the duty-cycle limits, the vent

@@ -48,7 +48,7 @@
       }
     ],
     "tankLevel": {
-      "enabled": false,
+      "enabled": true,
       "heightIn": 60,
       "smoothingSeconds": 5
     },
@@ -768,7 +768,7 @@
       "channel": 7,
       "decimals": 0,
       "min": 0,
-      "max": 10000,
+      "max": 5000,
       "warnHigh": 4300,
       "dangerHigh": 4600,
       "calibration": {
@@ -873,7 +873,7 @@
     },
     {
       "id": "PT1",
-      "name": "COPV Exterior TC",
+      "name": "LOX Tank Tippy Top TC",
       "abbrev": "PT1",
       "kind": "temperature",
       "group": "group1",
@@ -905,7 +905,7 @@
     },
     {
       "id": "PT3",
-      "name": "COPV Bottom TC",
+      "name": "LOX Vent TC",
       "abbrev": "PT3",
       "kind": "temperature",
       "group": "group1",
@@ -969,7 +969,7 @@
     },
     {
       "id": "PT7",
-      "name": "Run Line TC",
+      "name": "MOV TC",
       "abbrev": "PT7",
       "kind": "temperature",
       "group": "group1",
@@ -984,6 +984,24 @@
       }
     }
   ],
+  "gn2Press": {
+    "name": "GN2 COPV Press",
+    "valve": "GN2-BB-PRESS",
+    "isolationValve": "GND-GN2-PRESS",
+    "sensor": "GN2-BUS-PT",
+    "setpoint": 500,
+    "deadband": 25,
+    "setpointMin": 0,
+    "setpointMax": 4500,
+    "setpointStep": 10,
+    "deadbandMin": 5,
+    "deadbandMax": 250,
+    "maxOpenMs": 1000,
+    "minIntervalMs": 500,
+    "overpressure": 4600,
+    "requiresArm": true,
+    "_comment": "Run in the GROUND STATION (server/gn2-press.js), not on the PANDA: LOX and fuel still regulate on the board, GN2 does not. The PT is changeable from the GN2 card or the COPV Press Tool, armed or not. overpressure closes GN2-BB-PRESS and GND-GN2-PRESS and turns the loop off whenever the selected PT reaches it. maxOpenMs, minIntervalMs and overpressure are first guesses — set them from a bench fill."
+  },
   "bangbang": [
     {
       "id": "bb-fuel",
@@ -1034,31 +1052,6 @@
       "ventTrigger": 880,
       "ventAuto": false,
       "_ventValve": "Left null, as on Draco, until the board vent wiring and the sense of its vent bit are confirmed on this vehicle. The tank vents here are normally open, so a wrong sense would reopen a vent the operator just closed."
-    },
-    {
-      "id": "bb-gn2",
-      "side": "G",
-      "name": "GN2 COPV Press",
-      "abbrev": "GN2",
-      "sensor": "GN2-BUS-PT",
-      "valve": "GN2-BB-PRESS",
-      "setpoint": 500,
-      "deadband": 25,
-      "setpointMin": 0,
-      "setpointMax": 4500,
-      "setpointStep": 50,
-      "deadbandMin": 5,
-      "deadbandMax": 250,
-      "enabled": false,
-      "requiresArm": true,
-      "maxOpenSeconds": 60,
-      "maxOpenMs": 1000,
-      "minIntervalMs": 500,
-      "abortAbove": 4700,
-      "ventValve": "GN2-VENT",
-      "ventTrigger": 4600,
-      "ventAuto": false,
-      "_comment": "Board side G: press solenoid on DC15 (GN2-BB-PRESS), regulating on the board PT channel 2, which is GN2 BUS PT. The firmware also owns DC8 (GN2-VENT) as this side's vent: it seals it on enable and holds it while regulating, so GN2-VENT is listed here so ground control refuses hand commands to it while the loop runs. ventTrigger is pushed only to set auto-vent explicitly OFF. The COPV Press Tool (C) drives this controller. maxOpenMs, minIntervalMs, maxOpenSeconds and abortAbove are first guesses — set them from a bench fill."
     }
   ],
   "autosequences": [
@@ -1092,7 +1085,7 @@
     },
     {
       "id": "seq-hotfire",
-      "name": "HOT FIRE (5s)",
+      "name": "HOT FIRE (10s)",
       "abbrev": "HOT FIRE",
       "description": "Ox lead, 5 s burn, cutoff. Fill both tanks and bring them to pressure first: the main valves stroke on the actuator bus, which is regulated off the LOX tank, so they cannot open on an unpressurized vehicle. Ignition is external.",
       "style": "danger",
@@ -1118,41 +1111,69 @@
         },
         {
           "t": 0.8,
+          "action": "valve",
+          "target": "MFV",
+          "state": "open",
+          "gate": {
+            "conditions": [
+              {
+                "sensor": "LOX-ENGINE-PT",
+                "op": ">",
+                "value": 5
+              }
+            ],
+            "onFail": "setValves",
+            "failValves": [
+              {
+                "valve": "MOV",
+                "state": "closed"
+              },
+              {
+                "valve": "MFV",
+                "state": "closed"
+              },
+              {
+                "bangbang": "bb-fuel",
+                "enabled": false
+              },
+              {
+                "bangbang": "bb-ox",
+                "enabled": false
+              }
+            ]
+          }
+        },
+        {
+          "t": 0.8,
           "action": "log",
           "message": "T-0 MAIN FUEL OPEN"
         },
         {
-          "t": 0.8,
-          "action": "valve",
-          "target": "MFV",
-          "state": "open"
-        },
-        {
-          "t": 5.8,
+          "t": 10.8,
           "action": "log",
           "message": "CUTOFF"
         },
         {
-          "t": 5.8,
+          "t": 10.8,
           "action": "valve",
           "target": "MOV",
           "state": "closed"
         },
         {
-          "t": 6.1,
+          "t": 11.1,
+          "action": "log",
+          "message": "HOT FIRE COMPLETE — tanks still pressurized, detank when ready"
+        },
+        {
+          "t": 11.1,
           "action": "valve",
           "target": "MFV",
           "state": "closed"
-        },
-        {
-          "t": 6.1,
-          "action": "log",
-          "message": "HOT FIRE COMPLETE — tanks still pressurized, detank when ready"
         }
       ],
       "abortConditions": [],
       "hidden": false,
-      "duration": 6.1
+      "duration": 11.1
     },
     {
       "id": "seq-detank",
@@ -1460,7 +1481,7 @@
         }
       ],
       "hidden": false,
-      "duration": 0.5
+      "duration": 5
     },
     {
       "id": "seq-custom-9",
@@ -1489,7 +1510,9 @@
           "target": "MFV",
           "state": "closed"
         }
-      ]
+      ],
+      "hidden": false,
+      "duration": 5
     }
   ],
   "recording": {

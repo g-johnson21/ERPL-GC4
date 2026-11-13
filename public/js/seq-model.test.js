@@ -178,3 +178,75 @@ test('keybinds: letters, digits and numpad digits only; reserved and taken keys 
   assert.equal(keyLabel('Digit7'), '7');
   assert.equal(keyLabel('Numpad3'), 'Num 3');
 });
+
+// ---------------------------------------------------------------- gates ---
+
+test('gateProblems: conditions, ranges, fail actions and fail-sequence loops', async () => {
+  const { gateProblems, describe: say } = await import('./seq-model.js');
+  const config = {
+    sensors: [{ id: 'PT1' }],
+    autosequences: [
+      { id: 'a', steps: [{ action: 'gate', onFail: 'sequence', failSequence: 'b' }] },
+      { id: 'b', steps: [{ action: 'gate', onFail: 'sequence', failSequence: 'a' }] },
+      { id: 'safe', steps: [] },
+    ],
+  };
+  const a = config.autosequences[0];
+  const ok = { action: 'gate', conditions: [{ sensor: 'PT1', op: 'between', min: 1, max: 2 }], onFail: 'sequence', failSequence: 'safe' };
+  assert.deepEqual(gateProblems(ok, a, config), []);
+  assert.match(say(ok, config), /PT1 in \[1, 2\].*run/);
+  assert.ok(gateProblems({ action: 'gate', conditions: [] }, a, config).some((p) => /at least one/.test(p)));
+  assert.ok(gateProblems({ conditions: [{ sensor: 'PT1', op: 'between', min: 3, max: 2 }] }, a, config).some((p) => /min is above max/.test(p)));
+  assert.ok(gateProblems({ conditions: [{ sensor: 'NOPE', op: '>', value: 1 }] }, a, config).some((p) => /not a defined sensor/.test(p)));
+  assert.ok(gateProblems({ conditions: [{ sensor: 'PT1', op: '>' }] }, a, config).some((p) => /value must be a number/.test(p)));
+  assert.ok(gateProblems({ ...ok, onFail: 'explode' }, a, config).some((p) => /onFail/.test(p)));
+  assert.ok(gateProblems({ ...ok, failSequence: 'a' }, a, config).some((p) => /cannot be the sequence/.test(p)));
+  assert.ok(gateProblems({ ...ok, failSequence: 'b' }, a, config).some((p) => /leads back here: a → b → a/.test(p)));
+  assert.ok(gateProblems({ ...ok, timeout: -1 }, a, config).some((p) => /timeout/.test(p)));
+});
+
+test('valve steps carry a gate: lint, describe and fail loops see it', async () => {
+  const { lint: lintIt, describe: say, gateProblems } = await import('./seq-model.js');
+  const config = { sensors: [{ id: 'PT1' }], valves: [{ id: 'V1' }], autosequences: [
+    { id: 'a', steps: [{ t: 0, action: 'valve', target: 'V1', state: 'open', gate: { conditions: [{ sensor: 'PT1', op: '>', value: 1 }], onFail: 'sequence', failSequence: 'b' } }] },
+    { id: 'b', steps: [] }] };
+  const [a, b] = config.autosequences;
+  const step = a.steps[0];
+  assert.match(say(step, config), /V1 → .* IF PT1 > 1, else run b/);
+  assert.equal(lintIt(a, config).get(step), undefined);
+  step.gate.conditions = [];
+  assert.ok(lintIt(a, config).get(step).some((w) => /at least one/.test(w)));
+  b.steps.push({ action: 'gate', conditions: [{ sensor: 'PT1', op: '>', value: 1 }], onFail: 'sequence', failSequence: 'a' });
+  step.gate.conditions = [{ sensor: 'PT1', op: '>', value: 1 }];
+  assert.ok(gateProblems(step.gate, a, config).some((p) => /leads back/.test(p)));
+});
+
+test('gateProblems: setValves needs real, distinct valves with states', async () => {
+  const { gateProblems, gateFailText } = await import('./seq-model.js');
+  const config = { sensors: [{ id: 'PT1' }], valves: [{ id: 'V1' }, { id: 'V2' }], autosequences: [] };
+  const base = { conditions: [{ sensor: 'PT1', op: '>', value: 1 }], onFail: 'setValves' };
+  const ok = { ...base, failValves: [{ valve: 'V1', state: 'closed' }, { valve: 'V2', state: 'open' }] };
+  assert.deepEqual(gateProblems(ok, null, config), []);
+  assert.equal(gateFailText(ok, config), 'set V1 CLOSED, V2 OPEN and stop');
+  assert.ok(gateProblems(base, null, config).some((p) => /at least one valve/.test(p)));
+  assert.ok(gateProblems({ ...base, failValves: [{ valve: 'NOPE', state: 'open' }] }, null, config).some((p) => /not a defined valve/.test(p)));
+  assert.ok(gateProblems({ ...base, failValves: [{ valve: 'V1', state: 'open' }, { valve: 'V1', state: 'closed' }] }, null, config).some((p) => /twice/.test(p)));
+  assert.ok(gateProblems({ ...base, failValves: [{ valve: 'V1', state: 'shut' }] }, null, config).some((p) => /state must be/.test(p)));
+});
+
+test('setValves can turn bang-bang loops on or off', async () => {
+  const { gateProblems, gateFailText, bangbangLoops } = await import('./seq-model.js');
+  const config = { sensors: [{ id: 'PT1' }], valves: [{ id: 'V1' }, { id: 'PRESS' }, { id: 'GN2' }],
+    bangbang: [{ id: 'bb-ox', name: 'Ox', valve: 'PRESS' }], gn2Press: { valve: 'GN2' }, autosequences: [] };
+  assert.deepEqual(bangbangLoops(config).map((l) => l.id), ['bb-ox', 'gn2Press']);
+  const step = { conditions: [{ sensor: 'PT1', op: '>', value: 1 }], onFail: 'setValves',
+    failValves: [{ bangbang: 'bb-ox', enabled: false }, { bangbang: 'gn2Press', enabled: true }, { valve: 'V1', state: 'closed' }] };
+  assert.deepEqual(gateProblems(step, null, config), []);
+  assert.equal(gateFailText(step, config), 'set bb-ox OFF, gn2Press ON, V1 CLOSED and stop');
+  const bad = (failValves) => gateProblems({ ...step, failValves }, null, config);
+  assert.ok(bad([{ bangbang: 'nope', enabled: true }]).some((p) => /not a bang-bang controller/.test(p)));
+  assert.ok(bad([{ bangbang: 'bb-ox' }]).some((p) => /enabled must be/.test(p)));
+  assert.ok(bad([{ bangbang: 'bb-ox', enabled: true }, { bangbang: 'bb-ox', enabled: false }]).some((p) => /twice/.test(p)));
+  assert.ok(bad([{ bangbang: 'bb-ox', enabled: true }, { valve: 'PRESS', state: 'open' }]).some((p) => /also being set/.test(p)));
+  assert.deepEqual(bad([{ bangbang: 'bb-ox', enabled: false }, { valve: 'PRESS', state: 'closed' }]), [], 'off + set its valve is fine');
+});
