@@ -934,6 +934,75 @@
    operator knows which tank they are about to act on. */
 #bb-list { grid-template-columns: minmax(0, 1fr); }
 
+/* ---- collapsing a card (chrome.js collapsibleCard). The chevron sits in the
+   card's top-right corner; collapsed, the card is one line -- name, live
+   pressure, loop state -- plus any fault, which is never folded away. */
+.bb-card { position: relative; }
+.bb-card-toggle {
+  position: absolute; top: 4px; right: 4px;
+  width: 20px; height: 20px; border-color: transparent;
+}
+.bb-card-toggle svg { transition: transform .15s ease; }
+.bb-card .bb-name { padding-right: 22px; }
+.bb-card.collapsed .bb-card-toggle svg { transform: rotate(-90deg); }
+/* Folded: the body is clipped to nothing but stays laid out (sidebar-fit.js
+   measures it there), and the summary line stands in for it. */
+.bb-card-body { overflow: hidden; }
+.bb-card.collapsed .bb-card-body { height: 0; visibility: hidden; }
+.bb-card-summary { display: none; }
+.bb-card.collapsed .bb-card-summary {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px;
+  padding-right: 24px; min-height: 20px;
+}
+.bb-sum-name { flex: 1 1 0; min-width: 0; font-size: var(--fs-md); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bb-sum-now { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: var(--fs-md); font-weight: 600; }
+.bb-sum-units { font-family: var(--mono); font-size: var(--fs-xs); color: var(--text-faint); }
+.bb-sum-out {
+  font-family: var(--mono); font-size: var(--fs-2xs); font-weight: 500; letter-spacing: .1em;
+  padding: 1px 6px; border-radius: var(--radius-sm); border: 1px solid var(--border); color: var(--idle);
+}
+.bb-sum-out[data-tone="ok"] { background: var(--ok-bg); color: var(--ok); }
+.bb-sum-out[data-tone="warn"] { background: var(--warn-bg); color: var(--warn); }
+.bb-sum-out[data-tone="danger"] { background: var(--danger-bg); color: var(--danger); }
+.bb-sum-fault { flex-basis: 100%; font-size: var(--fs-sm); color: var(--danger); font-weight: 600; }
+.bb-card.collapsed .bb-card-toggle { top: 50%; transform: translateY(-50%); }
+
+/* ---- collapsing the whole column to the right (setBbColumnCollapsed). What
+   is left is a strip with the expand button and an ON/OFF light per loop. */
+.bb-title-tools { display: inline-flex; align-items: center; gap: 4px; }
+.bb-col-toggle { width: 22px; height: 22px; }
+/* No width transition: sidebar-fit.js sets the zoom from the columns' widths
+   the moment the class changes, and mid-animation it would measure a width
+   the column is only passing through. */
+.sidebar.bb-collapsed { width: calc((var(--sidebar-ops-w) + var(--bb-strip-w)) * var(--fit) + 1px); }
+.sidebar.bb-collapsed .sidebar-col.regulators { width: var(--bb-strip-w); }
+/* Folded, the section stays laid out at its full design width -- clipped by
+   the narrow column and hidden, not removed -- so sidebar-fit.js can still
+   measure it and the zoom does not change. */
+.sidebar-col.regulators { position: relative; }
+.sidebar-col.regulators > .sidebar-section { width: var(--sidebar-bb-w); box-sizing: border-box; }
+.sidebar.bb-collapsed .sidebar-col.regulators > .sidebar-section { visibility: hidden; }
+.sidebar { --bb-strip-w: 34px; }
+.bb-strip { display: none; }
+.sidebar.bb-collapsed .bb-strip {
+  position: absolute; inset: 0 0 auto 0;
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  padding: 8px 0;
+}
+.bb-strip-title {
+  writing-mode: vertical-rl;
+  font-family: var(--mono); font-size: var(--fs-2xs); letter-spacing: .14em;
+  color: var(--text-faint);
+}
+.bb-strip-loop {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  font-family: var(--mono); font-size: var(--fs-2xs); color: var(--text-faint);
+  max-width: 100%; overflow: hidden;
+}
+.bb-strip-loop i { width: 8px; height: 8px; border-radius: 50%; border: 1px solid var(--border-strong); }
+.bb-strip-loop[data-on="true"] { color: var(--ok); }
+.bb-strip-loop[data-on="true"] i { background: var(--ok); border-color: var(--ok); box-shadow: 0 0 6px var(--ok); }
+
 /* --------------------------------------------------- sidebar: sequences */
 
 /* Sequences are a list of rows, not a stack of buttons: hairline between

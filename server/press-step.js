@@ -19,8 +19,9 @@
  *
  * and the step ENDS on the first of:
  *
- *   - the loop's PT reaching the target — the loop is LEFT RUNNING, holding
- *     the bus at that target until the next Proceed raises it, or Stop,
+ *   - the loop's PT reaching the band around the target (target − deadband)
+ *     — the loop is LEFT RUNNING, holding the bus in that band until the
+ *     next Proceed raises it, or Stop,
  *   - the step timeout running out — the loop is turned off,
  *   - the loop going off for any other reason: disarm, abort, a lost PT, the
  *     overpressure close, an operator on the card.
@@ -140,8 +141,11 @@ export class PressStep {
 
     if (!loop?.enabled) {
       this.finish(`loop stopped${loop?.fault ? ` (${loop.fault})` : ''}`, now);
-    } else if (Number.isFinite(p) && p >= a.target) {
-      // Left running: holding the bus here is the point of the bang-bang.
+    } else if (Number.isFinite(p) && p >= a.target - (loop.settings.deadband || 0)) {
+      // Reached = inside the loop's band. The loop opens only below the band
+      // bottom, so a fill whose last pulse lands inside the band, short of
+      // the setpoint, stops there by design; waiting for the setpoint itself
+      // would time the step out. Left running: holding the band is the point.
       this.finish('target reached', now);
     } else if (now - a.startedAt >= a.timeoutMs) {
       loop.disable('COPV press step timeout', 'press-tool', { quiet: true });

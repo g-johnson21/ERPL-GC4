@@ -55,16 +55,40 @@ export function fitSidebar() {
     // from the rendered boxes and divided back out by the current zoom, so it
     // does not matter what the zoom happens to be when this runs. The log is
     // counted at its floor, not at whatever height it has grown to.
+    //
+    // Folding a bang-bang card or the whole bang-bang column (chrome.js) must
+    // NOT change the zoom: if it did, ARM/ABORT, the sequences and the log
+    // would all resize under the operator for a change made somewhere else.
+    // So the fit is always worked out as if everything were unfolded: a
+    // folded card counts at the height its clipped (still laid out) body takes,
+    // and the bang-bang column counts at its design width while folded. Its
+    // sections stay laid out at full width when folded (just clipped), so
+    // their heights are still there to measure.
     let needH = 0, designW = 0;
     for (const col of cols) {
       let h = 0;
       for (const section of col.children) {
-        h += section.classList.contains('grow')
-          ? LOG_MIN + chromeHeight(section) / current
-          : section.getBoundingClientRect().height / current;
+        if (section.classList.contains('grow')) {
+          h += LOG_MIN + chromeHeight(section) / current;
+          continue;
+        }
+        if (!section.classList.contains('sidebar-section')) continue;   // the folded-column strip
+        h += section.getBoundingClientRect().height / current;
+        // A folded or animating card's body is clipped, not removed: add back
+        // what is clipped, and take off the summary line that stands in for
+        // it. offsetHeight/scrollHeight are already in design px.
+        for (const card of section.querySelectorAll('.bb-card')) {
+          const body = card.querySelector(':scope > .bb-card-body');
+          if (!body) continue;
+          const clipped = body.scrollHeight - body.offsetHeight;
+          const summary = card.classList.contains('collapsed')
+            ? card.querySelector(':scope > .bb-card-summary')?.offsetHeight || 0
+            : 0;
+          if (clipped > 0) h += clipped - summary;
+        }
       }
       needH = Math.max(needH, h);
-      designW += parseFloat(getComputedStyle(col).width) || 0;
+      designW += col.dataset.designW ? Number(col.dataset.designW) : (parseFloat(getComputedStyle(col).width) || 0);
     }
 
     // A few pixels' allowance for rounding in the measured boxes, so a column

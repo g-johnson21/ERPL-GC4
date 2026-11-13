@@ -80,7 +80,8 @@ test('pulses its own solenoid on the band, and nothing else', () => {
   assert.ok(wire.every((w) => w.startsWith('GN2-BB-PRESS=')), wire.join(', '));
 });
 
-test('the pulse cap meters the fill: it keeps pulsing to the top of the band', () => {
+test('after a pulse-cap close it reopens only below the bottom of the band', () => {
+  // Setpoint 1000 ±25: band 975..1025.
   const { stand, loop } = gn2Stand({ p: 990 });
   loop.set({ enabled: true });
   loop.update(stand.readings, 0);
@@ -92,16 +93,28 @@ test('the pulse cap meters the fill: it keeps pulsing to the top of the band', (
   stand.readings['GN2-BUS-PT'] = 990;   // in the band, short of its top
   loop.update(stand.readings, 1000);
   assert.ok(!loop.isOpen(), 'closed on the 1000 ms cap');
+  for (const [t, p] of [[1500, 990], [3000, 1010], [4000, 976], [5000, 975]]) {
+    stand.readings['GN2-BUS-PT'] = p;
+    loop.update(stand.readings, t);
+    assert.ok(!loop.isOpen(), `${p} psi is not below the bottom of the band: stays closed`);
+  }
+  stand.readings['GN2-BUS-PT'] = 974;
+  loop.update(stand.readings, 6000);
+  assert.ok(loop.isOpen(), 'below the bottom of the band: reopens');
+});
+
+test('a capped pulse below the band reopens after the dwell', () => {
+  const { stand, loop } = gn2Stand({ p: 900 });
+  loop.set({ enabled: true });
+  loop.update(stand.readings, 0);
+  assert.ok(loop.isOpen());
+  stand.readings['GN2-BUS-PT'] = 950;   // still below the band when the cap lands
+  loop.update(stand.readings, 1000);
+  assert.ok(!loop.isOpen(), 'closed on the cap');
   loop.update(stand.readings, 1499);
   assert.ok(!loop.isOpen(), 'dwell');
   loop.update(stand.readings, 1500);
-  assert.ok(loop.isOpen(), 'capped short of the top: pulses again');
-  stand.readings['GN2-BUS-PT'] = 1030;
-  loop.update(stand.readings, 1600);
-  assert.ok(!loop.isOpen());
-  stand.readings['GN2-BUS-PT'] = 1000;
-  loop.update(stand.readings, 3000);
-  assert.ok(!loop.isOpen(), 'closed on the top: back to plain hysteresis');
+  assert.ok(loop.isOpen(), 'still below the band: next pulse');
 });
 
 test('the PT can be switched while ARMED and running, and the loop follows it', () => {

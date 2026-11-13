@@ -1122,25 +1122,7 @@
                 "value": 5
               }
             ],
-            "onFail": "setValves",
-            "failValves": [
-              {
-                "valve": "MOV",
-                "state": "closed"
-              },
-              {
-                "valve": "MFV",
-                "state": "closed"
-              },
-              {
-                "bangbang": "bb-fuel",
-                "enabled": false
-              },
-              {
-                "bangbang": "bb-ox",
-                "enabled": false
-              }
-            ]
+            "onFail": "abort"
           }
         },
         {
@@ -1264,55 +1246,55 @@
           "state": "closed"
         },
         {
+          "t": 0,
+          "action": "valve",
+          "target": "FUEL-FILL",
+          "state": "closed"
+        },
+        {
+          "t": 0,
+          "action": "valve",
+          "target": "GND-LOX-FILL",
+          "state": "closed"
+        },
+        {
+          "t": 0,
+          "action": "valve",
+          "target": "LOX-VENT",
+          "state": "open"
+        },
+        {
+          "t": 0,
+          "action": "valve",
+          "target": "FUEL-VENT",
+          "state": "open"
+        },
+        {
+          "t": 0.1,
+          "action": "valve",
+          "target": "LOX-PRESS",
+          "state": "closed"
+        },
+        {
+          "t": 0.1,
+          "action": "valve",
+          "target": "FUEL-PRESS",
+          "state": "closed"
+        },
+        {
           "t": 0.1,
           "action": "valve",
           "target": "MFV",
           "state": "closed"
         },
         {
-          "t": 0.2,
-          "action": "valve",
-          "target": "LOX-PRESS",
-          "state": "closed"
-        },
-        {
-          "t": 0.2,
-          "action": "valve",
-          "target": "FUEL-PRESS",
-          "state": "closed"
-        },
-        {
-          "t": 0.2,
-          "action": "valve",
-          "target": "FUEL-FILL",
-          "state": "closed"
-        },
-        {
-          "t": 0.2,
-          "action": "valve",
-          "target": "GND-LOX-FILL",
-          "state": "closed"
-        },
-        {
-          "t": 0.3,
-          "action": "valve",
-          "target": "LOX-VENT",
-          "state": "open"
-        },
-        {
-          "t": 0.3,
-          "action": "valve",
-          "target": "FUEL-VENT",
-          "state": "open"
-        },
-        {
-          "t": 0.3,
+          "t": 0.1,
           "action": "log",
           "message": "Abort state reached — vehicle is venting"
         }
       ],
       "abortConditions": [],
-      "duration": 0.3
+      "duration": 0.1
     },
     {
       "id": "seq-custom-5",

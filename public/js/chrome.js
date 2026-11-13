@@ -665,10 +665,18 @@ export function mountSidebar(container) {
   );
   // A stand with no bang-bang controllers has no second column; the sidebar
   // narrows to the first rather than reserving space for an empty one.
-  if (controllers) sidebar.append(el('div.sidebar-col.regulators', {}, controllers));
+  if (controllers) sidebar.append(el('div.sidebar-col.regulators', {}, controllers, bbColumnStrip()));
   else sidebar.classList.add('solo');
 
   container.append(sidebar);
+  if (controllers) {
+    const col = sidebar.querySelector('.sidebar-col.regulators');
+    // The fit counts this column at its design width even while folded.
+    col.dataset.designW = String(parseFloat(getComputedStyle(sidebar).getPropertyValue('--sidebar-bb-w')) || 312);
+    let collapsed = false;
+    try { collapsed = localStorage.getItem(BB_COLUMN_KEY) === 'true'; } catch { /* ignore */ }
+    if (collapsed) setBbColumnCollapsed(true, { save: false, animate: false });
+  }
 
   bus.on('state', updateSidebar);
   bus.on('log', appendLogLine);
@@ -699,15 +707,8 @@ function armSection() {
       el('div.btn-row', {},
         el('button.arm-btn.arm#btn-arm', {
           text: 'ARM',
-          onclick: async () => {
-            const ok = await confirmAction({
-              title: 'ARM the stand?',
-              message: 'Actuators become live. Confirm the area is clear and all personnel are at a safe distance.',
-              confirmLabel: 'ARM',
-              danger: true,
-            });
-            if (ok) bus.setArmed(true);
-          },
+          // No confirmation dialog: one click arms.
+          onclick: () => bus.setArmed(true),
         }),
         el('button.arm-btn.disarm#btn-disarm', {
           text: 'DISARM',
@@ -732,23 +733,191 @@ function controllerSection() {
   if (!cfg.bangbang.length && !gn2) return null;
 
   const body = el('div#bb-list');
-  for (const c of cfg.bangbang) body.append(controllerCard(c));
+  for (const c of cfg.bangbang) body.append(collapsibleCard(controllerCard(c), c.id));
   // The GN2 loop runs on the server, not the board — its own card, after
   // the board's.
-  if (gn2) body.append(gn2);
+  if (gn2) body.append(collapsibleCard(gn2, 'gn2'));
 
   return el('div.sidebar-section', {},
     el('div.section-title', {}, 'Bang-Bang Pressure Control',
-      el('button.btn.sm.ghost', {
-        text: 'ALL OFF',
-        onclick: () => {
-          for (const c of cfg.bangbang) bus.setController(c.id, { enabled: false });
-          if (gn2) bus.post('/api/gn2-press', { enabled: false });
-        },
-      })
+      el('span.bb-title-tools', {},
+        el('button.btn.sm.ghost', {
+          text: 'ALL OFF',
+          onclick: () => {
+            for (const c of cfg.bangbang) bus.setController(c.id, { enabled: false });
+            if (gn2) bus.post('/api/gn2-press', { enabled: false });
+          },
+        }),
+        el('button.icon-btn.bb-col-toggle', {
+          title: 'Collapse the bang-bang column to the right',
+          'aria-label': 'Collapse bang-bang column',
+          html: icon('chevronRight', 14),
+          onclick: () => setBbColumnCollapsed(true),
+        }))
     ),
     body
   );
+}
+
+// ---- collapsing: per card, and the whole column. Both are per-station
+// conveniences, remembered in localStorage; neither changes what any loop is
+// doing. A collapsed card keeps its name, live pressure, loop state and any
+// fault on show; a collapsed column keeps an ON/OFF light per loop, so a
+// running regulator is never folded out of sight.
+
+const BB_COLLAPSE_KEY = 'gc4.bb.collapsed';      // JSON list of collapsed card ids
+const BB_COLUMN_KEY = 'gc4.bb.columnCollapsed';
+
+function readCollapsed() {
+  try { return new Set(JSON.parse(localStorage.getItem(BB_COLLAPSE_KEY) || '[]')); } catch { return new Set(); }
+}
+
+function collapsibleCard(card, id) {
+  // The card's own contents move into a body that a fold clips to zero
+  // height -- still laid out, so sidebar-fit.js can always measure what the
+  // card would take open, whatever has changed inside it since. A one-line
+  // summary (name, live pressure, loop state, any fault) stands in for it.
+  const inner = el('div.bb-card-body', {}, ...card.childNodes);
+  const summary = el('div.bb-card-summary', {},
+    el('span.bb-sum-name', { text: inner.querySelector('.bb-name')?.textContent || id }),
+    el('span.bb-sum-now'), el('span.bb-sum-units'),
+    el('span.bb-sum-out'),
+    el('div.bb-sum-fault.hidden'));
+  const toggle = el('button.icon-btn.bb-card-toggle', {
+    html: icon('chevronDown', 14),
+    onclick: () => setCardCollapsed(card, id, !card.classList.contains('collapsed'), { animate: true }),
+  });
+  card.append(toggle, summary, inner);
+  setCardCollapsed(card, id, readCollapsed().has(id), { save: false });
+  return card;
+}
+
+const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
+function setCardCollapsed(card, id, collapsed, { save = true, animate = false } = {}) {
+  const inner = card.querySelector(':scope > .bb-card-body');
+  // Only the body's height animates; the cards below follow it, and the zoom
+  // does not move (sidebar-fit.js counts the body at its full height even
+  // mid-animation).
+  const from = animate && inner?.isConnected && !reducedMotion() ? inner.offsetHeight : null;
+  card.classList.toggle('collapsed', collapsed);
+  if (from !== null) {
+    const to = collapsed ? 0 : inner.scrollHeight;
+    const anim = inner.animate([{ height: `${from}px` }, { height: `${to}px` }],
+      { duration: 160, easing: 'ease-out' });
+    // Decoration only: in a window that is not being drawn it stalls, and the
+    // card must not be left part-open when the window is shown again.
+    setTimeout(() => anim.cancel(), 200);
+  }
+  if (collapsed) updateCardSummary(card);
+  const toggle = card.querySelector('.bb-card-toggle');
+  if (toggle) {
+    toggle.title = collapsed ? 'Show this card' : 'Collapse this card';
+    toggle.setAttribute('aria-expanded', String(!collapsed));
+  }
+  if (!save) return;
+  const set = readCollapsed();
+  if (collapsed) set.add(id); else set.delete(id);
+  try { localStorage.setItem(BB_COLLAPSE_KEY, JSON.stringify([...set])); } catch { /* ignore */ }
+}
+
+/** Copy the live readout (and any fault) into a folded card's summary line. */
+function updateCardSummary(card) {
+  const q = (sel) => card.querySelector(sel);
+  const now = q('.bb-card-body .bb-readout .now');
+  const units = q('.bb-card-body .bb-readout .tgt');
+  const out = q('.bb-card-body .bb-readout .out');
+  const fault = q('.bb-card-body .bb-fault');
+  const sNow = q('.bb-sum-now'), sUnits = q('.bb-sum-units'), sOut = q('.bb-sum-out'), sFault = q('.bb-sum-fault');
+  if (sNow) sNow.textContent = now?.textContent || '';
+  if (sUnits) sUnits.textContent = units?.textContent || '';
+  if (sOut) {
+    sOut.textContent = out?.textContent || '';
+    sOut.dataset.tone = out?.dataset.tone || 'idle';
+    sOut.title = out?.title || '';
+  }
+  if (sFault) {
+    const shown = Boolean(fault && !fault.classList.contains('hidden') && fault.textContent);
+    sFault.classList.toggle('hidden', !shown);
+    sFault.textContent = shown ? fault.textContent : '';
+  }
+}
+
+function updateCardSummaries() {
+  for (const card of document.querySelectorAll('#bb-list > .bb-card.collapsed')) updateCardSummary(card);
+}
+
+/** The strip a collapsed column leaves: an expand button and a light per loop. */
+function bbColumnStrip() {
+  const cfg = bus.config;
+  const loops = cfg.bangbang.map((c) => ({ id: c.id, label: c.abbrev || c.name || c.id }));
+  if (cfg.gn2Press) loops.push({ id: 'gn2', label: 'GN2' });
+  return el('div.bb-strip', {},
+    el('button.icon-btn.bb-strip-open', {
+      title: 'Show the bang-bang column',
+      'aria-label': 'Show bang-bang column',
+      html: icon('chevronLeft', 14),
+      onclick: () => setBbColumnCollapsed(false),
+    }),
+    el('span.bb-strip-title', { text: 'BANG-BANG' }),
+    loops.map((l) => el('span.bb-strip-loop', { id: `bb-strip-${l.id}`, dataset: { on: 'false' }, title: l.label },
+      el('i'), el('span', { text: l.label }))));
+}
+
+/**
+ * Fold or unfold the bang-bang column. The sidebar's width changes ONCE (so
+ * the page beside it reflows once, not every frame of an animation), the zoom
+ * stays put (sidebar-fit.js counts this column as open either way), and only
+ * the column's own contents slide: out to the right before the width drops,
+ * in from the right after it grows.
+ */
+let bbColumnAnim = null;
+function setBbColumnCollapsed(collapsed, { save = true, animate = true } = {}) {
+  const sidebar = $('.sidebar');
+  if (!sidebar) return;
+  if (save) try { localStorage.setItem(BB_COLUMN_KEY, String(collapsed)); } catch { /* ignore */ }
+  const section = sidebar.querySelector('.sidebar-col.regulators > .sidebar-section');
+  const strip = sidebar.querySelector('.bb-strip');
+  bbColumnAnim?.cancel();
+  bbColumnAnim = null;
+  const motion = animate && section && !reducedMotion();
+  const slide = [{ transform: 'translateX(0)' }, { transform: 'translateX(100%)' }];
+  const timing = { duration: 170, easing: 'ease-in-out' };
+
+  // The fold itself is done by a timer, never by the animation's finish
+  // event: a browser stops running animations in a minimised or covered
+  // window, and a fold must not wait on the window being looked at. The
+  // animation is only decoration, and is cancelled when the timer fires.
+  clearTimeout(bbColumnTimer);
+  if (collapsed) {
+    if (!motion) { sidebar.classList.add('bb-collapsed'); return; }
+    bbColumnAnim = section.animate(slide, { ...timing, fill: 'forwards' });
+    bbColumnTimer = setTimeout(() => {
+      sidebar.classList.add('bb-collapsed');
+      bbColumnAnim?.cancel();
+      bbColumnAnim = null;
+      const fade = strip?.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 120 });
+      if (fade) setTimeout(() => fade.cancel(), 160);
+    }, timing.duration);
+  } else {
+    sidebar.classList.remove('bb-collapsed');
+    if (!motion) return;
+    bbColumnAnim = section.animate([...slide].reverse(), timing);
+    bbColumnTimer = setTimeout(() => { bbColumnAnim?.cancel(); bbColumnAnim = null; }, timing.duration);
+  }
+}
+let bbColumnTimer = null;
+
+function updateBbStrip(s) {
+  for (const c of bus.config.bangbang) {
+    const rt = s.controllers?.[c.id];
+    const board = rt?.board;
+    const on = Boolean(rt?.enabled || (board && !board.stale && board.state && board.state !== 'OFF'));
+    const node = document.getElementById(`bb-strip-${c.id}`);
+    if (node) { node.dataset.on = String(on); node.title = `${c.name}: ${on ? 'ON' : 'OFF'}`; }
+  }
+  const g = document.getElementById('bb-strip-gn2');
+  if (g) { g.dataset.on = String(Boolean(s.gn2Press?.enabled)); g.title = `GN2 loop: ${s.gn2Press?.enabled ? 'ON' : 'OFF'}`; }
 }
 
 /**
@@ -1231,6 +1400,8 @@ function appendLogLine(entry) {
 function updateSidebar() {
   const s = bus.state;
   if (!s) return;
+  updateBbStrip(s);
+  queueMicrotask(updateCardSummaries);   // after this pass has updated the cards themselves
 
   // --- ARM / ABORT ---
   const armBtn = $('#btn-arm');

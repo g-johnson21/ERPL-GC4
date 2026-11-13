@@ -23,8 +23,8 @@ const FIELDS = [
 const LIMITS = [
   {
     key: 'maxOpenMs', label: 'Max pulse (ms)', min: 0, max: 60000, step: 50,
-    title: 'Longest single opening of the bang-bang solenoid. A close on this cap,\n'
-         + 'short of the top of the band, keeps pulsing after the dwell. 0 = no cap.',
+    title: 'Longest single opening of the bang-bang solenoid. After a close on this cap\n'
+         + 'it reopens only once the pressure is below the bottom of the band. 0 = no cap.',
   },
   {
     key: 'minIntervalMs', label: 'Dwell (ms)', min: 0, max: 60000, step: 50,

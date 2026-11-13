@@ -120,7 +120,7 @@ to whoever is watching — no PIN, and it lays itself out for a phone.
 
 Try this to see the whole system work:
 
-1. **ARM** (pinned to the top of the sidebar), confirm. Anything that moves
+1. **ARM** (pinned to the top of the sidebar); one click, no confirmation. Anything that moves
    the stand away from safe wants SHIFT held; hold it for a moment first and
    watch which controls light up.
 2. On the **P&ID**, shift-click **PB5** to fill the LOX tank from the dewar.

@@ -47,7 +47,6 @@ export class Gn2Press {
     this.settings = null;    // { sensor, setpoint, deadband, maxOpenMs, minIntervalMs, overpressure }
     this.openedAt = null;    // when this loop last opened the solenoid, null while closed
     this.closedAt = null;    // when it last closed it; the dwell runs from here
-    this.capped = false;     // the last close was the pulse cap, short of the band top
     this.enabledAt = 0;
     this.cycles = 0;
     this.fault = null;
@@ -191,7 +190,6 @@ export class Gn2Press {
     this.enabledAt = Date.now();
     this.fault = null;
     this.cycles = 0;
-    this.capped = false;
     // A solenoid already open was opened by hand; its pulse clock starts now.
     this.openedAt = this.isOpen() ? Date.now() : null;
     this.closedAt = null;
@@ -210,7 +208,6 @@ export class Gn2Press {
     const wasOn = this.enabled;
     this.enabled = false;
     this.openedAt = null;
-    this.capped = false;
     if (fault) this.fault = fault;
 
     let closeError = null;
@@ -276,21 +273,19 @@ export class Gn2Press {
     if (this.cfg.requiresArm !== false && !stand.armed) return void this.disable('stand disarmed');
     if (!Number.isFinite(p)) return void this.disable(`${s.sensor} lost its reading`, 'gn2-press', { fault: `${s.sensor} lost` });
 
+    // Plain hysteresis: open below the bottom of the band, close at its top
+    // or on the pulse cap. A pulse cut short by the cap does NOT reopen until
+    // the pressure is below the bottom of the band again -- reopening below
+    // the top (as this once did, to "meter" a fill) kept the solenoid
+    // cycling anywhere under the band top.
     const hi = s.setpoint + s.deadband;
     const lo = s.setpoint - s.deadband;
     if (this.isOpen()) {
       this.openedAt ??= now;
-      if (p >= hi) {
-        this.capped = false;
-        this.command('closed', now);
-      } else if (s.maxOpenMs > 0 && now - this.openedAt >= s.maxOpenMs) {
-        this.capped = true;
-        this.command('closed', now);
-      }
+      if (p >= hi || (s.maxOpenMs > 0 && now - this.openedAt >= s.maxOpenMs)) this.command('closed', now);
     } else {
       this.openedAt = null;
-      const below = this.capped ? p < hi : p < lo;
-      if (below && this.dwellLeft(now) <= 0) this.command('open', now);
+      if (p < lo && this.dwellLeft(now) <= 0) this.command('open', now);
     }
   }
 

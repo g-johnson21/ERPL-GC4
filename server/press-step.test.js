@@ -195,3 +195,16 @@ test('a stand without a GN2 loop has no tool', () => {
   assert.match(res.error, /no GN2 press loop/);
   assert.equal(step.snapshot().available, false);
 });
+
+test('a step counts as reached at the bottom of the loop band, where the loop stops pulsing', () => {
+  const { stand, step, tick } = fixture();
+  step.start({ target: 1000, timeoutMs: 60000 });   // deadband 25: band 975..1025
+  const t0 = step.active.startedAt;
+  stand.readings[SENSOR] = 974;
+  tick(t0 + 5000);
+  assert.ok(step.active, 'below the band: still pressing');
+  stand.readings[SENSOR] = 975;
+  tick(t0 + 6000);
+  assert.equal(step.active, null);
+  assert.equal(step.last.reason, 'target reached');
+});
