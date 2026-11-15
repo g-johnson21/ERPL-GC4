@@ -189,28 +189,44 @@
 /* The table is the dense alternative and is allowed to scroll. */
 .content.data-page.table-mode > #data-body { overflow: auto; }
 
-.sensor-columns {
-  --col-gap: 7px;
+/* The dashboard: lanes across, panels stacked in each (page-data.js and
+   data-layout.js). Each lane divides its own height, so a group gaining
+   channels shrinks its own cards and nobody else's.
+
+   The grid is at least the viewport tall, and taller only when a lane's
+   panels cannot fit at their minimum sizes — then #data-body scrolls. */
+.dash {
   --col-head: 22px;
+  --item-gap: 6px;
   display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(0, 1fr);
-  gap: 10px;
-  height: 100%;
-  min-height: 0;
+  /* No gap: the gutters between lanes are columns of their own (.lane-slot),
+     so they can be grabbed to resize. */
+  gap: 0;
+  min-height: 100%;
+  grid-template-rows: minmax(0, 1fr);
 }
 
-.sensor-column {
+.dash-lane {
   display: flex;
   flex-direction: column;
-  gap: var(--col-gap);
+  gap: 12px;
   min-width: 0;
   min-height: 0;
 }
 
-/* Column head: an eyebrow, not a banner. The group colour lives in the
+/* Sized inline from data-layout.js panelExtent: grows in proportion to the
+   cards it holds, never past what they can use. A panel of compact lines is
+   exactly as tall as its lines. */
+.dash-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Panel head: an eyebrow, not a banner. The group colour lives in the
    swatch; the label itself stays in the quiet ink every other label uses. */
-.sensor-column > .col-head {
+.dash-panel > .col-head {
   height: var(--col-head);
   flex: none;
   display: flex;
@@ -233,20 +249,374 @@
   color: var(--text-faint);
   margin-right: auto;
 }
-.sensor-column > .col-head .group-swatch { background: var(--group-color); }
-
-/* Every card the same height, sized so the longest column fills exactly.
-   N cards and one header make N gaps between them. */
-.sensor-column > .sensor-card {
-  flex: none;
-  height: calc(
-    (100% - var(--col-head) - var(--col-gap) * var(--rows)) / var(--rows)
-  );
-  /* Below this a card stops being readable, and scrolling is the lesser
-     evil. 84px is what a 1280x720 laptop needs for the longest column, which
-     is the smallest screen this is expected to run on. */
-  min-height: 84px;
+.dash-panel > .col-head .group-swatch { background: var(--group-color); }
+/* A panel of your own (Watch, say) mixes groups: its swatch is hollow. */
+.dash-panel[data-custom="true"] > .col-head .group-swatch {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--text-muted);
 }
+
+.panel-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(var(--cols, 1), minmax(0, 1fr));
+  grid-template-rows: minmax(0, 1fr);
+  gap: 0 8px;
+  padding-top: 6px;
+}
+/* Container, so what a card or line shows follows the width it actually
+   has — lanes are different widths now, and a viewport media query cannot
+   tell a 1x lane from a 3x one. */
+.panel-col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--item-gap);
+  min-width: 0;
+  min-height: 0;
+  container-type: inline-size;
+}
+
+/* Cards share their column's height, down to a readable minimum (84px is
+   what a 1280x720 laptop needs) and up to a ceiling, so three channels
+   alone in a lane are cards, not billboards. Numbers mirror SIZE_PX. */
+.panel-col > .sensor-card { flex: 1 1 0; min-height: 84px; max-height: 176px; }
+.panel-col > .sensor-card.sz-large { flex: 1.7 1 0; min-height: 116px; max-height: 340px; }
+.panel-col > .sensor-row { flex: none; }
+/* Lines stack tight, like the table rows they are cut from. */
+.panel-col > .sensor-row + .sensor-row { margin-top: calc(3px - var(--item-gap)); }
+
+/* A lane set to fill (Customize › Fill) stretches everything in it to its
+   full height: no ceiling on cards, and compact lines grow alongside them,
+   their trend growing with them. Weights mirror FILL_COMPACT_GROW. */
+.dash-lane.fill .panel-col > .sensor-card,
+.dash-lane.fill .panel-col > .sensor-card.sz-large { max-height: none; }
+.dash-lane.fill .panel-col > .sensor-row { flex: .35 1 0; height: auto; min-height: 28px; }
+.dash-lane.fill .sensor-row .r-spark { align-self: stretch; height: auto; margin: 4px 0; }
+
+/* ------------------------------------------------- large card: watching */
+
+.sensor-card.sz-large { padding: 8px 10px 7px 11px; }
+.sensor-card.sz-large .s-name { font-size: var(--fs-base); color: var(--text); }
+.sensor-card.sz-large .s-value { font-size: 30px; min-height: 34px; letter-spacing: -0.04em; }
+.sensor-card.sz-large .s-units { font-size: var(--fs-base); }
+/* The big reading leaves a narrow lane no room for the rate beside it, so
+   there it drops under the reading instead of clipping. */
+.sensor-card.sz-large .s-value { flex-wrap: wrap; row-gap: 0; }
+.sensor-card.sz-large .s-rate { font-size: var(--fs-sm); letter-spacing: 0; }
+.sensor-card.sz-large .s-bar { height: 3px; }
+
+/* ----------------------------------------------- compact line: on-the-page */
+
+/* The telemetry table's row as a free-standing line. Same ink as the table:
+   the reading bright and mono, everything else quiet. */
+.sensor-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 8px 0 8px;
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--group-color, var(--border));
+  border-radius: var(--radius);
+  background: var(--surface);
+  min-width: 0;
+  overflow: hidden;
+}
+.sensor-row[data-board="true"] { border-style: dashed; border-left-style: solid; }
+.sensor-row .s-status {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--ok);
+  flex: none;
+}
+.sensor-row .r-name {
+  flex: 1 1 80px;
+  min-width: 40px;
+  font-size: var(--fs-md);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sensor-row .r-spark {
+  display: none;
+  flex: 1 1 40px;
+  min-width: 30px;
+  height: 18px;
+}
+.sensor-row .r-value {
+  flex: none;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-base);
+  font-weight: 600;
+  color: var(--text);
+}
+.sensor-row .s-num { display: inline-block; text-align: right; min-width: var(--row-num, 5ch); }
+.sensor-row .s-units { font-size: var(--fs-xs); font-weight: 400; color: var(--text-faint); min-width: 2.6em; }
+.sensor-row .s-rate { display: none; margin-left: 0; flex: none; min-width: 11ch; text-align: right; }
+.sensor-row .s-daq {
+  flex: none;
+  font-family: var(--mono);
+  font-size: var(--fs-2xs);
+  letter-spacing: .08em;
+  color: var(--warn);
+  border: 1px solid color-mix(in srgb, var(--warn) 50%, transparent);
+  border-radius: var(--radius-sm);
+  padding: 0 4px;
+}
+.sensor-row .r-stats { display: none; flex: none; gap: 8px; }
+.sensor-row .s-stat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+.sensor-row .s-stat span { min-width: var(--row-num, 5ch); text-align: right; }
+.sensor-row .s-stat i { font-style: normal; font-weight: 500; letter-spacing: .08em; opacity: .62; }
+.sensor-row .tare-chip { margin-left: 0; }
+.sensor-row .tare-chip + .tare-chip { margin-left: -5px; }
+/* An idle TARE on every line is clutter; an applied offset is information. */
+.sensor-row .tare-chip:not(.on):not(:hover) { opacity: 0; }
+.sensor-row:hover .tare-chip { opacity: 1; }
+
+/* What fits, by the width the line has: name and reading always; then the
+   trend and rate; then the window extremes. Once the trend shows, the name
+   stops stretching and takes a fixed share, so every trend down a panel
+   starts at the same x. */
+@container (min-width: 300px) {
+  .sensor-row .r-name { flex: 0 0 clamp(72px, 28%, 180px); }
+  .sensor-row .r-spark { display: block; }
+  .sensor-row .s-rate { display: inline; }
+}
+@container (min-width: 470px) { .sensor-row .r-stats { display: inline-flex; } }
+
+.sensor-row[data-status="warn"] { border-color: color-mix(in srgb, var(--warn) 55%, var(--border)); border-left-color: var(--group-color, var(--border)); }
+.sensor-row[data-status="warn"] .s-status { background: var(--warn); }
+.sensor-row[data-status="warn"] .r-value { color: var(--warn); }
+.sensor-row[data-status="danger"] {
+  border-color: var(--danger);
+  border-left-color: var(--group-color, var(--danger));
+  background: color-mix(in srgb, var(--danger) 9%, var(--surface));
+}
+.sensor-row[data-status="danger"] .s-status { background: var(--danger); animation: pulse 1s ease-in-out infinite; }
+.sensor-row[data-status="danger"] .r-value { color: var(--danger); }
+.sensor-row[data-status="stale"] { opacity: .55; }
+.sensor-row[data-status="stale"] .s-status { background: var(--idle); }
+
+/* ------------------------------------------------------ customizing mode */
+
+#layout-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 8px;
+  padding: 5px 6px 5px 10px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+  font-size: var(--fs-sm);
+  color: var(--text-faint);
+}
+#layout-bar .lb-hint { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#layout-bar .lb-hint b {
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--text);
+  margin-right: 8px;
+}
+#layout-toggle.active { color: var(--text); }
+
+/* Presets, beside the page title: a segmented strip of saved layouts. */
+#preset-tabs { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+#preset-tabs::-webkit-scrollbar { display: none; }
+#preset-tabs button { flex: none; white-space: nowrap; max-width: 22ch; overflow: hidden; text-overflow: ellipsis; }
+#preset-tabs .preset-add { display: inline-flex; align-items: center; padding: 0 7px; }
+#preset-tabs .preset-add:disabled { opacity: .35; cursor: default; }
+#preset-tabs .preset-name + button, #preset-tabs button + .preset-name { border-left: 1px solid var(--border-strong); }
+.preset-name {
+  flex: none;
+  min-width: 6ch;
+  padding: 4px 10px;
+  border: none;
+  background: var(--surface-3);
+  color: var(--text);
+  font: inherit;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  box-sizing: content-box;
+}
+.preset-name:focus { outline: none; box-shadow: inset 0 -1px 0 var(--text-muted); }
+
+/* Gutters between lanes. Between two lanes, a resize handle — a hairline
+   shows on hover; while editing, also a drop target for a panel that wants a
+   lane of its own. */
+.lane-slot { position: relative; border-radius: var(--radius); }
+.dash.editing .lane-slot { margin: 0 2px; }
+.lane-slot.resizable { cursor: col-resize; touch-action: none; }
+.lane-slot.resizable::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: transparent;
+  transition: background .12s;
+}
+.lane-slot.resizable:hover::after { background: var(--border-strong); }
+.lane-slot.resizable.active::after { background: var(--text-muted); }
+body.lane-resizing, body.lane-resizing * { cursor: col-resize !important; user-select: none; }
+body.dash-dragging .lane-slot { background: color-mix(in srgb, var(--text) 4%, transparent); }
+.lane-slot.over {
+  background: color-mix(in srgb, var(--text) 14%, transparent) !important;
+  box-shadow: inset 0 0 0 1px var(--text-muted);
+}
+
+.lane-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 4px 0 8px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+}
+.lane-bar .lane-bar-label { letter-spacing: .08em; text-transform: uppercase; margin-right: auto; }
+.lane-bar .lane-w { min-width: 2.4ch; text-align: center; color: var(--text-muted); }
+.lane-bar .lb-add { margin-left: 3px; }
+
+.lb-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  line-height: 1;
+  cursor: pointer;
+}
+.lb-btn:hover:not(:disabled) { color: var(--text); border-color: var(--border-strong); background: var(--surface-3); }
+.lb-btn:disabled { opacity: .35; cursor: default; }
+.lb-btn.active { color: var(--text); border-color: var(--text-muted); background: var(--surface-3); }
+.lane-bar .lb-fill { margin-left: 6px; padding: 0 6px; letter-spacing: .06em; text-transform: uppercase; }
+
+.seg.xs button { padding: 1px 6px; font-size: var(--fs-2xs); line-height: 1.5; }
+
+.dash.editing .dash-panel {
+  outline: 1px dashed var(--border-strong);
+  outline-offset: 3px;
+  border-radius: var(--radius);
+}
+.dash.editing .dash-panel > .col-head { cursor: grab; touch-action: none; }
+.dash.editing .grip { color: var(--text-faint); letter-spacing: -3px; margin-right: 2px; }
+.dash.editing [data-sensor] { cursor: grab; touch-action: none; }
+.panel-tools { display: flex; align-items: center; gap: 4px; flex: none; text-transform: none; letter-spacing: 0; }
+.panel-title {
+  min-width: 0;
+  width: 12ch;
+  flex: 0 1 auto;
+  padding: 0 2px;
+  border: none;
+  border-bottom: 1px dashed var(--border-strong);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: uppercase;
+}
+.panel-title:focus { outline: none; border-bottom-color: var(--text-muted); }
+
+/* A channel's own tools appear over it on hover. */
+.item-tools {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  z-index: 2;
+  display: none;
+  align-items: center;
+  gap: 3px;
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  box-shadow: 0 0 0 1px var(--border-strong);
+}
+.dash.editing [data-sensor]:hover > .item-tools { display: flex; }
+.sensor-row > .item-tools { top: 50%; transform: translateY(-50%); }
+
+.panel-empty {
+  grid-column: 1 / -1;
+  min-height: 56px;
+  display: grid;
+  place-items: center;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+  color: var(--text-faint);
+  font-size: var(--fs-sm);
+}
+
+.dash-marker {
+  flex: none;
+  height: 2px;
+  margin: calc(var(--item-gap) / -2 - 1px) 0;
+  border-radius: 1px;
+  background: var(--text);
+  pointer-events: none;
+}
+.dash-marker.panel-marker { height: 3px; margin: -7px 0; }
+#data-body .dragging { opacity: .3; }
+
+.dash-ghost {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 1000;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 320px;
+  padding: 5px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-3);
+  box-shadow: 0 6px 20px rgb(0 0 0 / .35);
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  color: var(--text);
+  white-space: nowrap;
+}
+.dash-ghost .group-swatch { flex: none; }
+.dash-ghost .dg-copy { display: none; color: var(--ok); font-weight: 600; }
+.dash-ghost.copy .dg-copy { display: inline; }
+body.dash-dragging, body.dash-dragging * { cursor: grabbing !important; user-select: none; }
 
 .sensor-card {
   padding: 6px 8px 5px 9px;
@@ -269,6 +639,19 @@
   justify-content: space-between;
   gap: 8px;
   flex: none;
+}
+/* Why a DAQ channel has no reading (page-data.js showDaqFault). */
+.sensor-card .s-daq {
+  flex: none;
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: var(--fs-2xs);
+  font-weight: 500;
+  letter-spacing: .08em;
+  color: var(--warn);
+  border: 1px solid color-mix(in srgb, var(--warn) 50%, transparent);
+  border-radius: var(--radius-sm);
+  padding: 0 4px;
 }
 /* The name leads. It is what an operator scans for on a wall of cards, so it
    is the biggest, boldest thing on the card — the tag below confirms. */
@@ -467,7 +850,9 @@
 /* Narrower than this page is built for, the cards are too tight to hold them
    and they clip down to "MI MA", which is noise wearing a label's clothes.
    The Table view and the card's tooltip both still carry the exact figures. */
-@media (max-width: 1200px) {
+/* Measured against the panel column, not the viewport: lanes are different
+   widths, and a 3x lane has room the 1x lane beside it does not. */
+@container (max-width: 250px) {
   .sensor-card .s-stat { display: none; }
 }
 .stat-slot {
@@ -2254,22 +2639,29 @@ body.shift-armed .pid-valve[data-needs-shift="true"] { outline: none; }
 
 /* --------------------------------------------- data page: narrow screens */
 
-/* The column grid is replaced by one list, group after group, that scrolls.
+/* The lanes are replaced by one list, panel after panel, that scrolls.
    Each card turns sideways: name, tag and reading stacked on the left, the
    trace on the right at a fixed size, the range bar underneath. The reading
    is the biggest thing on the card because on a phone it is the only thing
    anyone reads. Group headings stick as the list scrolls, so a card is
-   never on screen without the column it belongs to. */
+   never on screen without the panel it belongs to. Panel columns and
+   lane widths are a desktop arrangement and are ignored here. */
 @media (max-width: 760px) {
   .content.data-page > #data-body { overflow-y: auto; -webkit-overflow-scrolling: touch; }
-  .sensor-columns {
+  .dash, .dash.editing {
     display: flex;
     flex-direction: column;
-    height: auto;
+    min-height: 0;
     gap: 10px;
   }
-  .sensor-column { gap: 6px; }
-  .sensor-column > .col-head {
+  .dash-lane { gap: 10px; }
+  .lane-slot { display: none; }
+  /* Arranging lanes is a desktop job, and the head has no room for it. */
+  .seg:has(#layout-toggle), #layout-bar, #preset-tabs .preset-add { display: none !important; }
+  .dash-panel { flex: none !important; min-height: 0 !important; max-height: none !important; }
+  .panel-body { display: flex; flex-direction: column; gap: 6px; }
+  .panel-col { gap: 6px; }
+  .dash-panel > .col-head {
     position: sticky;
     top: 0;
     z-index: 2;
@@ -2278,9 +2670,11 @@ body.shift-armed .pid-valve[data-needs-shift="true"] { outline: none; }
     background: var(--bg);
     font-size: var(--fs-sm);
   }
-  .sensor-column > .sensor-card {
+  .panel-col > .sensor-card, .panel-col > .sensor-card.sz-large {
+    flex: none;
     height: auto;
     min-height: 0;
+    max-height: none;
   }
   .sensor-card {
     display: grid;
