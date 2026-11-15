@@ -767,6 +767,10 @@ export class StandController extends EventEmitter {
     // so, and offering a Tare button on a sensor no device can zero would be
     // a button that does nothing.
     const tares = this.driver.tareStatus?.() || {};
+    // Why a DAQ channel has no reading ('unconfigured', 'disconnected', ...),
+    // when the acquisition knows. Without it a load cell with no calibration
+    // was just a card of dashes.
+    const daq = this.driver.channelStatus?.() || {};
 
     const sensors = {};
     for (const s of this.config.sensors) {
@@ -776,6 +780,7 @@ export class StandController extends EventEmitter {
         status: sensorStatus(s, v),
       };
       if (Number.isFinite(tares[s.id])) sensors[s.id].tare = Number(tares[s.id].toFixed(4));
+      if (daq[s.id] && daq[s.id] !== 'ok') sensors[s.id].daq = daq[s.id];
     }
 
     // Current sense, where the hardware measures it: confirms a coil actually

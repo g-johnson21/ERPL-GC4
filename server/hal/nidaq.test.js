@@ -427,3 +427,13 @@ test('the data listener fires on frames with data, not on empty ones', () => {
   frame(d, [{ card: 'pt', channel: 0, status: 'ok', pressure_psi: 1, samples: [1] }]);
   assert.equal(calls, 1);
 });
+
+test('an uncalibrated load cell reports no value, and says why', () => {
+  const d = makeDriver();
+  d.onStdout(JSON.stringify({
+    type: 'data',
+    channels: [{ card: 'lc', channel: 0, status: 'unconfigured', v_per_v: 0.0004, lbf: null, tare: 0 }],
+  }) + '\n');
+  assert.equal(d.channelStatus().LC1, 'unconfigured');
+  assert.ok(!Number.isFinite(d.read({ sensors: [{ id: 'LC1' }] }).LC1), 'no number is invented for it');
+});
